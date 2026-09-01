@@ -14,3 +14,9 @@ wheels/
 # Editors
 .claude/
 .vscode/
+
+# voice-bench — 산출물·가중치·환경은 커밋하지 않는다
+voice-bench/venvs/
+voice-bench/models/
+voice-bench/out/
+voice-bench/ref/*.wav
