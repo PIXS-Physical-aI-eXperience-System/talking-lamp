@@ -1,0 +1,170 @@
+{
+  "_comment": [
+    "후보 정의. enabled:false 로 두면 건너뛴다.",
+    "venv 는 voice-bench/ 기준 상대 경로. setup.sh 가 만든다.",
+    "Jetson에서 돌릴 땐 faster-whisper 항목의 --device 를 cuda 로,",
+    "--compute-type 을 int8_float16 으로 바꾼다."
+  ],
+  "stt": [
+    {
+      "label": "fw-small-int8",
+      "note": "한국어 실용 하한선. 본명 후보",
+      "enabled": true,
+      "venv": "venvs/fw",
+      "runner": "bench/runners/stt_faster_whisper.py",
+      "args": [
+        "--model",
+        "small",
+        "--device",
+        "cpu",
+        "--compute-type",
+        "int8"
+      ]
+    },
+    {
+      "label": "fw-base-int8",
+      "note": "예산 사수 시나리오. 얼마나 나쁜지 숫자로 보는 용도",
+      "enabled": true,
+      "venv": "venvs/fw",
+      "runner": "bench/runners/stt_faster_whisper.py",
+      "args": [
+        "--model",
+        "base",
+        "--device",
+        "cpu",
+        "--compute-type",
+        "int8"
+      ]
+    },
+    {
+      "label": "fw-ko-finetune",
+      "note": "한국어 파인튜닝. CT2 변환 디렉터리 경로를 --model 에 넣고 enabled:true",
+      "enabled": false,
+      "venv": "venvs/fw",
+      "runner": "bench/runners/stt_faster_whisper.py",
+      "args": [
+        "--model",
+        "PUT_CT2_MODEL_DIR_HERE",
+        "--device",
+        "cpu",
+        "--compute-type",
+        "int8"
+      ]
+    },
+    {
+      "label": "vosk-small-ko",
+      "note": "유일한 진짜 스트리밍. TTFB 하한 기준선",
+      "enabled": true,
+      "venv": "venvs/vosk",
+      "runner": "bench/runners/stt_vosk.py",
+      "args": [
+        "--model-path",
+        "models/vosk-model-small-ko-0.22"
+      ]
+    }
+  ],
+  "tts": [
+    {
+      "label": "melo-onnx-int8",
+      "enabled": true,
+      "venv": "venvs/melo-onnx",
+      "runner": "runners/tts_melo_onnx.py",
+      "args": [
+        "--normalize",
+        "--int8"
+      ],
+      "note": "★확정(2026-09-01). MeloTTS 한국어를 ONNX로 변환 후 int8 양자화. torch 미설치 환경에서 동작. STT 포함 100사이클 최고 1407MB, 가중치 158MB, RTF 0.86(맥CPU). Jetson에서 RTF 재측정 필요 — 1.0 넘으면 fp32로 전환"
+    },
+    {
+      "label": "melo-onnx-fp32",
+      "enabled": false,
+      "venv": "venvs/melo-onnx",
+      "runner": "runners/tts_melo_onnx.py",
+      "args": [
+        "--normalize"
+      ],
+      "note": "예비. int8이 Jetson에서 느리면 이쪽으로. STT 포함 최고 1550MB, RTF 0.36"
+    },
+    {
+      "label": "piper-ko-goruut",
+      "note": "탈락(2026-09-01): 모델·추론은 정상 동작(361MB, RTF 0.03)하나 필수 G2P인 goruut의 한국어가 음절을 누락하고(밝게→게, 비춰줘→비춰) 호출마다 결과가 달라짐. goruut 기본 PolicyMaxWords=0 이라 config로 올려야 응답함",
+      "enabled": false,
+      "venv": "venvs/piper",
+      "runner": "bench/runners/tts_piper_goruut.py",
+      "args": [
+        "--model-dir",
+        "models/piper-ko",
+        "--goruut-port",
+        "PORT",
+        "--normalize"
+      ]
+    },
+    {
+      "label": "sherpa-kss-norm",
+      "note": "차선책. 239MB/RTF 0.06으로 가장 가볍지만 음질이 어눌하다는 평가",
+      "enabled": false,
+      "venv": "venvs/piper",
+      "runner": "bench/runners/tts_sherpa.py",
+      "args": [
+        "--model-dir",
+        "models/vits-mimic3-ko_KO-kss_low",
+        "--normalize"
+      ]
+    },
+    {
+      "label": "sherpa-kss",
+      "note": "정규화 없는 대조군. 확정본은 sherpa-kss-norm",
+      "enabled": false,
+      "venv": "venvs/piper",
+      "runner": "bench/runners/tts_sherpa.py",
+      "args": [
+        "--model-dir",
+        "models/vits-mimic3-ko_KO-kss_low"
+      ]
+    },
+    {
+      "label": "mms-kor",
+      "note": "탈락: 다국어 모델+로마자 경유로 발음 어눌. 975MB(torch)",
+      "enabled": false,
+      "venv": "venvs/kokoro",
+      "runner": "bench/runners/tts_mms.py",
+      "args": []
+    },
+    {
+      "label": "mms-kor-norm",
+      "note": "탈락: 정규화해도 발음 개선 안 됨. 대조군으로만 보존",
+      "enabled": false,
+      "venv": "venvs/kokoro",
+      "runner": "bench/runners/tts_mms.py",
+      "args": [
+        "--normalize"
+      ]
+    },
+    {
+      "label": "piper-plus-ko",
+      "note": "미시도. piper-ko-goruut 항목 참고",
+      "enabled": false,
+      "venv": "venvs/piper",
+      "runner": "bench/runners/tts_piper.py",
+      "args": [
+        "--bin",
+        "piper",
+        "--model",
+        "PUT_KO_ONNX_PATH_HERE"
+      ]
+    },
+    {
+      "label": "kokoro-82m",
+      "note": "탈락(2026-09-01 실측): kokoro 0.9.4 LANG_CODES 에 한국어 없음. misaki.ko(G2P)는 있으나 한국어 보이스팩이 없어 합성 불가",
+      "enabled": false,
+      "venv": "venvs/kokoro",
+      "runner": "bench/runners/tts_kokoro.py",
+      "args": [
+        "--lang-code",
+        "k",
+        "--voice",
+        "PUT_VOICE_NAME_HERE"
+      ]
+    }
+  ]
+}
