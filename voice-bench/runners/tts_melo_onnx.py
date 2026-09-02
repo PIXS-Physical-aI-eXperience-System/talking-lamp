@@ -60,6 +60,11 @@ def main() -> int:
     ap.add_argument("--normalize", action="store_true")
     ap.add_argument("--int8", action="store_true",
                     help="int8 양자화 모델 사용 (melo_quantize.py 로 생성)")
+    ap.add_argument("--providers", default="auto",
+                    help="onnxruntime 실행 공급자. auto=사용 가능한 것 중 가속기 우선, "
+                         "또는 쉼표로 직접 지정 (예: CUDAExecutionProvider,CPUExecutionProvider)")
+    ap.add_argument("--threads", type=int, default=2,
+                    help="intra-op 스레드. Jetson은 코어가 6개라 다른 파트와의 경합을 고려할 것")
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -75,15 +80,27 @@ def main() -> int:
         from ko_normalize import normalize
         sentences = [normalize(s) for s in sentences]
 
+    # 실행 공급자 선택. Jetson에서는 TensorRT > CUDA > CPU 순으로 빠르지만,
+    # JetPack용 onnxruntime-gpu 가 설치돼 있어야 앞의 둘이 잡힌다.
+    available = ort.get_available_providers()
+    if args.providers == "auto":
+        prefer = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+        providers = [p for p in prefer if p in available]
+    else:
+        providers = [p.strip() for p in args.providers.split(",")]
+        missing = [p for p in providers if p not in available]
+        if missing:
+            raise SystemExit(f"사용할 수 없는 공급자: {missing}\n설치된 것: {available}")
+
     opts = ort.SessionOptions()
-    opts.intra_op_num_threads = 2
+    opts.intra_op_num_threads = args.threads
     with Timer() as t_load:
         tok = AutoTokenizer.from_pretrained(os.path.join(d, "tokenizer"))
         suffix = ".int8" if args.int8 else ""
         bert = ort.InferenceSession(os.path.join(d, f"bert-kor-base{suffix}.onnx"),
-                                    opts, providers=["CPUExecutionProvider"])
+                                    opts, providers=providers)
         vits = ort.InferenceSession(os.path.join(d, f"melo-ko-vits{suffix}.onnx"),
-                                    opts, providers=["CPUExecutionProvider"])
+                                    opts, providers=providers)
 
     wavs, synth_s, audio_s = [], [], []
     for i, text in enumerate(sentences, 1):
@@ -119,7 +136,8 @@ def main() -> int:
     emit({"label": args.label, "kind": "tts", "wavs": wavs,
           "load_s": round(t_load.elapsed, 2), "synth_s": synth_s, "audio_s": audio_s,
           "config": {"runtime": "onnxruntime (torch 미설치)", "sample_rate": sr,
-                     "normalize": args.normalize, "int8": args.int8}})
+                     "normalize": args.normalize, "int8": args.int8,
+                     "providers": vits.get_providers(), "threads": args.threads}})
     return 0
 
 

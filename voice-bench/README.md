@@ -98,16 +98,24 @@ rsync -av ~/talking-lamp/voice-bench/ref/ jetson:~/talking-lamp/voice-bench/ref/
 `models/`는 용량(743 MB) 때문에, `ref/`(녹음)는 개인 음성이라 커밋하지 않는다.
 `ref/`는 맥에서 녹음한 그 파일이어야 CER을 직접 비교할 수 있다.
 
-이어서:
+이어서 Jetson에서:
 
 ```bash
-cd ~/talking-lamp/voice-bench && ./bench/setup.sh melo-onnx
-TOKENIZERS_PARALLELISM=false venvs/melo-onnx/bin/python bench/soak.py melo-onnx-int8 100
+./bench/jetson_check.sh            # 설치 전 점검 — 아무것도 바꾸지 않는다
+./bench/jetson_test.sh setup       # venv + 의존성
+./bench/jetson_test.sh stt         # STT 정확도·메모리 (CUDA 실패 시 CPU로 자동 전환)
+./bench/jetson_test.sh tts         # int8 / fp32 비교, 실행 공급자 표시
+./bench/jetson_test.sh soak        # 100 사이클 x 3회 — 예산 근거
 ```
+
+`jetson_check.sh` 를 먼저 돌려 **aarch64 휠 가용성**을 확인한다.
+`ctranslate2`(STT)와 `onnxruntime-gpu`(GPU 가속)가 가장 막히기 쉬운 지점이며,
+휠이 없으면 소스 빌드로 넘어가 시간이 크게 든다.
 
 - 내보내기를 다시 할 필요는 없다. `models/` 폴더가 곧 산출물이다.
 - onnxruntime provider를 CUDA/TensorRT로 바꾼다.
-- **RTF를 반드시 다시 잰다.** 맥 CPU에서 int8이 fp32보다 느렸다(0.86 vs 0.36).
+- **RTF를 반드시 다시 잰다.** 맥 CPU에서 int8이 fp32보다 느렸고(0.86~0.99 vs 0.36~0.46),
+  긴 문장에서는 1.0을 넘기도 했다.
   Jetson GPU는 int8 가속이 있어 반대로 나올 가능성이 높지만 확인 전까지는 미지수다.
   **1.0을 넘으면 실시간보다 느려 대화에 못 쓰므로 fp32로 전환한다.**
 - 측정은 3회 이상 반복한다. 이 워크로드는 편차가 ±200~300 MB로 크다.
