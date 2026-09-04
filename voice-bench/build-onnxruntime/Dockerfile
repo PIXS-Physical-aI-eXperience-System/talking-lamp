@@ -9,10 +9,15 @@
 #   Orin 에서 cudaErrorNoKernelImageForDevice 로 죽는다. JetPack 7(R39) 용
 #   사전 빌드 휠은 어디에도 없다.
 #
-# 대상 환경과 맞춘 것: Ubuntu 24.04 / Python 3.12 / CUDA 13.2 sbsa / cuDNN 9 / aarch64
+# 대상 환경과 맞춘 것: Ubuntu 24.04 / Python 3.12 / CUDA 13.x sbsa / cuDNN 9 / aarch64
 FROM arm64v8/ubuntu:24.04
 
 ARG ORT_VERSION=v1.29.0
+# CUDA 13.2 의 CCCL 헤더가 onnxruntime 1.29 와 충돌한다
+# (device_transform.cuh: global qualification of class name is invalid).
+# 13.0 으로 빌드해도 NVIDIA 의 마이너 버전 호환 규칙에 따라 13.x 런타임에서
+# 동작한다 — Jetson 은 13.2 지만 이 휠로 돌아간다.
+ARG CUDA_PKG=13-0
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb \
  && dpkg -i cuda-keyring_1.1-1_all.deb && rm cuda-keyring_1.1-1_all.deb \
  && apt-get update && apt-get install -y --no-install-recommends \
-      cuda-toolkit-13-2 cudnn9-cuda-13 \
+      cuda-toolkit-${CUDA_PKG} cudnn9-cuda-13 \
  && rm -rf /var/lib/apt/lists/*
 
 ENV CUDA_HOME=/usr/local/cuda

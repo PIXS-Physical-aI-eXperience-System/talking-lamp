@@ -17,8 +17,11 @@ if [ -r /proc/meminfo ]; then
 else
   MEM_GB=$(( $(docker info --format '{{.MemTotal}}') / 1024 / 1024 / 1024 )); CORES=$(docker info --format '{{.NCPU}}')
 fi
-# nvcc 는 커널당 수 GB 를 쓴다. 메모리 2 GB 당 작업 1 개를 넘기지 않는다.
-PARALLEL=$(( MEM_GB / 2 )); [ "$PARALLEL" -gt "$CORES" ] && PARALLEL=$CORES
+# nvcc(cicc)는 커널당 수 GB 를 쓰고, qemu 위에서는 더 쓴다.
+# 메모리 27 GB 에서 병렬 13 으로 돌렸다가 cicc 가 OOM 으로 죽었다.
+# 4 GB 당 1 개, 최대 8 개로 제한한다.
+PARALLEL=$(( MEM_GB / 4 )); [ "$PARALLEL" -gt "$CORES" ] && PARALLEL=$CORES
+[ "$PARALLEL" -gt 8 ] && PARALLEL=8
 [ "$PARALLEL" -lt 2 ] && PARALLEL=2
 
 echo "호스트 $HOST_ARCH | 가용 메모리 ${MEM_GB}GB | 코어 $CORES → 병렬도 $PARALLEL"
@@ -30,17 +33,18 @@ fi
 echo "── 환경 이미지 준비 (첫 회만 오래 걸린다. 이후는 캐시)"
 docker build --platform linux/arm64 -t ort-jetson-sm87 .
 
-docker volume create ort-build >/dev/null
+VOL=ort-build-cuda130   # CUDA 버전이 바뀌면 이 이름을 바꿔 새로 시작한다
+docker volume create "$VOL" >/dev/null
 
 if [ "${1:-}" = "shell" ]; then
   exec docker run --rm -it --platform linux/arm64 \
-    -v ort-build:/build -v "$PWD/dist:/out" --entrypoint bash ort-jetson-sm87
+    -v "$VOL":/build -v "$PWD/dist:/out" --entrypoint bash ort-jetson-sm87
 fi
 
 echo "── 컴파일 (실패해도 다시 실행하면 이어서 진행)"
 docker run --rm --platform linux/arm64 \
   -e PARALLEL="$PARALLEL" -e CUDA_ARCH=87 \
-  -v ort-build:/build -v "$PWD/dist:/out" \
+  -v "$VOL":/build -v "$PWD/dist:/out" \
   ort-jetson-sm87
 
 echo

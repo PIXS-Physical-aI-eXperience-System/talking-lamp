@@ -8,19 +8,15 @@ ARCH="${CUDA_ARCH:-87}"
 
 echo "== onnxruntime 빌드 시작 (sm_${ARCH}, 병렬 ${PARALLEL}) =="
 
-# --disable_contrib_ops:
-#   onnxruntime 1.29 의 contrib_ops CUDA 커널이 CUDA 13.2 의 CCCL 헤더와
-#   충돌해 컴파일이 깨진다(device_transform.cuh, proclaims_copyable_arguments).
-#   이건 onnxruntime + CUDA 13 의 알려진 비호환이며 우리 설정 문제가 아니다.
-#   우리 모델(melo VITS·한국어 BERT)은 표준 opset 17 연산만 쓰고 contrib
-#   도메인 연산이 하나도 없음을 확인했으므로 빼도 무방하다.
-#   덤으로 빌드 시간도 크게 줄어든다 — 실패 직전 95~98% 구간이 전부 contrib 였다.
+# contrib_ops 를 빼려 했으나 실패했다. 코어 CPU 커널(fp16_conv.cc)이
+# contrib 에 있는 GetFusedActivationAttr 를 참조해서 링크가 깨진다
+# (undefined reference). onnxruntime 자체가 코어→contrib 의존을 갖고 있어
+# 선택적으로 제외할 수 없다. 대신 CUDA 를 13.0 으로 낮춰 충돌을 피한다.
 ./build.sh \
   --build_dir /build \
   --config Release \
   --use_cuda --cuda_home "$CUDA_HOME" --cudnn_home /usr \
   --build_wheel --skip_tests --allow_running_as_root \
-  --disable_contrib_ops \
   --parallel "$PARALLEL" \
   --cmake_extra_defines \
       CMAKE_CUDA_ARCHITECTURES="$ARCH" \
