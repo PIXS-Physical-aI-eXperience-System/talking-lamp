@@ -24,7 +24,13 @@ PARALLEL=$(( MEM_GB / 4 )); [ "$PARALLEL" -gt "$CORES" ] && PARALLEL=$CORES
 [ "$PARALLEL" -gt 8 ] && PARALLEL=8
 [ "$PARALLEL" -lt 2 ] && PARALLEL=2
 
-echo "호스트 $HOST_ARCH | 가용 메모리 ${MEM_GB}GB | 코어 $CORES → 병렬도 $PARALLEL"
+# 컨테이너 메모리 상한. 도커는 기본적으로 제한이 없어서 컴파일러가 호스트
+# 메모리를 전부 먹을 수 있다. 실제로 첫 시도에서 OOM 킬러가 systemd 까지
+# 죽여 데스크탑이 재부팅됐다. 상한을 걸면 넘칠 때 컨테이너 안의 프로세스만
+# 죽고 호스트는 멀쩡하다 — 빌드는 다시 이어서 돌리면 된다.
+MEM_LIMIT=$(( MEM_GB * 3 / 4 )); [ "$MEM_LIMIT" -lt 4 ] && MEM_LIMIT=4
+
+echo "호스트 $HOST_ARCH | 가용 메모리 ${MEM_GB}GB | 코어 $CORES → 병렬도 $PARALLEL, 컨테이너 상한 ${MEM_LIMIT}GB"
 if [ "$HOST_ARCH" != "aarch64" ] && [ "$HOST_ARCH" != "arm64" ]; then
   echo "aarch64 가 아니므로 qemu 에뮬레이션으로 빌드한다 (느리다. 밤새 걸어둘 것)"
   docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true
@@ -38,11 +44,13 @@ docker volume create "$VOL" >/dev/null
 
 if [ "${1:-}" = "shell" ]; then
   exec docker run --rm -it --platform linux/arm64 \
+    --memory "${MEM_LIMIT}g" --memory-swap "${MEM_LIMIT}g" \
     -v "$VOL":/build -v "$PWD/dist:/out" --entrypoint bash ort-jetson-sm87
 fi
 
 echo "── 컴파일 (실패해도 다시 실행하면 이어서 진행)"
 docker run --rm --platform linux/arm64 \
+  --memory "${MEM_LIMIT}g" --memory-swap "${MEM_LIMIT}g" \
   -e PARALLEL="$PARALLEL" -e CUDA_ARCH=87 \
   -v "$VOL":/build -v "$PWD/dist:/out" \
   ort-jetson-sm87
