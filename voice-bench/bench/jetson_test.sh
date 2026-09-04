@@ -96,7 +96,8 @@ tts() {
     log "TTS — $mode"
     out=$(mktemp)
     TOKENIZERS_PARALLELISM=false "$V/bin/python" runners/tts_melo_onnx.py \
-      --out-dir "$ROOT/out/tts/jetson-$mode" --label "melo-onnx-$mode" --normalize $flag >"$out" 2>&1
+      --out-dir "$ROOT/out/tts/jetson-$mode" --label "melo-onnx-$mode" --normalize $flag \
+      --warmup 1 --quiet-ort >"$out" 2>&1
     if ! grep -q '@@RESULT@@' "$out"; then
       echo "    실패 — 아래는 실제 출력이다:"; sed 's/^/      /' "$out" | tail -25; rm -f "$out"; continue
     fi
