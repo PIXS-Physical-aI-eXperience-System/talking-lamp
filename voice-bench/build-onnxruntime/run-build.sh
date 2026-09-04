@@ -4,9 +4,10 @@
 # 이미 만든 오브젝트를 재사용해 이어서 진행한다.
 set -euo pipefail
 PARALLEL="${PARALLEL:-4}"
+NVCC_THREADS="${NVCC_THREADS:-2}"
 ARCH="${CUDA_ARCH:-87}"
 
-echo "== onnxruntime 빌드 시작 (sm_${ARCH}, 병렬 ${PARALLEL}) =="
+echo "== onnxruntime 빌드 시작 (sm_${ARCH}, 병렬 ${PARALLEL} x nvcc ${NVCC_THREADS}) =="
 
 # contrib_ops 를 빼려 했으나 실패했다. 코어 CPU 커널(fp16_conv.cc)이
 # contrib 에 있는 GetFusedActivationAttr 를 참조해서 링크가 깨진다
@@ -17,7 +18,7 @@ echo "== onnxruntime 빌드 시작 (sm_${ARCH}, 병렬 ${PARALLEL}) =="
   --config Release \
   --use_cuda --cuda_home "$CUDA_HOME" --cudnn_home /usr \
   --build_wheel --skip_tests --allow_running_as_root \
-  --parallel "$PARALLEL" \
+  --parallel "$PARALLEL" --nvcc_threads "$NVCC_THREADS" \
   --cmake_extra_defines \
       CMAKE_CUDA_ARCHITECTURES="$ARCH" \
       onnxruntime_BUILD_UNIT_TESTS=OFF

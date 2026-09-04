@@ -20,9 +20,16 @@ fi
 # nvcc(cicc)는 커널당 수 GB 를 쓰고, qemu 위에서는 더 쓴다.
 # 메모리 27 GB 에서 병렬 13 으로 돌렸다가 cicc 가 OOM 으로 죽었다.
 # 4 GB 당 1 개, 최대 8 개로 제한한다.
-PARALLEL=$(( MEM_GB / 4 )); [ "$PARALLEL" -gt "$CORES" ] && PARALLEL=$CORES
-[ "$PARALLEL" -gt 8 ] && PARALLEL=8
+# 주의: onnxruntime 은 --parallel 과 별개로 nvcc 하나가 nvcc_threads 만큼
+# 스레드를 쓴다(기본 4). 실제 동시 실행은 PARALLEL x NVCC_THREADS 에 가깝다.
+# 병렬 13 x 4 로 돌렸다가 cicc 가 OOM 으로 죽었다.
+# 메모리 상한이 있고 빌드 볼륨이 남으므로 실패해도 이어서 재개된다 —
+# 그래서 기본값은 다소 공격적으로 잡고, 필요하면 환경변수로 조절한다.
+#   PARALLEL=12 NVCC_THREADS=1 ./build.sh
+PARALLEL="${PARALLEL:-$(( MEM_GB / 3 ))}"
+[ "$PARALLEL" -gt "$CORES" ] && PARALLEL=$CORES
 [ "$PARALLEL" -lt 2 ] && PARALLEL=2
+NVCC_THREADS="${NVCC_THREADS:-2}"
 
 # 컨테이너 메모리 상한. 도커는 기본적으로 제한이 없어서 컴파일러가 호스트
 # 메모리를 전부 먹을 수 있다. 실제로 첫 시도에서 OOM 킬러가 systemd 까지
@@ -30,7 +37,7 @@ PARALLEL=$(( MEM_GB / 4 )); [ "$PARALLEL" -gt "$CORES" ] && PARALLEL=$CORES
 # 죽고 호스트는 멀쩡하다 — 빌드는 다시 이어서 돌리면 된다.
 MEM_LIMIT=$(( MEM_GB * 3 / 4 )); [ "$MEM_LIMIT" -lt 4 ] && MEM_LIMIT=4
 
-echo "호스트 $HOST_ARCH | 가용 메모리 ${MEM_GB}GB | 코어 $CORES → 병렬도 $PARALLEL, 컨테이너 상한 ${MEM_LIMIT}GB"
+echo "호스트 $HOST_ARCH | 가용 메모리 ${MEM_GB}GB | 코어 $CORES → 병렬도 $PARALLEL x nvcc $NVCC_THREADS, 컨테이너 상한 ${MEM_LIMIT}GB"
 if [ "$HOST_ARCH" != "aarch64" ] && [ "$HOST_ARCH" != "arm64" ]; then
   echo "aarch64 가 아니므로 qemu 에뮬레이션으로 빌드한다 (느리다. 밤새 걸어둘 것)"
   docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true
@@ -51,7 +58,7 @@ fi
 echo "── 컴파일 (실패해도 다시 실행하면 이어서 진행)"
 docker run --rm --platform linux/arm64 \
   --memory "${MEM_LIMIT}g" --memory-swap "${MEM_LIMIT}g" \
-  -e PARALLEL="$PARALLEL" -e CUDA_ARCH=87 \
+  -e PARALLEL="$PARALLEL" -e NVCC_THREADS="$NVCC_THREADS" -e CUDA_ARCH=87 \
   -v "$VOL":/build -v "$PWD/dist:/out" \
   ort-jetson-sm87
 
