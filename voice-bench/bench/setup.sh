@@ -68,7 +68,7 @@ case "${1:-all}" in
     ;;
 
   melo-onnx)
-    mkvenv melo-onnx onnxruntime numpy soundfile transformers g2pkk python-mecab-ko onnx
+    mkvenv melo-onnx onnxruntime numpy soundfile transformers num2words jamo anyascii g2p_en g2pkk python-mecab-ko onnx
     echo "   ※ torch 는 일부러 설치하지 않는다. ONNX 파이프라인의 전제다."
     ;;
 

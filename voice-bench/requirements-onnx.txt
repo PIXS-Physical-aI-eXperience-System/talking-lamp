@@ -1,0 +1,19 @@
+# melo ONNX 파이프라인 실행에 필요한 것 전부 (torch 없음).
+# melo_text/ 가 num2words·jamo·anyascii·g2p_en 을 쓰는데, 설치 목록에서
+# 빠뜨려 Jetson 첫 실행이 실패한 적이 있다. 그래서 한 곳에 모아 둔다.
+#
+#   pip install -r requirements-onnx.txt
+#   pip install onnxruntime        # 또는 GPU 환경이면 onnxruntime-gpu
+#
+# 주의: faster-whisper(STT)는 의존성으로 CPU판 onnxruntime 을 끌고 온다.
+#       GPU를 쓰려면 faster-whisper 를 먼저 깔고 onnxruntime-gpu 를 나중에 덮어쓸 것.
+numpy
+soundfile
+transformers
+num2words
+jamo
+anyascii
+g2p_en
+g2pkk
+python-mecab-ko
+onnx
