@@ -1,32 +1,23 @@
 #!/usr/bin/env bash
 # Jetson Orin(sm_87)용 onnxruntime 휠을 빌드한다.
 #
-# 왜 필요한가:
-#   PyPI 의 onnxruntime-gpu 휠에는 Jetson 전용 아키텍처 sm_87 커널이 없어
-#   Orin 에서 cudaErrorNoKernelImageForDevice 로 죽는다. 직접 빌드해야 한다.
-#   JetPack 7(R39) 용 사전 빌드 휠은 jetson-ai-lab 에도 NVIDIA 배포처에도 없다.
+#   ./build.sh          환경 이미지 준비 후 빌드 (실패하면 다시 실행 — 이어서 진행된다)
+#   ./build.sh shell    컨테이너 안으로 들어가 직접 확인
 #
-# 어디서 빌드하나:
-#   aarch64 휠이 필요하다. Apple Silicon 이나 ARM 서버면 네이티브로 빠르고,
-#   x86_64 리눅스면 qemu 에뮬레이션이라 느리지만 방치할 수 있다.
-#   빌드에 GPU 는 필요 없다 — nvcc 는 장치 없이도 sm_87 기계어를 만든다.
-#
-#   ./build.sh
-#
-# 결과물 dist/*.whl 을 Jetson 으로 옮겨 설치한다.
+# 빌드 디렉터리를 도커 볼륨(ort-build)에 두므로, 컴파일이 중간에 깨져도
+# 다시 실행하면 cmake 가 만들어둔 오브젝트를 재사용한다. 한 번에 3시간이
+# 걸리는 작업이라 이 구조가 아니면 재시도 비용이 감당되지 않는다.
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p dist
 
 HOST_ARCH=$(uname -m)
-# 램 1 GB 당 컴파일 작업 1 개를 넘기지 않는다 (nvcc 가 커널당 수 GB 를 쓴다).
 if [ -r /proc/meminfo ]; then
-  MEM_GB=$(( $(awk '/MemAvailable/{print $2}' /proc/meminfo) / 1024 / 1024 ))
-  CORES=$(nproc)
+  MEM_GB=$(( $(awk '/MemAvailable/{print $2}' /proc/meminfo) / 1024 / 1024 )); CORES=$(nproc)
 else
-  MEM_GB=$(( $(docker info --format '{{.MemTotal}}') / 1024 / 1024 / 1024 ))
-  CORES=$(docker info --format '{{.NCPU}}')
+  MEM_GB=$(( $(docker info --format '{{.MemTotal}}') / 1024 / 1024 / 1024 )); CORES=$(docker info --format '{{.NCPU}}')
 fi
+# nvcc 는 커널당 수 GB 를 쓴다. 메모리 2 GB 당 작업 1 개를 넘기지 않는다.
 PARALLEL=$(( MEM_GB / 2 )); [ "$PARALLEL" -gt "$CORES" ] && PARALLEL=$CORES
 [ "$PARALLEL" -lt 2 ] && PARALLEL=2
 
@@ -36,11 +27,21 @@ if [ "$HOST_ARCH" != "aarch64" ] && [ "$HOST_ARCH" != "arm64" ]; then
   docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true
 fi
 
-echo "── 이미지 빌드 (수 시간~하룻밤)"
-docker build --platform linux/arm64 --build-arg PARALLEL=$PARALLEL -t ort-jetson-sm87 .
+echo "── 환경 이미지 준비 (첫 회만 오래 걸린다. 이후는 캐시)"
+docker build --platform linux/arm64 -t ort-jetson-sm87 .
 
-echo "── 휠 꺼내기"
-docker run --rm --platform linux/arm64 -v "$PWD/dist:/out" ort-jetson-sm87
+docker volume create ort-build >/dev/null
+
+if [ "${1:-}" = "shell" ]; then
+  exec docker run --rm -it --platform linux/arm64 \
+    -v ort-build:/build -v "$PWD/dist:/out" --entrypoint bash ort-jetson-sm87
+fi
+
+echo "── 컴파일 (실패해도 다시 실행하면 이어서 진행)"
+docker run --rm --platform linux/arm64 \
+  -e PARALLEL="$PARALLEL" -e CUDA_ARCH=87 \
+  -v ort-build:/build -v "$PWD/dist:/out" \
+  ort-jetson-sm87
 
 echo
 echo "완료. Jetson 으로 옮겨 설치:"
