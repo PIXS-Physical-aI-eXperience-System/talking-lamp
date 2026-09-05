@@ -76,6 +76,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stt-model", default="small")
     ap.add_argument("--stt-device", default="cpu", choices=["cpu", "cuda"])
+    ap.add_argument("--stt-threads", type=int, default=0,
+                    help="0 이면 ctranslate2 기본값")
     ap.add_argument("--providers", default="CUDAExecutionProvider,CPUExecutionProvider")
     ap.add_argument("--int8", action="store_true", help="TTS 전체 int8 (GPU 에서는 금물)")
     ap.add_argument("--bert-int8", action="store_true")
@@ -115,7 +117,8 @@ def main() -> int:
 
     ct = "int8_float16" if args.stt_device == "cuda" else "int8"
     stt = phase("STT 적재", lambda: WhisperModel(
-        args.stt_model, device=args.stt_device, compute_type=ct))
+        args.stt_model, device=args.stt_device, compute_type=ct,
+        cpu_threads=args.stt_threads))
 
     built = phase("TTS 적재", lambda: build_synth(
         "models/melo-ko-onnx", int8=args.int8, providers=args.providers,
