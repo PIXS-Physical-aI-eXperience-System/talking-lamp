@@ -100,7 +100,10 @@ def main() -> int:
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = args.threads
     if args.quiet_ort:
+        # 세션 로거만 낮추면 안 된다. CUDA 커널의 ScatterND 경고는 세션이 아니라
+        # 환경(Default) 로거로 나가므로, 둘 다 올려야 조용해진다.
         opts.log_severity_level = 3  # 오류만
+        ort.set_default_logger_severity(3)
     with Timer() as t_load:
         tok = AutoTokenizer.from_pretrained(os.path.join(d, "tokenizer"))
         suffix = ".int8" if args.int8 else ""
