@@ -52,11 +52,18 @@ def bert_features(sess, tok, text, word2ph):
         [np.tile(hidden[i], (word2ph[i], 1)) for i in range(len(word2ph))], axis=0).T
 
 
-def build_synth(model_dir, int8=False, providers="auto", threads=2, quiet=False):
+def build_synth(model_dir, int8=False, providers="auto", threads=2, quiet=False,
+                bert_int8=None, arena=True):
     """모델을 올리고 synth(text) -> 오디오 를 돌려준다.
 
     러너와 통합 측정(bench/measure_combined.py)이 같은 경로를 타야 두 곳의
     숫자를 나란히 놓을 수 있다. 한쪽만 고치면 비교가 조용히 무의미해진다.
+
+    bert_int8: BERT 만 따로 int8 로. None 이면 int8 을 따른다. BERT 는 문장당
+        한 번만 도는 특징 추출기라, 여기만 int8 로 내려도 전체 RTF 손해가 작다.
+        가중치는 395 MB -> 99 MB 로 줄어든다.
+    arena: onnxruntime 의 메모리 아레나. 기본값(True)은 큰 덩어리를 미리 잡아두고
+        재사용해 빠르지만 피크가 커진다. False 면 요청한 만큼만 잡는다.
 
     반환: (synth, sample_rate, 실제_공급자, 로드_초, frontend)
     """
@@ -85,8 +92,14 @@ def build_synth(model_dir, int8=False, providers="auto", threads=2, quiet=False)
         print("경고: int8 + CUDA 는 fp32 보다 10배 느리다 (실측 RTF 2.61 vs 0.25). "
               "GPU 로 돌릴 거면 --int8 을 빼라.", file=sys.stderr)
 
+    if not arena:
+        # CUDA 쪽 아레나는 세션 옵션이 아니라 공급자 옵션으로 지정한다.
+        provs = [(p, {"arena_extend_strategy": "kSameAsRequested"})
+                 if p == "CUDAExecutionProvider" else p for p in provs]
+
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = threads
+    opts.enable_cpu_mem_arena = arena
     if quiet:
         # 세션 로거만 낮추면 안 된다. CUDA 커널의 ScatterND 경고는 세션이 아니라
         # 환경(Default) 로거로 나가므로, 둘 다 올려야 조용해진다.
@@ -96,7 +109,8 @@ def build_synth(model_dir, int8=False, providers="auto", threads=2, quiet=False)
     with Timer() as t_load:
         tok = AutoTokenizer.from_pretrained(os.path.join(d, "tokenizer"))
         suffix = ".int8" if int8 else ""
-        bert = ort.InferenceSession(os.path.join(d, f"bert-kor-base{suffix}.onnx"),
+        bsuffix = ".int8" if (int8 if bert_int8 is None else bert_int8) else ""
+        bert = ort.InferenceSession(os.path.join(d, f"bert-kor-base{bsuffix}.onnx"),
                                     opts, providers=provs)
         vits = ort.InferenceSession(os.path.join(d, f"melo-ko-vits{suffix}.onnx"),
                                     opts, providers=provs)
@@ -143,13 +157,18 @@ def main() -> int:
                          "수 초가 걸리므로, 가속기로 잴 때는 1 이상을 준다")
     ap.add_argument("--quiet-ort", action="store_true",
                     help="onnxruntime 경고 억제 (CUDA 경로에서 ScatterND 경고가 대량 발생)")
+    ap.add_argument("--bert-int8", action="store_true",
+                    help="BERT 만 int8. VITS 는 fp32 유지 (가중치 395MB->99MB)")
+    ap.add_argument("--no-arena", action="store_true",
+                    help="onnxruntime 메모리 아레나 비활성. 피크는 줄고 속도는 손해")
     ap.add_argument("--threads", type=int, default=2,
                     help="intra-op 스레드. Jetson은 코어가 6개라 다른 파트와의 경합을 고려할 것")
     args = ap.parse_args()
 
     synth, sr, provs, load_s, _fe = build_synth(
         args.model_dir, int8=args.int8, providers=args.providers,
-        threads=args.threads, quiet=args.quiet_ort)
+        threads=args.threads, quiet=args.quiet_ort,
+        bert_int8=True if args.bert_int8 else None, arena=not args.no_arena)
 
     os.makedirs(args.out_dir, exist_ok=True)
     sentences = load_sentences(repo_paths()["sentences"])
@@ -174,6 +193,7 @@ def main() -> int:
           "load_s": load_s, "synth_s": synth_s, "audio_s": audio_s,
           "config": {"runtime": "onnxruntime (torch 미설치)", "sample_rate": sr,
                      "normalize": args.normalize, "int8": args.int8,
+                     "bert_int8": args.bert_int8, "arena": not args.no_arena,
                      "providers": provs, "threads": args.threads,
                      "warmup": args.warmup}})
     return 0
