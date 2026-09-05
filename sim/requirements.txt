@@ -1,0 +1,6 @@
+mujoco>=3.12
+numpy>=2
+ruckig>=0.14
+# demo/plots only:
+pytest>=8
+matplotlib>=3.8
