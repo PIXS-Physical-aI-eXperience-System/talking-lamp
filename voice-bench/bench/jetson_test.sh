@@ -33,12 +33,18 @@ setup() {
     echo "  ! 실패 — ctranslate2 의 aarch64 휠이 없을 수 있다. 소스 빌드 필요"; }
 
   log "onnxruntime — GPU 빌드로 마무리"
+  # sm_87 휠은 PyPI 에 없어서 build-onnxruntime/ 에서 직접 빌드해 깔았다.
+  # 여기서 무조건 재설치하면 그 휠을 PyPI 의 CPU/미지원 판이 덮어쓴다.
+  if "$V/bin/python" -c "import onnxruntime,sys; sys.exit(0 if 'CUDAExecutionProvider' in onnxruntime.get_available_providers() else 1)" 2>/dev/null; then
+    echo "  이미 CUDA 공급자가 잡혀 있다 — 직접 빌드한 휠로 판단하고 건드리지 않는다"
+  else
   "$V/bin/pip" uninstall -qy onnxruntime onnxruntime-gpu 2>/dev/null
   if ! "$V/bin/pip" install -q onnxruntime-gpu 2>/dev/null; then
     echo "  onnxruntime-gpu 실패 → CPU판으로 대체"
     echo "  ※ GPU로 돌리려면 NVIDIA의 JetPack용 휠이 필요할 수 있다:"
     echo "    https://developer.download.nvidia.com/compute/redist/jp/"
     "$V/bin/pip" install -q onnxruntime
+  fi
   fi
 
   log "설치 결과"
@@ -91,13 +97,21 @@ for t in d['transcripts']: print('    ·', t)
 }
 
 tts() {
-  for mode in int8 fp32; do
-    flag=$([ "$mode" = int8 ] && echo --int8 || echo "")
-    log "TTS — $mode"
+  # Jetson 실측: fp32+CUDA 는 RTF 0.25, int8+CUDA 는 2.61 로 10.4배 느렸다.
+  # 동적 양자화는 CPU 커널용이라 CUDA 에 대응 커널이 없는 노드가 폴백하고,
+  # 그 경계마다 int8<->fp32 변환이 붙기 때문이다. 그래서 조합을 고정한다:
+  #   fp32 → CUDA (본선)      int8 → CPU (예비)
+  for mode in fp32 int8; do
+    if [ "$mode" = int8 ]; then
+      flag="--int8"; prov="CPUExecutionProvider"
+    else
+      flag=""; prov="CUDAExecutionProvider,CPUExecutionProvider"
+    fi
+    log "TTS — $mode ($prov)"
     out=$(mktemp)
     TOKENIZERS_PARALLELISM=false "$V/bin/python" runners/tts_melo_onnx.py \
       --out-dir "$ROOT/out/tts/jetson-$mode" --label "melo-onnx-$mode" --normalize $flag \
-      --warmup 1 --quiet-ort >"$out" 2>&1
+      --providers "$prov" --warmup 2 --quiet-ort >"$out" 2>&1
     if ! grep -q '@@RESULT@@' "$out"; then
       echo "    실패 — 아래는 실제 출력이다:"; sed 's/^/      /' "$out" | tail -25; rm -f "$out"; continue
     fi

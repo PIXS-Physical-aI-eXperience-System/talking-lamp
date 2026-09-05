@@ -52,68 +52,57 @@ def bert_features(sess, tok, text, word2ph):
         [np.tile(hidden[i], (word2ph[i], 1)) for i in range(len(word2ph))], axis=0).T
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--model-dir", default="models/melo-ko-onnx")
-    ap.add_argument("--out-dir", required=True)
-    ap.add_argument("--label", required=True)
-    ap.add_argument("--normalize", action="store_true")
-    ap.add_argument("--int8", action="store_true",
-                    help="int8 양자화 모델 사용 (melo_quantize.py 로 생성)")
-    ap.add_argument("--providers", default="auto",
-                    help="onnxruntime 실행 공급자. auto=사용 가능한 것 중 가속기 우선, "
-                         "또는 쉼표로 직접 지정 (예: CUDAExecutionProvider,CPUExecutionProvider)")
-    ap.add_argument("--warmup", type=int, default=0,
-                    help="측정 전 버리는 합성 횟수. GPU는 첫 실행에 커널을 준비하느라 "
-                         "수 초가 걸리므로, 가속기로 잴 때는 1 이상을 준다")
-    ap.add_argument("--quiet-ort", action="store_true",
-                    help="onnxruntime 경고 억제 (CUDA 경로에서 ScatterND 경고가 대량 발생)")
-    ap.add_argument("--threads", type=int, default=2,
-                    help="intra-op 스레드. Jetson은 코어가 6개라 다른 파트와의 경합을 고려할 것")
-    args = ap.parse_args()
+def build_synth(model_dir, int8=False, providers="auto", threads=2, quiet=False):
+    """모델을 올리고 synth(text) -> 오디오 를 돌려준다.
 
+    러너와 통합 측정(bench/measure_combined.py)이 같은 경로를 타야 두 곳의
+    숫자를 나란히 놓을 수 있다. 한쪽만 고치면 비교가 조용히 무의미해진다.
+
+    반환: (synth, sample_rate, 실제_공급자, 로드_초, frontend)
+    """
     from transformers import AutoTokenizer
 
-    d = os.path.join(HERE, args.model_dir) if not os.path.isabs(args.model_dir) else args.model_dir
+    d = model_dir if os.path.isabs(model_dir) else os.path.join(HERE, model_dir)
     fe = json.load(open(os.path.join(d, "frontend.json"), encoding="utf-8"))
     sid = np.array([fe["spk2id"]["KR"]], dtype=np.int64)
-    sr = fe["sampling_rate"]
-
-    os.makedirs(args.out_dir, exist_ok=True)
-    sentences = load_sentences(repo_paths()["sentences"])
-    if args.normalize:
-        from ko_normalize import normalize
-        sentences = [normalize(s) for s in sentences]
 
     # 실행 공급자 선택. Jetson에서는 TensorRT > CUDA > CPU 순으로 빠르지만,
     # JetPack용 onnxruntime-gpu 가 설치돼 있어야 앞의 둘이 잡힌다.
     available = ort.get_available_providers()
-    if args.providers == "auto":
+    if providers == "auto":
         prefer = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
-        providers = [p for p in prefer if p in available]
+        provs = [p for p in prefer if p in available]
     else:
-        providers = [p.strip() for p in args.providers.split(",")]
-        missing = [p for p in providers if p not in available]
+        provs = [p.strip() for p in providers.split(",")] if isinstance(providers, str) else list(providers)
+        missing = [p for p in provs if p not in available]
         if missing:
             raise SystemExit(f"사용할 수 없는 공급자: {missing}\n설치된 것: {available}")
 
+    # int8 을 CUDA 에 물리면 안 된다. 동적 양자화는 CPU 커널용이라 대응 커널이
+    # 없는 노드가 CPU 로 폴백하고, 그 경계마다 int8<->fp32 변환이 붙는다.
+    # Jetson 실측에서 int8+CUDA 는 RTF 2.61, fp32+CUDA 는 0.25 로 10.4배 차이가 났다.
+    if int8 and "CUDAExecutionProvider" in provs:
+        print("경고: int8 + CUDA 는 fp32 보다 10배 느리다 (실측 RTF 2.61 vs 0.25). "
+              "GPU 로 돌릴 거면 --int8 을 빼라.", file=sys.stderr)
+
     opts = ort.SessionOptions()
-    opts.intra_op_num_threads = args.threads
-    if args.quiet_ort:
+    opts.intra_op_num_threads = threads
+    if quiet:
         # 세션 로거만 낮추면 안 된다. CUDA 커널의 ScatterND 경고는 세션이 아니라
         # 환경(Default) 로거로 나가므로, 둘 다 올려야 조용해진다.
         opts.log_severity_level = 3  # 오류만
         ort.set_default_logger_severity(3)
+
     with Timer() as t_load:
         tok = AutoTokenizer.from_pretrained(os.path.join(d, "tokenizer"))
-        suffix = ".int8" if args.int8 else ""
+        suffix = ".int8" if int8 else ""
         bert = ort.InferenceSession(os.path.join(d, f"bert-kor-base{suffix}.onnx"),
-                                    opts, providers=providers)
+                                    opts, providers=provs)
         vits = ort.InferenceSession(os.path.join(d, f"melo-ko-vits{suffix}.onnx"),
-                                    opts, providers=providers)
+                                    opts, providers=provs)
 
     def synth(text):
-        """텍스트 → 오디오. 측정 루프와 워밍업이 같은 경로를 타야 의미가 있다."""
+        """텍스트 -> 오디오. 측정 루프와 워밍업이 같은 경로를 타야 의미가 있다."""
         norm_text, phone, tone, word2ph = clean_text(text, "KR")
         phone, tone, language = cleaned_text_to_sequence(
             phone, tone, "KR", fe["symbol_to_id"])
@@ -135,6 +124,39 @@ def main() -> int:
             "ja_bert": ja_bert[None],
         })[0].squeeze()
 
+    return synth, fe["sampling_rate"], vits.get_providers(), round(t_load.elapsed, 2), fe
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model-dir", default="models/melo-ko-onnx")
+    ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--label", required=True)
+    ap.add_argument("--normalize", action="store_true")
+    ap.add_argument("--int8", action="store_true",
+                    help="int8 양자화 모델 사용 (melo_quantize.py 로 생성)")
+    ap.add_argument("--providers", default="auto",
+                    help="onnxruntime 실행 공급자. auto=사용 가능한 것 중 가속기 우선, "
+                         "또는 쉼표로 직접 지정 (예: CUDAExecutionProvider,CPUExecutionProvider)")
+    ap.add_argument("--warmup", type=int, default=0,
+                    help="측정 전 버리는 합성 횟수. GPU는 첫 실행에 커널을 준비하느라 "
+                         "수 초가 걸리므로, 가속기로 잴 때는 1 이상을 준다")
+    ap.add_argument("--quiet-ort", action="store_true",
+                    help="onnxruntime 경고 억제 (CUDA 경로에서 ScatterND 경고가 대량 발생)")
+    ap.add_argument("--threads", type=int, default=2,
+                    help="intra-op 스레드. Jetson은 코어가 6개라 다른 파트와의 경합을 고려할 것")
+    args = ap.parse_args()
+
+    synth, sr, provs, load_s, _fe = build_synth(
+        args.model_dir, int8=args.int8, providers=args.providers,
+        threads=args.threads, quiet=args.quiet_ort)
+
+    os.makedirs(args.out_dir, exist_ok=True)
+    sentences = load_sentences(repo_paths()["sentences"])
+    if args.normalize:
+        from ko_normalize import normalize
+        sentences = [normalize(s) for s in sentences]
+
     for _ in range(args.warmup):
         synth(sentences[0])
 
@@ -149,10 +171,10 @@ def main() -> int:
         wavs.append(path)
 
     emit({"label": args.label, "kind": "tts", "wavs": wavs,
-          "load_s": round(t_load.elapsed, 2), "synth_s": synth_s, "audio_s": audio_s,
+          "load_s": load_s, "synth_s": synth_s, "audio_s": audio_s,
           "config": {"runtime": "onnxruntime (torch 미설치)", "sample_rate": sr,
                      "normalize": args.normalize, "int8": args.int8,
-                     "providers": vits.get_providers(), "threads": args.threads,
+                     "providers": provs, "threads": args.threads,
                      "warmup": args.warmup}})
     return 0
 
