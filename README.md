@@ -38,18 +38,32 @@ Talking Lamp는 카메라와 마이크로 주변 상황을 인식해 스스로 �
 
 네 레이어의 출력은 **모션 블렌더**에서 우선순위로 합성되어, **100 Hz 궤적 생성기**를 거쳐 5축 서보로 나갑니다.
 
+### 선정 모델
+
+| 역할 | 모델 | 실측 피크 메모리 |
+| --- | --- | --- |
+| 상황 판단·대화 (VLM) | InternVL3.5-2B | 3.22 GB |
+| 음성 합성 (TTS) | MeloTTS 한국어 → ONNX int8 | 1.41 GB (STT 포함) |
+| 호출어 감지 | openWakeWord 한국어 자체 학습 | 1 MB |
+| 음성 인식 (STT) · 검출기 | 선정 중 | — |
+
+Jetson의 8GB는 CPU와 GPU가 함께 씁니다. 그래서 모델 파일 크기가 아니라 **프로세스가 실제 점유하는 피크 메모리**로 예산을 잡고, 통합 상태에서 **7.2GB를 상한**으로 둡니다.
+
 ## 하드웨어
 
 | 구분 | 사양 |
 | --- | --- |
-| 메인 보드 | Jetson Orin Nano 8GB Developer Kit |
-| 서보 | Feetech STS3215 5축 (Base Yaw / Base Pitch / Elbow Pitch / Wrist Roll / Wrist Pitch) |
+| AI 보드 | Jetson Orin Nano 8GB Developer Kit — VLM·STT·TTS·검출기·IK |
+| 실시간 제어 보드 | Raspberry Pi 5 — 서보·100Hz 궤적·모션 블렌더·LED. Jetson과 이더넷 직결 |
+| 서보 | Feetech STS3215 **12V** 5축 (Base Yaw / Base Pitch / Elbow Pitch / Wrist Roll / Wrist Pitch) |
 | 카메라 | 단안(렌즈 1개) 광각 — 깊이 카메라 불필요 |
-| 마이크 | USB 어레이 4채널 이상 (DOA 지원) |
+| 마이크 | XMOS XVF3800 원형 4마이크 어레이 — 하드웨어 AEC·빔포밍·DOA 내장 |
 | 서보 드라이버 | 기성 버스 서보 드라이버 보드 (USB 연결) |
-| 전원 | Jetson 19V 어댑터 + 서보용 공급기 분리 (기성품) |
-| 서브 MCU | STM32 / ESP32 (LED 제어) |
+| 전원 | Jetson 19V + Pi 5 + 서보 12V, 계통 분리 (기성품) |
+| 서브 MCU | STM32 / ESP32 (LED 제어, 안전 정지 검토) |
 | 기구 | LeLamp `.3mf` 개조, FDM 3D 프린터 출력 |
+
+**AI 보드와 제어 보드를 나눈 이유** — 생성형 AI의 무거운 연산이 100Hz 모션 루프의 주기를 흔들면 서보가 떨립니다. 느린 인지(Jetson)와 빠른 반사(Pi)를 물리적으로 분리해 서로 간섭하지 않게 했습니다.
 
 ## 저장소 구조
 
@@ -57,7 +71,7 @@ Talking Lamp는 카메라와 마이크로 주변 상황을 인식해 스스로 �
 talking-lamp/
 ├── docs/                  # 기획·설계 문서
 │   ├── 계획서.md                  프로젝트 개요, 핵심기술, LeLamp 전환 상세
-│   ├── 파트-분배.md               설계 사양서 v0.5 — 아키텍처·시나리오·파트별 상세
+│   ├── 파트-분배.md               설계 사양서 v0.6 — 아키텍처·공통 규약·시나리오·파트별 상세
 │   ├── 진행-순서.md               작업 순서, 파트 간 인수인계, 통합 순서
 │   └── reference/                 참고 문헌 (ELEGNT 논문 등)
 ├── LeLamp/                # 기구 — CAD·시뮬레이션·조립 문서
@@ -71,16 +85,18 @@ talking-lamp/
     └── main.py                    LiveKit/OpenAI 클라우드 에이전트 → 온보드로 교체 예정
 ```
 
-앞으로 추가될 구현 모듈:
+구현 모듈:
 
 ```
 └── src/
+    ├── motion/        모션 — IK, 칼만 필터, 모션 블렌더, 궤적 생성기   (시뮬레이션 검증 완료)
     ├── cognition/     인지 — VLM, 프롬프트, 행동 태그
     ├── orchestrator/  시스템통합 — 이벤트 버스, 상태머신, 중재기
-    ├── voice/         음성 — STT, TTS, AEC, DOA
-    ├── vision/        비전 — 검출, 캘리브레이션, 조명 배치 계산
-    └── motion/        모션 — IK, 칼만 필터, 모션 블렌더
+    ├── voice/         음성 — STT, TTS, 웨이크워드, DOA
+    └── vision/        비전 — 검출, 캘리브레이션, 조명 배치 계산
 ```
+
+각 파트의 작업은 기능 브랜치에서 진행 중이며, 완료된 것부터 `main`에 병합합니다.
 
 ### LeLamp에서 가져온 것 / 새로 만드는 것
 
@@ -89,9 +105,11 @@ talking-lamp/
 | 3D 기구 `.3mf` 7종, OnShape CAD | 비전 전체 (LeLamp에 코드 없음) |
 | 5축 관절 구조, Feetech STS3215 서보 | 인지 전체 (VLM 온보드화) |
 | 서보 통신 (`feetech-servo-sdk` + `lerobot`) | IK · 칼만 필터 · 모션 블렌더 · 100Hz 궤적 생성기 |
-| MuJoCo 시뮬레이션 | 온보드 STT/TTS · AEC · DOA |
+| MuJoCo 시뮬레이션 | 온보드 STT/TTS · **웨이크워드(자체 학습)** |
 | 모션 프리미티브 CSV 11종 | 이벤트 버스 · 상태머신 · 시나리오 중재기 |
-| 웨이크워드 (`pvporcupine`) | 작업 조명 모듈, Jetson 이식용 전원·기구 재구성 |
+| — | 작업 조명 모듈, 2보드 전원·기구 재구성 |
+
+> **웨이크워드는 재사용하지 못했습니다.** LeLamp이 쓰는 `pvporcupine`은 유료로 전환됐고 사용 키 검증에 인터넷이 필요해, "완전 오프라인"이라는 전제와 충돌합니다. 영어 호출어를 쓰는 대안도 한국어 대화에서 오작동해(6문장 중 2회) 탈락했고, 오픈소스로 한국어 호출어를 직접 학습하는 방식으로 바꿨습니다.
 
 LeLamp 원본은 **AI를 전부 OpenAI 클라우드로 호출**하고(`main.py`), 모션은 **CSV를 30fps로 단순 재생**하는 구조입니다. 이 프로젝트의 핵심인 온보드 추론·레이어 합성·공간 인지는 전부 새로 만듭니다.
 
