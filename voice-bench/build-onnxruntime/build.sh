@@ -46,7 +46,7 @@ fi
 echo "── 환경 이미지 준비 (첫 회만 오래 걸린다. 이후는 캐시)"
 docker build --platform linux/arm64 -t ort-jetson-sm87 .
 
-VOL=ort-build-cuda130   # CUDA 버전이 바뀌면 이 이름을 바꿔 새로 시작한다
+VOL=ort-build-cuda130-clean   # CMake 옵션이 바뀌면 캐시가 이전 값을 물고 있으므로 이름을 바꿔 새로 시작한다
 docker volume create "$VOL" >/dev/null
 
 if [ "${1:-}" = "shell" ]; then
