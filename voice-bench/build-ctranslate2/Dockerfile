@@ -21,7 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake git wget ca-certificates \
       python3.12 python3.12-dev python3-pip python3-venv \
-      libopenblas-dev \
+      libopenblas-dev patchelf \
  && rm -rf /var/lib/apt/lists/*
 
 RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb \
@@ -35,7 +35,7 @@ ENV PATH=$CUDA_HOME/bin:$PATH
 ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
 RUN pip3 install --break-system-packages --no-cache-dir \
-      numpy packaging setuptools wheel pybind11
+      numpy packaging setuptools wheel pybind11 auditwheel
 
 RUN git clone --recursive --depth 1 --branch ${CT2_VERSION} \
       https://github.com/OpenNMT/CTranslate2 /src/CTranslate2
