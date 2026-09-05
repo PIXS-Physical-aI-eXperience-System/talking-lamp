@@ -52,15 +52,17 @@ class Sampler(threading.Thread):
         super().__init__(daemon=True)
         self.dt = 1.0 / hz
         self.rows = []          # (t, sys, rss)
-        self._stop = threading.Event()
+        self._done = threading.Event()
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._done.is_set():
             self.rows.append((time.perf_counter(), sys_used_mb(), rss_mb()))
             time.sleep(self.dt)
 
     def stop(self):
-        self._stop.set()
+        # 이름을 _stop 으로 두면 안 된다. Thread 내부에 같은 이름의 메서드가
+        # 있어서 join() 이 self._stop() 을 부를 때 Event 를 호출하려다 터진다.
+        self._done.set()
         self.join(timeout=2)
 
     def peak(self, t0, t1):
@@ -156,7 +158,11 @@ def main() -> int:
 
     errs = phase("barge-in (STT+TTS 동시)", overlap)
 
-    sam.stop()
+    try:
+        sam.stop()
+    except Exception as e:
+        # 몇 분 걸린 측정이다. 표본 수집을 접다가 터졌다고 결과까지 버리면 안 된다.
+        print(f"표본 수집 정리 중 오류(결과는 그대로 낸다): {e!r}", file=sys.stderr)
 
     print(f"\n### 음성 파트 메모리 — STT {args.stt_model}/{args.stt_device}, "
           f"TTS {'int8' if args.int8 else 'fp32'}"
