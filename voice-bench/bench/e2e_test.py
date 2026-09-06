@@ -34,6 +34,30 @@ sys.path.insert(0, os.path.join(ROOT, "runners"))
 from common import cer, load_sentences, repo_paths  # noqa: E402
 
 
+class Sampler(threading.Thread):
+    """20 Hz 로 메모리를 기록한다. 턴이 끝난 뒤에만 찍으면 턴 도중의 최고점을
+    놓친다 — 실제로 메모리가 모자라 죽는 건 그 순간이다."""
+
+    def __init__(self, hz=20):
+        super().__init__(daemon=True)
+        self.dt = 1.0 / hz
+        self.rows = []          # (t, sys_used)
+        self._done = threading.Event()   # _stop 은 Thread 내부 이름이라 못 쓴다
+
+    def run(self):
+        while not self._done.is_set():
+            self.rows.append((time.perf_counter(), sys_used_mb()))
+            time.sleep(self.dt)
+
+    def stop(self):
+        self._done.set()
+        self.join(timeout=2)
+
+    def peak(self, t0, t1):
+        w = [r[1] for r in self.rows if t0 <= r[0] <= t1]
+        return max(w) if w else None
+
+
 def sys_used_mb():
     info = {}
     for line in open("/proc/meminfo"):
@@ -82,10 +106,12 @@ def main() -> int:
     time.sleep(0.5)
     base = sys_used_mb()
 
+    sam = Sampler()
+    sam.start()
     rows = []
     print(f"\n{args.turns} 턴 시작 (바닥 {base:.0f} MB)\n")
-    print(f"{'턴':>4}{'STT':>8}{'TTS':>8}{'합계':>8}{'메모리':>10}  비고")
-    print("-" * 52)
+    print(f"{'턴':>4}{'STT':>8}{'TTS':>8}{'합계':>8}{'끝난뒤':>9}{'최고점':>9}  비고")
+    print("-" * 61)
 
     for i in range(args.turns):
         w = wavs[i % len(wavs)]
@@ -94,7 +120,8 @@ def main() -> int:
         reply = refs[(i + 1) % len(refs)]
         overlap = args.bargein_every and (i + 1) % args.bargein_every == 0
 
-        t0 = time.perf_counter()
+        t_start = time.perf_counter()
+        t0 = t_start
         if overlap:
             # barge-in: 램프가 말하는 도중 사용자가 끊고 들어온다.
             got = []
@@ -113,12 +140,16 @@ def main() -> int:
         total = time.perf_counter() - t0
 
         used = sys_used_mb() - base
+        pk = sam.peak(t_start, time.perf_counter())
+        pk = (pk - base) if pk is not None else used
         c = cer(ref, hyp)
         note = "barge-in" if overlap else ("" if c < 0.05 else f"CER {c:.2f}")
-        rows.append((total, used, c, overlap))
+        rows.append((total, used, c, overlap, pk))
         s_txt = "     —" if overlap else f"{stt_s:>7.2f}s"
         t_txt = "     —" if overlap else f"{tts_s:>7.2f}s"
-        print(f"{i+1:>4}{s_txt}{t_txt}{total:>7.2f}s{used:>9.0f} MB  {note}")
+        print(f"{i+1:>4}{s_txt}{t_txt}{total:>7.2f}s{used:>6.0f} MB{pk:>6.0f} MB  {note}")
+
+    sam.stop()
 
     # ── 판정 ──────────────────────────────────────────────
     lat = sorted(r[0] for r in rows if not r[3])
@@ -134,7 +165,13 @@ def main() -> int:
     print(f"  지연  중앙값 {statistics.median(lat):.2f}s   p95 {p95:.2f}s   최대 {max(lat):.2f}s")
     print(f"        (VLM 시간은 빠져 있다. 실제 응답 시간은 여기에 더해야 한다)")
     print(f"  정확도 평균 CER {statistics.mean(cers):.3f}   최악 {max(cers):.3f}")
-    print(f"  메모리 최고 {max(mem):.0f} MB   처음 {n}턴 평균 {first:.0f} → 마지막 {n}턴 평균 {last:.0f} MB")
+    peaks = [r[4] for r in rows]
+    print(f"  메모리 최고점 {max(peaks):.0f} MB   (턴이 끝난 뒤 기준으로는 {max(mem):.0f} MB)")
+    print(f"        처음 {n}턴 평균 {first:.0f} → 마지막 {n}턴 평균 {last:.0f} MB")
+    bi = [r[4] for r in rows if r[3]]
+    if bi:
+        print(f"        barge-in 턴 최고 {max(bi):.0f} MB / 일반 턴 최고 "
+              f"{max(r[4] for r in rows if not r[3]):.0f} MB")
 
     print()
     if drift > 50:
