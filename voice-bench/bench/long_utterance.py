@@ -138,7 +138,7 @@ def main() -> int:
     print(f"{'글자수':>8}{'합성':>9}{'오디오':>9}{'RTF':>7}{'최고 메모리':>13}")
     print("-" * 50)
     tts_rows = []
-    for mult in (1, 2, 4, 8):
+    for mult in (1, 2, 4, 6, 8):
         text = " ".join(sentences[i % len(sentences)] for i in range(mult))
         t0 = time.perf_counter()
         audio = synth(normalize(text))
@@ -148,11 +148,35 @@ def main() -> int:
         tts_rows.append((len(text), dt, adur, pk))
         print(f"{len(text):>8}{dt:>8.2f}s{adur:>8.2f}s{dt/adur:>7.2f}{pk:>11.0f} MB")
 
+    # ── 쪼개서 합성하면 달라지는가 ────────────────────────
+    # VITS 는 파형 전체를 한 번에 만든다. 긴 답변이면 중간 텐서가 그만큼
+    # 커진다. 문장 단위로 잘라 따로 합성하면 각 조각이 짧으니 풀이 안 커야
+    # 하고, 덤으로 첫 문장부터 바로 재생할 수 있다 (체감 지연이 줄어든다).
+    print("\n### 같은 길이를 문장 단위로 쪼개면")
+    long_text = " ".join(sentences[i % len(sentences)] for i in range(8))
+    parts = [p.strip() for p in long_text.replace("?", "?|").replace(".", ".|").split("|") if p.strip()]
+    t0 = time.perf_counter()
+    first_at, total_audio = None, 0.0
+    for part in parts:
+        a = synth(normalize(part))
+        if first_at is None:
+            first_at = time.perf_counter() - t0
+        total_audio += len(a) / sr
+    dt = time.perf_counter() - t0
+    pk_split = sam.peak(t0, time.perf_counter()) - floor
+    whole = tts_rows[-1]
+    print(f"  통째로 {whole[0]}자   합성 {whole[1]:.2f}s   최고 {whole[3]:.0f} MB")
+    print(f"  {len(parts)}조각으로   합성 {dt:.2f}s   최고 {pk_split:.0f} MB"
+          f"   첫 조각까지 {first_at:.2f}s")
+    print(f"  → 메모리 {pk_split - whole[3]:+.0f} MB, 말을 시작하기까지 "
+          f"{whole[1]:.2f}s → {first_at:.2f}s")
+
     sam.stop()
 
     print("\n### 판정")
     base_pk = stt_rows[0][2]
     worst = max(max(r[2] for r in stt_rows), max(r[3] for r in tts_rows))
+    split_helps = pk_split < whole[3] - 100
     print(f"  가장 짧은 발화 {stt_rows[0][0]:.1f}s → {base_pk:.0f} MB")
     print(f"  가장 긴 발화  {stt_rows[-1][0]:.1f}s → {stt_rows[-1][2]:.0f} MB "
           f"({stt_rows[-1][2]-base_pk:+.0f} MB)")
@@ -165,6 +189,12 @@ def main() -> int:
         print("  · 늘어나긴 하지만 감당할 수준이다. 예산에 반영할 것.")
     else:
         print("  ✔ 발화 길이에 거의 영향받지 않는다. 기존 예산이 유효하다.")
+    if split_helps:
+        print(f"  ✔ 문장 단위로 쪼개면 최고점이 {whole[3]:.0f} → {pk_split:.0f} MB 로 내려간다.")
+        print("    긴 답변은 쪼개서 합성할 것. 체감 지연도 같이 줄어든다.")
+    else:
+        print(f"  · 쪼개도 최고점이 {pk_split:.0f} MB 다. 메모리로는 이득이 없다")
+        print("    (체감 지연에는 여전히 이득이 있다).")
     slow = [r for r in stt_rows if r[1] / r[0] > 1.0]
     if slow:
         print(f"  ! {slow[0][0]:.0f}s 부터 RTF 가 1.0 을 넘는다 — 긴 발화는 실시간이 안 된다.")
