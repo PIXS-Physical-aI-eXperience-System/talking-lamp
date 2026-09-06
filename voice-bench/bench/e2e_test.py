@@ -157,8 +157,14 @@ def main() -> int:
     cers = [r[2] for r in rows]
     p95 = lat[int(len(lat) * 0.95) - 1] if lat else float("nan")
 
-    n = max(3, len(mem) // 5)
-    first, last = statistics.mean(mem[:n]), statistics.mean(mem[-n:])
+    # 앞쪽 턴은 초기 할당이 끝나지 않은 구간이라 빼야 한다. 이걸 포함해서
+    # 비교하면 "준비 중" 과 "안정 상태" 를 비교하는 꼴이라, 평평한 결과도
+    # 누수로 잡힌다 (실제로 그렇게 오판했다: 1~6턴 15->296 MB 상승은
+    # 램프업이고 7턴부터 30턴까지는 300 MB 에서 평평했다).
+    warm = max(1, len(mem) // 4)
+    stable = mem[warm:]
+    h = max(1, len(stable) // 2)
+    first, last = statistics.mean(stable[:h]), statistics.mean(stable[-h:])
     drift = last - first
 
     print(f"\n### {args.turns} 턴 결과")
@@ -175,7 +181,7 @@ def main() -> int:
 
     print()
     if drift > 50:
-        print(f"  ! 메모리가 {drift:.0f} MB 늘었다. 턴당 약 {drift/len(mem):.1f} MB —")
+        print(f"  ! 메모리가 {drift:.0f} MB 늘었다. 턴당 약 {drift/len(stable):.1f} MB —")
         print("    몇 시간 켜두면 문제가 된다. 누수를 찾아야 한다.")
     elif drift > 20:
         print(f"  · 메모리가 {drift:.0f} MB 늘었다. 누수인지 단순 변동인지 더 긴 시험이 필요하다.")
