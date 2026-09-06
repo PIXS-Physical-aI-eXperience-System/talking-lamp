@@ -7,18 +7,24 @@
 
 ## 결정
 
-**MeloTTS 한국어를 ONNX로 변환해 int8 양자화한 것**을 쓴다.
-fp32 변환본을 예비로 함께 둔다.
+**MeloTTS 한국어를 ONNX로 변환해, VITS는 fp32 · BERT는 int8로 쓴다.**
+Jetson에서는 CUDA로 돌린다.
 
-| 구성 | STT 포함 피크 RSS | 가중치 | RTF (맥 CPU) |
-| --- | --- | --- | --- |
-| **melo ONNX int8** (주력) | **1407 MB** | 158 MB | 0.86 |
-| melo ONNX fp32 (예비) | 1550 MB | 585 MB | 0.36 |
-| melo 원본 (torch) | 2013 MB | 652 MB | 0.27 |
+> 맥 CPU 기준으로는 int8 전체가 주력이었으나, **Jetson GPU에서 뒤집혔다.**
+> int8+CUDA 는 fp32+CUDA 보다 10.4배 느리다 (RTF 2.61 vs 0.250).
+> 실측 근거는 [JETSON-측정.md](JETSON-측정.md) 를 볼 것.
 
-측정 조건: Apple M3 / CPU / 심사 문장 6개를 100 사이클 반복.
-각 사이클은 STT 1문장 + TTS 1문장이며, 동시 실행하지 않는다
-(반이중 구조 — TTS 발화 중에는 VAD만 돌고 STT는 돌지 않는다).
+| 구성 | RTF | 비고 |
+| --- | --- | --- |
+| **VITS fp32 + BERT int8** (주력, Jetson/CUDA) | **0.251** | BERT int8은 속도 손해 +0.3%, 메모리 −772 MB |
+| VITS fp32 + BERT fp32 (Jetson/CUDA) | 0.250 | 메모리만 더 씀 |
+| 전체 int8 (Jetson/CUDA) | 2.61 | **쓰면 안 된다** |
+| 전체 int8 (맥 CPU) | 0.86 | CPU 전용 예비 |
+
+실행은 `--bert-int8` 을 준다. `--int8` 은 VITS까지 내려가므로 GPU에서 금물이다.
+
+**긴 답변은 문장 단위로 쪼개서 합성할 것.** 138자를 통째로 합성하면 메모리가
+655 MB 튀고 첫 소리까지 4.56초가 걸린다. 쪼개면 각각 +95 MB, 0.59초다.
 
 ## 왜 ONNX인가
 
