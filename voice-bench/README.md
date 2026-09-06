@@ -71,6 +71,14 @@ bench/                    측정 도구 — 램프 런타임에는 들어가지 
   record.py                 심사 문장 녹음
   candidates.json           후보 정의
   runners/                  탈락·대조 후보 실행기
+
+  stt_sweep.py              STT 모델·스레드별 RTF 와 CER
+  mem_profile.py            구간별 메모리. barge-in 겹침 포함
+  e2e_test.py               N턴 반복 — 누수와 지연 흔들림
+  long_utterance.py         긴 발화·긴 답변에서의 메모리
+  mic_check.py              마이크 도착 시 전제 확인
+  doa_measure.py            음원 방향 오차 측정
+  aec_check.py              에코 제거·barge-in 지연
 ```
 
 `bench/` 아래 것들은 **Jetson 재검증에 그대로 쓴다.** 지우지 말 것.
@@ -104,31 +112,58 @@ rsync -av ~/talking-lamp/voice-bench/ref/ jetson:~/talking-lamp/voice-bench/ref/
 `models/`는 용량(743 MB) 때문에, `ref/`(녹음)는 개인 음성이라 커밋하지 않는다.
 `ref/`는 맥에서 녹음한 그 파일이어야 CER을 직접 비교할 수 있다.
 
-이어서 Jetson에서:
+이어서 Jetson에서 런타임을 갖춘다. **PyPI 휠 두 개가 모두 못 쓴다.**
+
+| 패키지 | 문제 | 해결 |
+| --- | --- | --- |
+| onnxruntime-gpu | sm_87 커널 없음 → `cudaErrorNoKernelImageForDevice` | `build-onnxruntime/` |
+| ctranslate2 | CUDA 없이 빌드됨 → `not compiled with CUDA support` | `build-ctranslate2/` |
+
+둘 다 aarch64 크로스 빌드다. 각 디렉터리의 `build.sh` 를 메모리 넉넉한
+리눅스 장비에서 돌리고, 나온 휠을 Jetson 으로 옮겨 설치한다.
+**설치 순서에 주의** — `faster-whisper` 가 의존성으로 CPU판 onnxruntime 을
+끌고 오므로, 직접 빌드한 휠은 반드시 마지막에 덮어쓴다.
 
 ```bash
 ./bench/jetson_check.sh            # 설치 전 점검 — 아무것도 바꾸지 않는다
-./bench/jetson_test.sh setup       # venv + 의존성
-./bench/jetson_test.sh stt         # STT 정확도·메모리 (CUDA 실패 시 CPU로 자동 전환)
-./bench/jetson_test.sh tts         # int8 / fp32 비교, 실행 공급자 표시
-./bench/jetson_test.sh soak        # 100 사이클 x 3회 — 예산 근거
+./bench/jetson_test.sh setup       # venv + 의존성 (직접 빌드한 휠은 건드리지 않는다)
+./bench/stt_sweep.py               # STT — 모델·스레드별 RTF 와 CER
+./bench/mem_profile.py --stt-device cuda --bert-int8    # 메모리
+./bench/e2e_test.py --turns 30     # 30턴 반복 — 누수와 지연
 ```
 
-`jetson_check.sh` 를 먼저 돌려 **aarch64 휠 가용성**을 확인한다.
-`ctranslate2`(STT)와 `onnxruntime-gpu`(GPU 가속)가 가장 막히기 쉬운 지점이며,
-휠이 없으면 소스 빌드로 넘어가 시간이 크게 든다.
+### 실측 결과 (2026-09-06)
 
-- 내보내기를 다시 할 필요는 없다. `models/` 폴더가 곧 산출물이다.
-- onnxruntime provider를 CUDA/TensorRT로 바꾼다.
-- **RTF를 반드시 다시 잰다.** 맥 CPU에서 int8이 fp32보다 느렸고(0.86~0.99 vs 0.36~0.46),
-  긴 문장에서는 1.0을 넘기도 했다.
-  Jetson GPU는 int8 가속이 있어 반대로 나올 가능성이 높지만 확인 전까지는 미지수다.
-  **1.0을 넘으면 실시간보다 느려 대화에 못 쓰므로 fp32로 전환한다.**
-- 측정은 3회 이상 반복한다. 이 워크로드는 편차가 ±200~300 MB로 크다.
+**맥 CPU 기준으로 내렸던 결정 두 개가 여기서 뒤집혔다.**
+
+| | 맥 CPU에서의 판단 | Jetson 실측 |
+| --- | --- | --- |
+| TTS | int8 주력 | **int8+CUDA 는 fp32 보다 10.4배 느리다** (RTF 2.61 vs 0.250) |
+| STT | CPU 로도 될 것 | **6코어를 다 써도 RTF 1.07** — CUDA 필수 (0.35) |
+
+- **BERT 만 int8** 로 내리면 속도 손해 +0.3% 에 메모리 −772 MB. `--bert-int8` 을 쓴다.
+- **긴 답변은 문장 단위로 쪼개서** 합성한다. 메모리 −505 MB, 첫 소리 7.7배 빠름.
+- 메모리: 유휴 ~1.1 GB / 대화 중 1.25~1.4 GB / barge-in 최악 ~1.55 GB.
+- 30턴 반복에서 CER 0.000 유지, 메모리 변동 −1 MB, 지연 p95 2.19s.
+
+전체 근거는 [JETSON-측정.md](JETSON-측정.md), 콘솔 원문은
+[results/jetson-2026-09-06.md](results/jetson-2026-09-06.md).
+
+**메모리는 피크 RSS 가 아니라 `/proc/meminfo` 기준 시스템 사용량으로 잰다.**
+피크 RSS 는 한 번 올라가면 안 내려가서 이미 반납된 몫을 다음 구간에 더한 것처럼
+보인다 — 그래서 초기에 3263 MB 라는 과대값이 나왔다. 통합 메모리라 GPU 가
+잡아간 몫도 시스템 사용량에는 잡힌다.
 
 ## 남은 작업
 
-- 스트리밍 처리 (첫 음절까지의 시간 단축) — 진행 순서 C-6
-- barge-in 시 즉시 정지 — C-7
+- **문장 단위 분할 합성을 러너에 넣기** — 지금은 측정으로만 확인했다.
+  첫 소리까지 4.56s → 0.59s 이고 메모리도 505 MB 줄어든다 (C-6)
+- barge-in 시 즉시 정지 — C-7. 겹쳐 도는 것 자체는 확인됐다(30턴 중 6회 정상)
+- **VLM 과 GPU 를 동시에 쓸 때 재측정** — 통합 메모리라 서로 밀어낼 수 있다.
+  지금 숫자는 전부 음성만 돌린 상태다. A·D 파트와 같이 돌려야 한다
+- **긴 시간 누수 확인** — 30턴에서는 안정이었으나 턴당 1~2 MB 씩 새는 것은
+  이 표본에서 잡음에 묻힌다. 200턴 이상을 밤새 돌릴 것
+- 마이크·웨이크워드·VAD 통합 — 마이크 미도착, 웨이크워드 학습 전.
+  현재 숫자는 "음성 파트 전체" 가 아니라 **"STT·TTS"** 다
 - B의 런타임 스텁이 나오면 이 추론 로직을 그 인터페이스에 맞춰 모듈로 감싼다.
   현재 러너는 문장을 파일로 뽑는 벤치마크용 구조다.
