@@ -78,7 +78,10 @@ import glob, sys, zipfile
 w = sorted(glob.glob("/out/ctranslate2-*.whl"))[-1]
 names = [n for n in zipfile.ZipFile(w).namelist() if n.endswith(".so") or ".so." in n]
 print("\n".join("  " + n for n in names) or "  (없음)")
-if not any("libctranslate2.so" in n for n in names):
+# auditwheel 은 담으면서 이름에 해시를 붙인다:
+#   libctranslate2.so.4.6.0 -> ctranslate2.libs/libctranslate2-38d35ec6.so.4.6.0
+# 그래서 "libctranslate2.so" 를 찾으면 멀쩡한 휠도 실패로 잡힌다.
+if not any("libctranslate2" in n for n in names):
     print("\n실패: 휠 안에 libctranslate2.so 가 없다. 이대로는 Jetson 에서 못 쓴다.")
     sys.exit(1)
 print("\n  확인: libctranslate2.so 가 휠 안에 있다")
