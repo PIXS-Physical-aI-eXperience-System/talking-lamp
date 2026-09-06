@@ -62,6 +62,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--lengths", default="4,10,20,30,60",
                     help="만들 발화 길이(초). 쉼표로 구분")
+    ap.add_argument("--only", choices=["full", "chunked"],
+                    help="TTS 합성 방식 하나만 깨끗한 프로세스에서 잰다. "
+                         "메모리 풀은 한 번 커지면 반납하지 않으므로, 두 방식을 "
+                         "한 프로세스에서 비교하면 나중에 잰 쪽이 앞의 최고점을 "
+                         "물려받아 비교가 무의미해진다")
     args = ap.parse_args()
 
     if not os.path.exists("/proc/meminfo"):
@@ -119,6 +124,29 @@ def main() -> int:
     time.sleep(0.5)
     idle = sys_used_mb() - floor
     print(f"적재+워밍업 후 유휴: {idle:.0f} MB\n")
+
+    if args.only:
+        long_text = " ".join(sentences[i % len(sentences)] for i in range(8))
+        print(f"### TTS {args.only} — 깨끗한 프로세스에서만 측정 ({len(long_text)}자)")
+        t0 = time.perf_counter()
+        if args.only == "full":
+            a = synth(normalize(long_text))
+            first_at, audio_s, n = time.perf_counter() - t0, len(a) / sr, 1
+        else:
+            parts = [x.strip() for x in long_text.replace("?", "?|").replace(".", ".|").split("|") if x.strip()]
+            first_at, audio_s, n = None, 0.0, len(parts)
+            for part in parts:
+                a = synth(normalize(part))
+                if first_at is None:
+                    first_at = time.perf_counter() - t0
+                audio_s += len(a) / sr
+        dt = time.perf_counter() - t0
+        pk = sam.peak(t0, time.perf_counter()) - floor
+        sam.stop()
+        print(f"  조각 수 {n}   합성 {dt:.2f}s   오디오 {audio_s:.2f}s")
+        print(f"  말을 시작하기까지 {first_at:.2f}s")
+        print(f"  유휴 {idle:.0f} MB → 최고 {pk:.0f} MB  (+{pk - idle:.0f} MB)")
+        return 0
 
     # ── STT: 발화 길이별 ──────────────────────────────────
     print("### STT — 발화가 길어질 때")
