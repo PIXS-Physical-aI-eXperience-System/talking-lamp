@@ -34,28 +34,52 @@ pip3 wheel . --no-deps --no-build-isolation -w /out
 # 로 죽는다. PyPI 휠은 auditwheel 로 이걸 안에 넣어 배포한다.
 #
 # CUDA 라이브러리는 제외한다. Jetson 에 이미 있고, 담으면 휠이 수백 MB 가 된다.
-echo "== 공유 라이브러리 포장 (auditwheel) =="
+echo "== 공유 라이브러리 포장 =="
 RAW=$(ls /out/ctranslate2-*.whl | head -1)
+# --plat 에 linux_aarch64 는 못 준다. auditwheel 은 manylinux_* 또는 auto 만 받는다.
 if LD_LIBRARY_PATH=/usr/local/lib auditwheel repair "$RAW" \
-     --plat linux_aarch64 -w /out/repaired \
+     --plat auto -w /out/repaired \
      --exclude 'libcu*' --exclude 'libnv*' --exclude 'libcudnn*'; then
-  mv "$RAW" "/tmp/$(basename "$RAW").raw"
+  rm -f "$RAW"
   mv /out/repaired/*.whl /out/
   rmdir /out/repaired 2>/dev/null || true
-  echo "  포장 완료"
+  echo "  auditwheel 포장 완료"
 else
-  echo "  ! auditwheel 실패 — 공유 라이브러리를 직접 넣는다"
-  cp -a /usr/local/lib/libctranslate2.so* /out/
-  echo "  dist/libctranslate2.so* 를 Jetson 의 venv 안 ctranslate2/ 로 함께 복사할 것"
+  # auditwheel 이 정책을 못 고르는 경우가 있어서 직접 넣는다.
+  # .so 를 패키지 안에 복사하는 것만으로는 부족하다. _ext.so 는 SONAME 으로
+  # 찾는데 패키지 디렉터리는 로더의 검색 경로가 아니다. RPATH 를 $ORIGIN 으로
+  # 바꿔줘야 자기 옆에 있는 라이브러리를 본다.
+  echo "  ! auditwheel 실패 — RPATH 를 직접 손봐서 포장한다"
+  rm -rf /tmp/whl && mkdir -p /tmp/whl && cd /tmp/whl
+  python3 -m zipfile -e "$RAW" .
+  cp -L /usr/local/lib/libctranslate2.so.4 ctranslate2/
+  patchelf --set-rpath '$ORIGIN' ctranslate2/_ext*.so
+  python3 - "$RAW" <<'REPACK'
+import os, sys, zipfile
+out = sys.argv[1]
+os.remove(out)
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    for root, _, files in os.walk("."):
+        for f in files:
+            full = os.path.join(root, f)
+            z.write(full, os.path.relpath(full, "."))
+print("  다시 압축:", out)
+REPACK
+  cd /src/CTranslate2/python
 fi
-
 echo "== 결과 =="
 ls -lh /out/
 echo
-echo "== 휠에 담긴 공유 라이브러리 =="
-python3 -c "
-import glob, zipfile
-w = sorted(glob.glob('/out/ctranslate2-*.whl'))[-1]
-names = [n for n in zipfile.ZipFile(w).namelist() if n.endswith('.so') or '.so.' in n]
-print('\n'.join('  ' + n for n in names) or '  (없음 — 이러면 Jetson 에서 또 죽는다)')
-"
+echo "== 휠 검증 =="
+# 여기서 막지 않으면 반쪽짜리 휠이 Jetson 까지 가서 ImportError 로 죽는다.
+# 이미 두 번 그랬다. 실패는 옮기기 전에 드러나야 한다.
+python3 - <<'VERIFY'
+import glob, sys, zipfile
+w = sorted(glob.glob("/out/ctranslate2-*.whl"))[-1]
+names = [n for n in zipfile.ZipFile(w).namelist() if n.endswith(".so") or ".so." in n]
+print("\n".join("  " + n for n in names) or "  (없음)")
+if not any("libctranslate2.so" in n for n in names):
+    print("\n실패: 휠 안에 libctranslate2.so 가 없다. 이대로는 Jetson 에서 못 쓴다.")
+    sys.exit(1)
+print("\n  확인: libctranslate2.so 가 휠 안에 있다")
+VERIFY
