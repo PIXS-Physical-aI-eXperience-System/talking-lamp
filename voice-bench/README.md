@@ -131,11 +131,16 @@ rsync -av ~/talking-lamp/voice-bench/ref/ jetson:~/talking-lamp/voice-bench/ref/
 끌고 오므로, 직접 빌드한 휠은 반드시 마지막에 덮어쓴다.
 
 ```bash
-./bench/jetson_check.sh            # 설치 전 점검 — 아무것도 바꾸지 않는다
-./bench/jetson_test.sh setup       # venv + 의존성 (직접 빌드한 휠은 건드리지 않는다)
-./bench/stt_sweep.py               # STT — 모델·스레드별 RTF 와 CER
-./bench/mem_profile.py --stt-device cuda --bert-int8    # 메모리
-./bench/e2e_test.py --turns 30     # 30턴 반복 — 누수와 지연
+./bench/jetson_check.sh         # 설치 전 점검 — 아무것도 바꾸지 않는다
+./bench/jetson_test.sh setup    # venv + 의존성 (직접 빌드한 휠은 건드리지 않는다)
+
+# 아래는 venv 의 파이썬으로 돌린다. TOKENIZERS_PARALLELISM=false 는
+# transformers 가 포크 경고를 뿜는 것을 막는다.
+P="TOKENIZERS_PARALLELISM=false venvs/melo-onnx/bin/python"
+$P bench/stt_sweep.py --device cuda --compute-type int8_float16 --threads 6
+$P bench/mem_profile.py --stt-device cuda --bert-int8
+$P bench/e2e_test.py --turns 30
+$P bench/long_utterance.py
 ```
 
 ### 실측 결과 (2026-09-06)
