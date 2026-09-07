@@ -15,6 +15,20 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
 
+
+def find_xvf_host():
+    """xvf_host 를 찾는다. bench/xvf_setup.sh 가 받아둔 것을 먼저 본다.
+
+    소스에서 빌드하는 물건이 아니라 미리 빌드된 바이너리로 배포되며,
+    jetson 용이 따로 들어 있다. PATH 에 넣는 것이 아니라 저장소 안에
+    두는 구조라 여기서 직접 찾아야 한다.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local = os.path.join(root, "tools", "xvf3800", "host_control", "jetson", "xvf_host")
+    if os.path.isfile(local) and os.access(local, os.X_OK):
+        return local
+    return shutil.which("xvf_host") or shutil.which("xvf_host.py")
+
 def section(t):
     print(f"\n── {t}")
 
@@ -50,12 +64,17 @@ def main() -> int:
             print("  ✔ 6채널 이상 — 처리음 2 + 원음 4 로 보인다 (빔포밍·DOA 자체 구현 가능)")
         else:
             print(f"  ⚠ {ch}채널뿐 — 2채널 처리음 펌웨어일 수 있다.")
-            print("    6채널 펌웨어로 전환해야 원음에 접근할 수 있다:")
-            print("      dfu-util -R -e -a 1 -D respeaker_flex_ua-io16-6ch-cir.bin")
+            print("    6채널 펌웨어로 전환해야 원음에 접근할 수 있다.")
+            print("    XMOS USB-C 포트(3.5mm 잭 쪽)에 연결하고:")
+            print("      sudo apt install dfu-util && sudo dfu-util -l")
+            print("      sudo dfu-util -R -e -a 1 -D \\")
+            print("        tools/xvf3800/xmos_firmwares/usb/"
+                  "respeaker_xvf3800_usb_dfu_firmware_v2.1.0_16k6ch.bin")
+            print("    (bench/xvf_setup.sh 를 먼저 돌려 펌웨어를 받아둘 것)")
             ok = False
 
     section("xvf_host (DOA 읽기 도구)")
-    exe = shutil.which("xvf_host") or shutil.which("xvf_host.py")
+    exe = find_xvf_host()
     if exe:
         print(f"  ✔ {exe}")
         try:
@@ -67,8 +86,8 @@ def main() -> int:
             ok = False
     else:
         print("  ✗ xvf_host 없음 — DOA 를 읽을 수 없다.")
-        print("    https://github.com/respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY")
-        print("    host_control/ 에서 빌드하거나 xvf_host.py 를 쓴다")
+        print("    빌드할 필요 없다. 미리 빌드된 바이너리를 받으면 된다:")
+        print("      ./bench/xvf_setup.sh")
         ok = False
 
     section("스피커 출력 경로 (AEC 의 전제)")

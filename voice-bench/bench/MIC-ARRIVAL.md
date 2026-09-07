@@ -3,6 +3,36 @@
 reSpeaker Flex XVF3800 Circular-4 가 도착하면 이 순서로 진행한다.
 E(이수혁)에게 넘겨야 할 값들이 여기서 나온다 — 인수인계 7번(C → E: 소리 방향).
 
+
+## 0. 도착 전에 (지금 해둘 것)
+
+```bash
+./bench/xvf_setup.sh
+```
+
+`xvf_host` 는 **소스에서 빌드하는 물건이 아니다.** 미리 빌드된 바이너리로
+배포되며 `host_control/jetson/` 에 aarch64 용이 따로 들어 있다. 이 스크립트가
+필요한 폴더만 잘라 `tools/xvf3800/` 에 받아 둔다 (커밋하지 않는다).
+
+같이 받는 것:
+
+- `host_control/jetson/xvf_host` — DOA 를 읽는 도구. `AEC_AZIMUTH_VALUES`
+- `xmos_firmwares/usb/*6ch*.bin` — 6채널 펌웨어
+
+**6채널 펌웨어의 채널 구성** (16 kHz / 32 bit):
+
+| 채널 | 내용 |
+| --- | --- |
+| 0 | 처리음 (회의용) |
+| 1 | 처리음 (음성인식용) |
+| 2~5 | 마이크 0~3 원음 |
+
+2채널 펌웨어로는 원음에 접근할 수 없어 빔포밍·DOA 를 직접 다룰 수 없다.
+
+> 출처: [respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY](https://github.com/respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY)
+> Flex Circular-4 도 같은 저장소가 커버한다 (같은 XVF3800 코어).
+
+
 ## 0. 환경
 
 ```bash

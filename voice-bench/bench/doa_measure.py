@@ -36,6 +36,20 @@ ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
 # 각도는 359° 와 1° 가 2° 차이다. 산술평균·표준편차를 그대로 쓰면 틀린 값이
 # 조용히 나오므로 벡터 평균으로 계산한다.
 
+
+def find_xvf_host():
+    """xvf_host 를 찾는다. bench/xvf_setup.sh 가 받아둔 것을 먼저 본다.
+
+    소스에서 빌드하는 물건이 아니라 미리 빌드된 바이너리로 배포되며,
+    jetson 용이 따로 들어 있다. PATH 에 넣는 것이 아니라 저장소 안에
+    두는 구조라 여기서 직접 찾아야 한다.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local = os.path.join(root, "tools", "xvf3800", "host_control", "jetson", "xvf_host")
+    if os.path.isfile(local) and os.access(local, os.X_OK):
+        return local
+    return shutil.which("xvf_host") or shutil.which("xvf_host.py")
+
 def circ_mean(deg):
     r = np.radians(np.asarray(deg, dtype=float))
     return float(np.degrees(np.arctan2(np.sin(r).mean(), np.cos(r).mean())) % 360)
@@ -60,7 +74,7 @@ def read_doa():
     출력은 집중빔1·집중빔2·자유빔·자동선택빔의 4개 각도이며,
     문서상 마지막(자동선택빔)이 사용 대상이다.
     """
-    exe = shutil.which("xvf_host") or shutil.which("xvf_host.py")
+    exe = find_xvf_host()
     if not exe:
         return None, "xvf_host 없음"
     try:
