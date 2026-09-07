@@ -96,8 +96,14 @@ python export/melo_quantize.py      # 둘 다 → *.int8.onnx
 내보내기에는 원본 MeloTTS(torch 포함) 환경이 필요하다. 실행은 torch 없이 된다.
 
 ```bash
-python runners/tts_melo_onnx.py --out-dir out/tts/melo-onnx-int8 \
-    --label melo-onnx-int8 --normalize --int8
+# Jetson (CUDA) — 최종 구성
+python runners/tts_melo_onnx.py --out-dir out/tts/melo --label melo \
+    --normalize --bert-int8 --warmup 2 --quiet-ort \
+    --providers CUDAExecutionProvider,CPUExecutionProvider
+
+# 맥 (CPU) — 여기서는 전체 int8 이 가장 빠르다
+python runners/tts_melo_onnx.py --out-dir out/tts/melo-int8 --label melo-int8 \
+    --normalize --int8
 ```
 
 ## Jetson으로 옮길 때
