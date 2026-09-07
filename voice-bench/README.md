@@ -134,9 +134,10 @@ rsync -av ~/talking-lamp/voice-bench/ref/ jetson:~/talking-lamp/voice-bench/ref/
 ./bench/jetson_check.sh         # 설치 전 점검 — 아무것도 바꾸지 않는다
 ./bench/jetson_test.sh setup    # venv + 의존성 (직접 빌드한 휠은 건드리지 않는다)
 
-# 아래는 venv 의 파이썬으로 돌린다. TOKENIZERS_PARALLELISM=false 는
-# transformers 가 포크 경고를 뿜는 것을 막는다.
-P="TOKENIZERS_PARALLELISM=false venvs/melo-onnx/bin/python"
+# 아래는 venv 의 파이썬으로 돌린다.
+# TOKENIZERS_PARALLELISM 은 transformers 의 포크 경고를 막는 것뿐이다.
+export TOKENIZERS_PARALLELISM=false
+P=venvs/melo-onnx/bin/python
 $P bench/stt_sweep.py --device cuda --compute-type int8_float16 --threads 6
 $P bench/mem_profile.py --stt-device cuda --bert-int8
 $P bench/e2e_test.py --turns 30
