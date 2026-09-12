@@ -12,7 +12,12 @@ from motion.primitives import CLIP_NAMES, Primitive, PrimitiveLibrary
 RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "lelamp_runtime"
 sys.path.insert(0, str(RUNTIME_ROOT))
 
-from lelamp.playback import JOINT_KEYS, load_recording, retarget_actions  # noqa: E402
+from lelamp.playback import (  # noqa: E402
+    JOINT_KEYS,
+    load_recording,
+    retarget_actions,
+    smooth_actions,
+)
 
 
 @pytest.mark.parametrize("name", CLIP_NAMES)
@@ -50,10 +55,12 @@ def test_sign_and_scale_applied():
 
 
 @pytest.mark.parametrize("name", CLIP_NAMES)
-def test_default_offsets_match_runtime_retargeting_in_simulation_radians(name):
+def test_default_offsets_match_smoothed_runtime_retargeting_in_simulation_radians(name):
     primitive = Primitive.load(name)
     recording_path = RUNTIME_ROOT / "lelamp" / "recordings" / f"{name}.csv"
-    retargeted = retarget_actions(load_recording(recording_path))
+    retargeted = smooth_actions(
+        retarget_actions(load_recording(recording_path)), alpha=0.15
+    )
     normalized = np.asarray(
         [[frame[joint] for joint in JOINT_KEYS] for frame in retargeted],
         dtype=float,

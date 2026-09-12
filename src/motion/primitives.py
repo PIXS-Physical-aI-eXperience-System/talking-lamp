@@ -24,6 +24,7 @@ from .hardware_alignment import HardwareAlignment
 # Verified playback retargeting values. Base pitch is reversed deliberately.
 DEFAULT_SIGN = np.array([1.0, -1.0, 1.0, 1.0, 1.0])
 DEFAULT_SCALE = np.array([0.35, 0.12, 0.15, 0.35, 0.25])
+DEFAULT_SMOOTHING_ALPHA = 0.15
 
 CLIP_NAMES = (
     "nod", "headshake", "curious", "excited", "happy_wiggle",
@@ -63,6 +64,20 @@ class Primitive:
         rad = rad - rad[0]  # relative to first frame in simulation radians
         rad *= (sign if sign is not None else DEFAULT_SIGN)
         rad *= (scale if scale is not None else DEFAULT_SCALE)
+
+        # These recordings contain single-frame teleoperation noise.  Match
+        # the proven physical playback path: a causal low-pass removes that
+        # noise, then the residual is distributed across the clip so both
+        # endpoints and the original duration remain exact.
+        smoothed = np.empty_like(rad)
+        smoothed[0] = rad[0]
+        for index in range(1, len(rad)):
+            smoothed[index] = smoothed[index - 1] + DEFAULT_SMOOTHING_ALPHA * (
+                rad[index] - smoothed[index - 1]
+            )
+        residual = rad[-1] - smoothed[-1]
+        smoothed += np.linspace(0.0, 1.0, len(rad))[:, None] * residual
+        rad = smoothed
 
         return cls(
             name=name,
