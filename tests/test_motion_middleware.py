@@ -511,6 +511,57 @@ def test_signal_during_runtime_startup_parks_without_sending(monkeypatch, signum
     assert signal.getsignal(shutdown_signal) == previous
 
 
+def test_repeated_sigterm_while_event_lock_is_held_reaches_backend_close():
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    code = '''
+import os
+import signal
+import threading
+from motion import middleware_server as server
+from motion.runtime import MotionRuntime, NullBackend
+
+original_set = threading.Event.set
+injected = False
+def set_with_repeated_signal(event):
+    global injected
+    with event._cond:
+        if not injected:
+            injected = True
+            print("second SIGTERM while Event lock held", flush=True)
+            os.kill(os.getpid(), signal.SIGTERM)
+    original_set(event)
+threading.Event.set = set_with_repeated_signal
+
+class RecordingBackend(NullBackend):
+    def close(self):
+        print("backend closed", flush=True)
+server.NullBackend = RecordingBackend
+def runtime(**kwargs):
+    result = MotionRuntime(**kwargs)
+    print("first SIGTERM during startup", flush=True)
+    os.kill(os.getpid(), signal.SIGTERM)
+    return result
+server.MotionRuntime = runtime
+raise SystemExit(server.main(["--null-backend"]))
+'''
+    env = {**os.environ, "TALKING_LAMP_TOKEN": TOKEN,
+           "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+    process = subprocess.Popen([sys.executable, "-c", code], env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        stdout, stderr = process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+        pytest.fail(f"Repeated SIGTERM deadlocked before backend close: {stdout!r} {stderr!r}")
+    assert process.returncode == 0, (stdout, stderr)
+    assert stdout.splitlines() == ["first SIGTERM during startup",
+        "second SIGTERM while Event lock held", "backend closed"]
+
+
 @pytest.mark.parametrize("signum", ["SIGINT", "SIGTERM"])
 def test_null_daemon_roundtrip_signal_exit_and_no_hardware_import(tmp_path, signum):
     import os

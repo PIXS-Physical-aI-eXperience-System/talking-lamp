@@ -13,6 +13,7 @@ import signal
 import sys
 import threading
 import time
+from typing import Callable
 
 from .catalog import MotionCatalog
 from .config import CONTROL_HZ, RECORDINGS_DIR, REST_POSE
@@ -156,16 +157,16 @@ class MotionTcpServer:
 
 
 async def _serve(controller: MotionController, server: MotionTcpServer,
-                 stopping: threading.Event) -> None:
+                 shutdown_requested: Callable[[], bool]) -> None:
     """Join the sole motion owner before the caller parks the backend."""
     owner = threading.Thread(target=controller.run, name="motion-owner")
     serving = None
     try:
-        if stopping.is_set():
+        if shutdown_requested():
             controller.stop("shutdown during startup")
         owner.start()
         serving = asyncio.create_task(server.serve_forever())
-        while not stopping.is_set() and owner.is_alive() and not serving.done():
+        while not shutdown_requested() and owner.is_alive() and not serving.done():
             await asyncio.sleep(.05)
         if serving.done():
             await serving  # Surface bind/transport failures to systemd.
@@ -227,13 +228,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Motion daemon preflight failed: {exc}", file=sys.stderr)
         return 2
 
-    stopping = threading.Event()
+    stopping = False
     previous_handlers = {}
     backend = controller = None
     def request_shutdown(*_):
-        stopping.set()
-        if controller is not None:
-            controller.stop("signal shutdown")
+        # Python handlers may re-enter on a repeated signal. Event.set() and
+        # controller.stop() acquire locks, so only assign this main-thread flag.
+        nonlocal stopping
+        stopping = True
     try:
         # Install before opening hardware. A signal during construction requests
         # shutdown without interrupting assignment of the backend we must close.
@@ -246,14 +248,14 @@ def main(argv: list[str] | None = None) -> int:
                 from .hardware_backend import FeetechBackend
                 backend = FeetechBackend(port=args.port, lamp_id=args.lamp_id,
                                          feedback_hz=args.feedback_hz)
-            if not stopping.is_set():
+            if not stopping:
                 runtime = MotionRuntime(backend=backend, initial_pose=backend.measured(),
                                         primitives=library)
                 controller = MotionController(runtime, catalog)
                 server = MotionTcpServer(controller, token=token, host=args.bind,
                     port=args.tcp_port, allowed_hosts=None if args.allow_host is None else set(args.allow_host),
                     heartbeat_timeout=args.heartbeat_timeout)
-                asyncio.run(_serve(controller, server, stopping))
+                asyncio.run(_serve(controller, server, lambda: stopping))
         finally:
             if controller is not None:
                 controller.stop("daemon shutdown")
