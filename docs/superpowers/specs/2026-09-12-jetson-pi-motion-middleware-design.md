@@ -152,7 +152,6 @@ float32 progress
   "version": 1,
   "id": "0199f3c0-0b5f-7b55-a020-7c8b4012d8ce",
   "type": "motion.play",
-  "sent_at_ms": 1789142400000,
   "ttl_ms": 1000,
   "token": "environment-provided-secret",
   "payload": {"name": "nod", "replace_current": true, "intensity": 1.0, "repeat": 1}
@@ -168,6 +167,8 @@ float32 progress
 - `system.heartbeat`
 
 응답과 비동기 이벤트는 동일한 `id`를 포함한다. 서버는 최근 완료 요청 ID를 제한된 LRU 캐시에 보관해 재연결 후 같은 요청이 중복 실행되는 것을 막는다.
+
+TTL은 Pi가 메시지를 완전히 수신한 순간의 monotonic clock부터 계산한다. 두 장치의 wall clock 동기화에 의존하지 않는다. 명령 큐에서 TTL이 끝난 요청은 실행하지 않으며, 연결 단절 후 재전송된 요청은 요청 ID 중복 제거로 차단한다.
 
 ## 데이터 흐름과 중재
 
