@@ -47,6 +47,9 @@ class NullBackend:
     def measured(self) -> np.ndarray | None:
         return self._last
 
+    def close(self) -> None:
+        """Idempotent lifecycle hook; no physical connection to park."""
+
 
 @dataclass
 class StepState:

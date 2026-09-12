@@ -18,7 +18,7 @@ from typing import Callable
 import numpy as np
 
 from .catalog import MotionCatalog
-from .hardware_run import DEADLINE_JITTER_SECONDS
+from .config import DEADLINE_JITTER_SECONDS
 from .primitives import DEFAULT_SCALE
 from .protocol import Request
 from .runtime import MotionRuntime, StepState

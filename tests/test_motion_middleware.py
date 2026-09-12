@@ -363,3 +363,203 @@ def test_controller_rejection_is_single_terminal_event():
                 assert events[0]["state"] == "failed"
                 assert events[0]["code"] == "unknown_motion"
     asyncio.run(scenario())
+
+
+def test_invalid_catalog_prevents_backend_construction(monkeypatch, tmp_path, capsys):
+    from motion import hardware_backend, middleware_server as server
+    opened = []
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", lambda **kw: opened.append(kw))
+    catalog = tmp_path / "catalog.toml"
+    catalog.write_text('[motions.bad]\nfile="missing.csv"\nenabled=true\n')
+    assert server.main(["--catalog", str(catalog), "--port", "/dev/ttyACM0",
+                        "--lamp-id", "lelamp"]) == 2
+    assert not opened
+    assert "missing.csv" in capsys.readouterr().err
+
+
+def test_daemon_requires_token_before_catalog_or_hardware(monkeypatch, capsys):
+    from motion import middleware_server as server
+    monkeypatch.delenv("TALKING_LAMP_TOKEN", raising=False)
+    assert server.main(["--catalog", "/missing/catalog.toml", "--null-backend"]) == 2
+    assert "TALKING_LAMP_TOKEN" in capsys.readouterr().err
+
+
+def test_daemon_requires_ruckig_before_hardware(monkeypatch, capsys):
+    from motion import hardware_backend, middleware_server as server, trajectory
+    opened = []
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(trajectory, "_HAVE_RUCKIG", False)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", lambda **kw: opened.append(kw))
+    assert server.main(["--port", "/dev/ttyACM0", "--lamp-id", "lelamp"]) == 2
+    assert not opened
+    assert "Ruckig" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("args", [[], ["--null-backend", "--port", "/dev/ttyACM0"],
+    ["--null-backend", "--lamp-id", "lelamp"], ["--port", "/dev/ttyACM0"],
+    ["--null-backend", "--tcp-port", "0"], ["--null-backend", "--tcp-port", "65536"],
+    ["--null-backend", "--heartbeat-timeout", "nan"],
+    ["--port", "/dev/ttyACM0", "--lamp-id", "lelamp", "--feedback-hz", "101"]])
+def test_daemon_rejects_ambiguous_or_invalid_config(args):
+    from motion import middleware_server as server
+    with pytest.raises(SystemExit) as exc:
+        server.main(args)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("failure", ["runtime", "bind", "controller", "normal", "park"])
+def test_daemon_closes_backend_after_owner_stops(monkeypatch, failure, capsys):
+    from motion import hardware_backend, middleware_server as server
+    from motion.runtime import NullBackend
+    events = []
+    class Backend(NullBackend):
+        def __init__(self, **kwargs):
+            super().__init__()
+            assert kwargs == dict(port="/dev/ttyACM0", lamp_id="lelamp", feedback_hz=20.)
+        def close(self):
+            events.append("park")
+            if failure == "park":
+                raise RuntimeError("park failed")
+    runtime_type = MotionRuntime
+    def runtime(**kwargs):
+        if failure == "runtime":
+            raise RuntimeError("runtime failed")
+        return runtime_type(**kwargs)
+    def run(controller):
+        events.append("owner started")
+        if failure == "controller":
+            controller.runtime.step = lambda: (_ for _ in ()).throw(RuntimeError("motor failed"))
+            controller.tick_once(now=time.monotonic())
+        else:
+            controller._stop_event.wait(2)
+        events.append("owner stopped")
+    async def serve(tcp):
+        await eventually(lambda: "owner started" in events)
+        if failure == "bind":
+            raise OSError("bind failed")
+        if failure == "controller":
+            await asyncio.Future()
+    async def close(tcp):
+        events.append("transport closed")
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", Backend)
+    monkeypatch.setattr(server, "MotionRuntime", runtime, raising=False)
+    monkeypatch.setattr(MotionController, "run", run)
+    monkeypatch.setattr(MotionTcpServer, "serve_forever", serve)
+    monkeypatch.setattr(MotionTcpServer, "close", close)
+    assert server.main(["--port", "/dev/ttyACM0", "--lamp-id", "lelamp"]) == (0 if failure == "normal" else 1)
+    assert events[-1] == "park"
+    assert events.count("park") == 1
+    if failure != "runtime":
+        assert events.index("owner stopped") < events.index("park")
+        assert events.index("transport closed") < events.index("park")
+    if failure != "normal":
+        assert "failed" in capsys.readouterr().err
+
+
+def test_null_backend_close_is_idempotent():
+    from motion.runtime import NullBackend
+    backend = NullBackend()
+    backend.close()
+    backend.close()
+
+
+def test_daemon_reports_fault_that_occurs_while_stopping(monkeypatch, capsys):
+    from motion import middleware_server as server
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    def run(controller):
+        controller._stop_event.wait(2)
+        controller.runtime.step = lambda: (_ for _ in ()).throw(RuntimeError("late motor failed"))
+        controller._stop_event.clear()
+        controller.tick_once(now=time.monotonic())
+    async def serve(tcp):
+        return
+    monkeypatch.setattr(MotionController, "run", run)
+    monkeypatch.setattr(MotionTcpServer, "serve_forever", serve)
+    assert server.main(["--null-backend"]) == 1
+    assert "late motor failed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("signum", ["SIGINT", "SIGTERM"])
+def test_signal_during_runtime_startup_parks_without_sending(monkeypatch, signum):
+    import signal
+    from motion import hardware_backend, middleware_server as server
+    from motion.runtime import NullBackend
+    events = []
+    shutdown_signal = getattr(signal, signum)
+    previous = signal.getsignal(shutdown_signal)
+    class Backend(NullBackend):
+        def __init__(self, **kwargs):
+            super().__init__()
+        def send(self, command):
+            events.append("sent")
+            super().send(command)
+        def close(self):
+            events.append("parked")
+            # Repeated signals cannot interrupt parking or cause a second close.
+            signal.raise_signal(shutdown_signal)
+    def runtime(**kwargs):
+        result = MotionRuntime(**kwargs)
+        signal.raise_signal(shutdown_signal)
+        return result
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", Backend)
+    monkeypatch.setattr(server, "MotionRuntime", runtime)
+    assert server.main(["--port", "/dev/ttyACM0", "--lamp-id", "lelamp"]) == 0
+    assert events == ["parked"]
+    assert signal.getsignal(shutdown_signal) == previous
+
+
+@pytest.mark.parametrize("signum", ["SIGINT", "SIGTERM"])
+def test_null_daemon_roundtrip_signal_exit_and_no_hardware_import(tmp_path, signum):
+    import os
+    from pathlib import Path
+    import signal
+    import socket
+    import subprocess
+    import sys
+    # A fresh process forbids even indirect imports of the physical backend.
+    guard = tmp_path / "sitecustomize.py"
+    guard.write_text('''import sys
+class Guard:
+    def find_spec(self, fullname, *args):
+        if fullname in {"motion.hardware_backend", "motion.hardware_run", "serial"} or fullname.startswith("lelamp."):
+            raise AssertionError("hardware import in null mode: " + fullname)
+sys.meta_path.insert(0, Guard())
+def audit(event, args):
+    if event == "open" and args[0] == "/dev/ttyACM0":
+        raise AssertionError("serial device opened in null mode")
+sys.addaudithook(audit)
+''')
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    env = {**os.environ, "TALKING_LAMP_TOKEN": TOKEN,
+           "PYTHONPATH": f"{tmp_path}:{Path(__file__).resolve().parents[1] / 'src'}"}
+    process = subprocess.Popen([sys.executable, "-m", "motion.middleware_server", "--null-backend",
+        "--bind", "127.0.0.1", "--tcp-port", str(port)], env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=.2) as connection:
+                    connection.settimeout(2)
+                    connection.sendall(envelope("motion.list"))
+                    with connection.makefile("rb") as stream:
+                        assert json.loads(stream.readline())["state"] == "accepted"
+                        assert "nod" in json.loads(stream.readline())["data"]["motions"]
+                process.send_signal(getattr(signal, signum))
+                break
+            except ConnectionRefusedError:
+                time.sleep(.02)
+        stdout, stderr = process.communicate(timeout=5)
+        assert process.returncode == 0, (stdout, stderr)
+        assert "hardware import" not in stderr
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
