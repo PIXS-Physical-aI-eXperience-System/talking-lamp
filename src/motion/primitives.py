@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 
@@ -52,8 +53,13 @@ class Primitive:
         scale: np.ndarray | None = None,
         loop: bool | None = None,
         recordings_dir: Path | None = None,
+        recording_path: Path | None = None,
     ) -> "Primitive":
-        path = Path(recordings_dir or RECORDINGS_DIR) / f"{name}.csv"
+        path = (
+            Path(recording_path)
+            if recording_path is not None
+            else Path(recordings_dir or RECORDINGS_DIR) / f"{name}.csv"
+        )
         try:
             raw = np.genfromtxt(path, delimiter=",", names=True)
         except ValueError as exc:
@@ -120,19 +126,34 @@ class Primitive:
 @dataclass
 class PrimitiveLibrary:
     recordings_dir: Path = field(default_factory=lambda: RECORDINGS_DIR)
-    allowed_names: frozenset[str] | None = None
     _cache: dict[str, Primitive] = field(default_factory=dict)
+    allowed_names: frozenset[str] | None = None
+    recording_paths: Mapping[str, Path] | None = None
 
     def get(self, name: str, **kw) -> Primitive:
         if self.allowed_names is not None and name not in self.allowed_names:
             raise KeyError(f"motion {name!r} is not in the allowed catalog")
+        recording_path = None
+        if self.recording_paths is not None:
+            try:
+                recording_path = self.recording_paths[name]
+            except KeyError as exc:
+                raise KeyError(f"motion {name!r} has no configured recording") from exc
         # Custom loads must not inherit or replace a cached default's
         # direction, amplitude, or looping policy.
         if kw:
-            return Primitive.load(name, recordings_dir=self.recordings_dir, **kw)
+            return Primitive.load(
+                name,
+                recordings_dir=self.recordings_dir,
+                recording_path=recording_path,
+                **kw,
+            )
         if name not in self._cache:
             self._cache[name] = Primitive.load(
-                name, recordings_dir=self.recordings_dir, **kw
+                name,
+                recordings_dir=self.recordings_dir,
+                recording_path=recording_path,
+                **kw,
             )
         return self._cache[name]
 

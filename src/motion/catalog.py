@@ -113,7 +113,11 @@ class MotionCatalog:
             if not entry.enabled:
                 continue
             try:
-                Primitive.load(entry.name, recordings_dir=self.recordings_dir)
+                Primitive.load(
+                    entry.name,
+                    recordings_dir=self.recordings_dir,
+                    recording_path=entry.file,
+                )
             except OSError as exc:
                 errors.append(CatalogError(entry.name, "invalid_recording", str(exc)))
             except KeyError as exc:
@@ -131,6 +135,9 @@ class MotionCatalog:
         return PrimitiveLibrary(
             recordings_dir=self.recordings_dir,
             allowed_names=frozenset(self.names()),
+            recording_paths={
+                entry.name: entry.file for entry in self.entries if entry.enabled
+            },
         )
 
 

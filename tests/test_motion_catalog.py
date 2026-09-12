@@ -129,6 +129,39 @@ def test_catalog_library_rejects_unlisted_recording(tmp_path):
         library.get("draft")
 
 
+def test_catalog_library_loads_the_configured_file_for_an_alias(tmp_path):
+    write_recording(tmp_path / "verified_clip.csv", valid_rows())
+    write_recording(
+        tmp_path / "greeting.csv",
+        "0.0,0.0,0.0,0.0,0.0,0.0\n"
+        "2.0,1.0,1.0,1.0,1.0,1.0\n",
+    )
+    write_catalog(
+        tmp_path / "catalog.toml",
+        {"greeting": {"file": "verified_clip.csv", "enabled": True}},
+    )
+
+    library = MotionCatalog.load(tmp_path / "catalog.toml").library()
+
+    assert library.get("greeting").duration == pytest.approx(1.0)
+
+
+def test_catalog_preflight_uses_the_configured_file_for_an_alias(tmp_path):
+    write_recording(tmp_path / "greeting.csv", valid_rows())
+    write_recording(
+        tmp_path / "unsafe_clip.csv", "0.0,nan,0.0,0.0,0.0,0.0\n"
+    )
+    write_catalog(
+        tmp_path / "catalog.toml",
+        {"greeting": {"file": "unsafe_clip.csv", "enabled": True}},
+    )
+
+    report = MotionCatalog.load(tmp_path / "catalog.toml").validate()
+
+    assert not report.ok
+    assert report.errors[0].code == "non_finite"
+
+
 def test_library_rejects_unlisted_name_before_filesystem_access(tmp_path):
     library = PrimitiveLibrary(
         recordings_dir=tmp_path / "missing-recordings",
