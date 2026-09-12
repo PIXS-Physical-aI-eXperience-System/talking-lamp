@@ -8,15 +8,16 @@ from motion import trajectory
 
 
 class FakeClock:
-    def __init__(self):
+    def __init__(self, oversleeps=()):
         self.now = 0.0
+        self.oversleeps = iter(oversleeps)
 
     def __call__(self):
         return self.now
 
     def sleep(self, seconds):
         assert seconds >= 0
-        self.now += seconds
+        self.now += seconds + next(self.oversleeps, 0.0)
 
 
 class FakeBackend:
@@ -46,9 +47,9 @@ class FakeBackend:
         self.closed = True
 
 
-def run_fake(*, duration=0.1, cost=0.002, error=None, **kwargs):
+def run_fake(*, duration=0.1, cost=0.002, error=None, clock=None, **kwargs):
     runner = importlib.import_module("motion.hardware_run")
-    clock = FakeClock()
+    clock = clock or FakeClock()
     backend = FakeBackend(clock, cost=cost, error=error)
     report = runner.run_hardware(
         port="fake", lamp_id="test", duration=duration,
@@ -132,3 +133,28 @@ def test_cli_passes_options_and_reports_counts(monkeypatch, capsys):
     assert "sent_ticks=100" in text
     assert "deadline_misses=2" in text
     assert "clamped_ticks=3" in text
+
+
+@pytest.mark.parametrize("overshoot, expected_times, misses", [
+    (0.027, [0, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09], 3),
+    (0.009, [0, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09], 1),
+    (0.0205, [0, 0.0305, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09], 2),
+    (0.11, [0], 9),
+])
+def test_sleep_overshoot_discards_expired_slots_before_sending(
+    overshoot, expected_times, misses,
+):
+    report, backend = run_fake(clock=FakeClock([overshoot]))
+    np.testing.assert_allclose(backend.times, expected_times, atol=1e-12)
+    assert np.all(np.diff(backend.times) >= 0.009 - 1e-12)
+    assert report.deadline_misses == misses
+    assert report.sent_ticks + report.deadline_misses == 10
+    assert backend.closed
+
+
+def test_normal_sleep_jitter_stays_on_grid_without_false_misses():
+    report, backend = run_fake(clock=FakeClock([0.0005] * 9))
+    np.testing.assert_allclose(backend.times, [0, 0.0105, 0.0205, 0.0305, 0.0405,
+                                              0.0505, 0.0605, 0.0705, 0.0805, 0.0905])
+    assert report.sent_ticks == 10
+    assert report.deadline_misses == 0

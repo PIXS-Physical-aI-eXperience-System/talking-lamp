@@ -18,6 +18,12 @@ from .runtime import MotionRuntime
 from .trajectory import TrajectoryGenerator
 
 
+# Accept ordinary OS wakeup jitter without treating every late wake as a miss.
+# A send may start at most 1 ms after its grid deadline, so adjacent starts
+# can be 9 ms apart, but substantially overdue trajectory steps are discarded.
+DEADLINE_JITTER_SECONDS = 0.001
+
+
 @dataclass
 class HardwareRunReport:
     sent_ticks: int
@@ -40,7 +46,8 @@ def run_hardware(
     Misses count expired command slots, skipped to avoid burst catch-up. Each
     sent command advances the trajectory by one fixed 10 ms step, even after an
     overrun. Feedback and parking time are included/excluded, respectively, in
-    the scheduled run duration.
+    the scheduled run duration. Up to 1 ms of deadline lateness is tolerated;
+    later slots are skipped before sending, including after a late wakeup.
     """
     if not math.isfinite(duration) or duration <= 0:
         raise ValueError("duration must be finite and greater than zero")
@@ -70,17 +77,23 @@ def run_hardware(
             while remaining > 0:
                 sleep(remaining)
                 remaining = deadline - clock()
-            if clock() >= start + duration:
+            now = clock()
+            if now >= start + duration:
                 missed += slots - slot
                 break
-            runtime.step()
-            slot += 1
-            # Keep phase relative to the original monotonic start; never add
-            # serial/compute time to the period or replay overdue commands.
-            next_slot = min(slots, math.ceil((clock() - start) / CONTROL_DT - 1e-9))
+            # Reconcile after waking and before advancing the trajectory. This
+            # same policy covers both sleep overshoot and slow previous sends.
+            # Keep the original grid; re-enter the wait if its next usable
+            # deadline is still in the future.
+            next_slot = min(slots, math.ceil(
+                (now - start - DEADLINE_JITTER_SECONDS) / CONTROL_DT - 1e-9
+            ))
             if next_slot > slot:
                 missed += next_slot - slot
                 slot = next_slot
+                continue
+            runtime.step()
+            slot += 1
     except KeyboardInterrupt:
         interrupted = True
     finally:
