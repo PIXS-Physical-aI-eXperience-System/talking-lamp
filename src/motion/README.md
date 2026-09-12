@@ -8,7 +8,7 @@ and the 100 Hz runtime that blends them into 5-axis servo commands. Covers
 ```
 layers ──▶ MotionBlender ──▶ q_blend ──▶ TrajectoryGenerator ──▶ q_cmd ──▶ backend
   L0 idle        priority-composited        vel/accel/jerk           MuJoCo sim
-  L1 track       (gain·weight per joint)    limited, no overshoot    or Feetech bus
+  L1 track       (gain·weight per joint)    calibrated joint bounds or Feetech bus
   L2 primitive
   L3 task_light
 ```
@@ -18,7 +18,7 @@ layers ──▶ MotionBlender ──▶ q_blend ──▶ TrajectoryGenerator �
 From the repo root (the `.venv` there already has the deps):
 
 ```bash
-make test            # 50 tests (ruckig backend)
+make test            # full suite (ruckig backend)
 make test-fallback   # same, analytic trajectory backend
 make demo            # scripted end-to-end demo -> sim/out/
 ```
@@ -44,9 +44,13 @@ PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" python -m motion.hardware_run \
 Use the serial port and saved calibration id for the assembled lamp. Connection
 uses `calibrate=False` and normalized servo positions. Omit `--primitive` for
 idle motion. The runtime seeds its trajectory and tracking pose from the first
-physical measurement while keeping `REST_POSE` as its idle target. All outbound
-radian commands pass through `HardwareAlignment` and clamp to calibrated servo
-endpoints.
+physical measurement while keeping `REST_POSE` as its idle target. The trajectory
+generator bounds blended targets to the exact calibrated joint ranges. Ruckig
+replans are checked at every continuous-time position extremum; an unsafe replan
+is retried while the previous feasible trajectory continues. This keeps the
+command and planner state consistent at endpoints. The analytic fallback reserves
+braking distance within those same bounds. All outbound radian commands also pass
+through `HardwareAlignment` and a defensive clamp to calibrated servo endpoints.
 
 The runner uses monotonic 10 ms deadlines. It skips expired command slots to
 avoid sending a burst after an overrun, and reports `sent_ticks`,
@@ -62,8 +66,11 @@ Ruckig is required before the serial connection opens. The deliberate override
 which does **not** bound jerk. Completion, Ctrl-C, and runtime exceptions call
 `lelamp.playback.park_and_disconnect`: reach the captured `SLEEP_POSE`, confirm
 it, then disconnect and release torque. Parking can take several additional
-seconds beyond `--duration`. If parking fails, the existing helper raises and
-keeps torque engaged; the runner does not force a disconnect.
+seconds beyond `--duration`. Playback and parking keep every planned step after a
+late send or sleep, stretching their duration without a catch-up burst. If parking
+fails, the existing helper raises and keeps torque engaged; the runner does not
+force a disconnect. The legacy motor services retain the follower on startup or
+cleanup failure until it can be safely parked and disconnected.
 
 ## Modules
 
@@ -93,15 +100,23 @@ keeps torque engaged; the runner does not force a disconnect.
 | D via B | `rt.place_task_light(desk_xyz)` | light a work spot -> L3 (S1) |
 | - | `rt.reach_to(xyz)` | put the head *on* a point (touch it) |
 | B | `rt.barge_in()` | user talks over the lamp -> drop L2/L3 fast |
-| loop | `rt.step()` at 100 Hz | returns `StepState(t, q_blend, q_cmd, q_meas, vel)` |
+| loop | `rt.step()` at 100 Hz | returns `StepState(t, q_blend, q_cmd, q_meas, vel, trace)` |
 
 All joint arrays are `(5,)` radians in `config.JOINT_NAMES` order - the interface
 E exposes to the rest of the team ("절대 관절 각도" convention).
 
+`dt` is fixed at construction in both `MotionRuntime` and `TrajectoryGenerator`.
+A per-step `dt` may repeat that configured period; a different or non-finite value
+raises before time, layers, or trajectory state advance. `StepState.trace` is the
+blend trace used for that command; logging should read it without calling
+`blender.compute()` again. Explicit primitive `sign`, `scale`, and `loop` options
+reload the clip and leave the cached default unchanged.
+
 ## Known limitations / TODO
 
 - **Kinematics is the `build_arm.py` stopgap model**, not a CAD re-export -
-  see `sim/README.md`. IK/limits inherit its approximations.
+  see `sim/README.md`. Geometry inherits its approximations; joint endpoints use
+  the measured hardware calibration.
 - **Kinematic limits** (`config.VEL/ACC/JERK_LIMIT`) are conservative guesses;
   retune once the real head weight is measured.
 - **Primitive calibration** follows the measured servo-to-simulation mapping
@@ -110,6 +125,6 @@ E exposes to the rest of the team ("절대 관절 각도" convention).
   head load.
 - **Head "forward" axis** comes from the CAD site frame; "look straight ahead"
   can still cock the base ~25°. Fine for faces, revisit if it reads wrong.
-- Trajectory generator's analytic fallback allows a 1-tick decel spike at the
-  final corner - install `ruckig` (a declared dep) for clean jerk.
+- The analytic fallback bounds velocity, acceleration, and calibrated position,
+  but does not bound jerk; install `ruckig` (a declared dep) for smooth jerk.
 - No self-collision geometry yet (proxy boxes are inertia-only).

@@ -80,3 +80,29 @@ def test_library_caches_and_lists():
     lib = PrimitiveLibrary()
     assert lib.get("nod") is lib.get("nod")
     assert "headshake" in lib.available()
+
+
+def test_library_honors_scale_after_default_load_without_changing_cached_default():
+    lib = PrimitiveLibrary()
+    default = lib.get("nod")
+    muted = lib.get("nod", scale=np.zeros(NJ))
+    np.testing.assert_array_equal(muted.offsets, np.zeros_like(muted.offsets))
+    assert np.linalg.norm(default.offsets) > 0
+    assert lib.get("nod") is default
+
+
+def test_library_honors_direction_after_default_load():
+    lib = PrimitiveLibrary()
+    default = lib.get("nod")
+    reversed_clip = lib.get("nod", sign=np.array([-1, 1, -1, -1, -1]))
+    np.testing.assert_allclose(reversed_clip.offsets, -default.offsets, atol=1e-12)
+
+
+def test_library_honors_loop_after_default_load():
+    lib = PrimitiveLibrary()
+    default = lib.get("nod")
+    looped = lib.get("nod", loop=True)
+    t = default.duration / 2
+    np.testing.assert_allclose(looped.sample(looped.duration + t), default.sample(t))
+    assert np.linalg.norm(looped.sample(looped.duration + t)) > 0
+    np.testing.assert_array_equal(default.sample(default.duration + t), np.zeros(NJ))

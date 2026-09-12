@@ -93,6 +93,10 @@ class PrimitiveLibrary:
     _cache: dict[str, Primitive] = field(default_factory=dict)
 
     def get(self, name: str, **kw) -> Primitive:
+        # Custom loads must not inherit or replace a cached default's
+        # direction, amplitude, or looping policy.
+        if kw:
+            return Primitive.load(name, recordings_dir=self.recordings_dir, **kw)
         if name not in self._cache:
             self._cache[name] = Primitive.load(
                 name, recordings_dir=self.recordings_dir, **kw

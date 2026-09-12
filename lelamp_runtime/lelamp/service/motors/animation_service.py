@@ -63,19 +63,22 @@ class AnimationService:
         self._event_thread: Optional[threading.Thread] = None
 
     def start(self):
+        if self.robot is not None:
+            raise RuntimeError("Robot is still owned; stop it safely before restarting")
         self.robot = LeLampFollower(self.robot_config)
         try:
             self.robot.connect(calibrate=False)
             self._current_state = self.robot.get_observation()
-        except Exception:
-            self.robot = None
+            self._running.set()
+            self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
+            self._event_thread.start()
+            self.dispatch("play", self.idle_recording)
+        except BaseException:
+            # stop() retains the handle if parking fails, so the caller can
+            # retry cleanup without losing an open bus or releasing torque.
+            self.stop()
             raise
         print(f"Animation service connected to {self.port}")
-
-        self._running.set()
-        self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
-        self._event_thread.start()
-        self.dispatch("play", self.idle_recording)
 
     def stop(self, timeout: float = 5.0):
         self._running.clear()
@@ -86,7 +89,8 @@ class AnimationService:
             return
 
         if self.robot:
-            park_and_disconnect(self.robot)
+            if self.robot.is_connected or self.robot.bus.is_connected:
+                park_and_disconnect(self.robot)
             self.robot = None
 
     def dispatch(self, event_type: str, payload: Any):

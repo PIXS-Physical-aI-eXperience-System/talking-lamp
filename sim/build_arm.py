@@ -14,7 +14,7 @@ MJCF where:
 
   * the 5 hinges form a serial chain base -> yaw -> pitch -> elbow -> roll ->
     wrist-pitch -> head, each placed at its true home anchor with its true axis
-    and the vendored travel limits;
+    and the measured hardware travel limits;
   * every link frame is world-aligned at home, so mesh geoms keep the exact
     transform they have now (pos = world_pos - link_anchor, quat = world_quat)
     and the home render is identical to upstream;

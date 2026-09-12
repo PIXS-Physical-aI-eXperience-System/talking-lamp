@@ -101,7 +101,7 @@ def main() -> None:
         "vel_until": 0.0,
     }
     placed = None
-    placed_mode = [None]
+    placed_mode = None
     file_mtime = 0.0
 
     def poll_file() -> None:
@@ -117,16 +117,19 @@ def main() -> None:
             _parse_target_line(TARGET_FILE.read_text().strip(), state)
 
     def tick() -> None:
-        nonlocal placed
+        nonlocal placed, placed_mode
         target = state["target"]
         data.mocap_pos[mocap] = target
         mode = state["mode"]
         if mode == "track":
+            if placed_mode != "track":
+                rt.clear_task_light()
+                placed = None
             rt.track.observe_point(target)
-        elif placed is None or np.linalg.norm(target - placed) > 0.01 or mode != placed_mode[0]:
+        elif placed is None or np.linalg.norm(target - placed) > 0.01 or mode != placed_mode:
             (rt.reach_to if mode == "reach" else rt.place_task_light)(target)
             placed = target.copy()
-            placed_mode[0] = mode
+        placed_mode = mode
         rt.step()
 
     def report() -> None:

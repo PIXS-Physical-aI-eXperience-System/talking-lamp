@@ -47,13 +47,17 @@ class MotorsService(ServiceBase):
         )
     
     def start(self):
+        if self.robot is not None:
+            raise RuntimeError("Robot is still owned; stop it safely before restarting")
         self.robot = LeLampFollower(self.robot_config)
         try:
             self.robot.connect(calibrate=False)
-        except Exception:
-            self.robot = None
+            super().start()
+        except BaseException:
+            # Preserve ownership on a cleanup failure; stop() only clears
+            # the robot after confirmed parking and torque release.
+            self.stop()
             raise
-        super().start()
         self.logger.info(f"Motors service connected to {self.port}")
 
     def stop(self, timeout: float = 5.0):
@@ -62,7 +66,8 @@ class MotorsService(ServiceBase):
             self.logger.error("Motor worker is still active; leaving the port connected")
             return
         if self.robot:
-            park_and_disconnect(self.robot)
+            if self.robot.is_connected or self.robot.bus.is_connected:
+                park_and_disconnect(self.robot)
             self.robot = None
     
     def handle_event(self, event_type: str, payload: Any):

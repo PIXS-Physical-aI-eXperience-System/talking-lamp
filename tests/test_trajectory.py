@@ -64,7 +64,42 @@ def test_tracks_moving_setpoint_without_lag_blowup():
     assert max_err < 0.05
 
 
-def test_step_dt_override():
+@pytest.mark.parametrize("dt", [.02, .005, 0, -.01, float("nan"), float("inf")])
+def test_changed_step_period_is_rejected_before_advancing(dt):
     tg = TrajectoryGenerator(np.zeros(NJ))
-    q = tg.step(np.ones(NJ), dt=0.02)
-    assert q.shape == (NJ,)
+    before = tg.state
+    with pytest.raises(ValueError, match="control period"):
+        tg.step(np.ones(NJ), dt=dt)
+    for old, new in zip(before, tg.state):
+        np.testing.assert_array_equal(old, new)
+
+
+def test_explicit_configured_period_matches_default_elapsed_state():
+    default = TrajectoryGenerator(np.zeros(NJ), dt=.02)
+    explicit = TrajectoryGenerator(np.zeros(NJ), dt=.02)
+    for _ in range(30):
+        default.step(np.ones(NJ))
+        explicit.step(np.ones(NJ), dt=.02)
+    for a, b in zip(default.state, explicit.state):
+        np.testing.assert_array_equal(a, b)
+
+
+def test_repeated_target_reversals_keep_actual_commands_inside_position_limits():
+    # Simultaneous changes on several joints can make a synchronized Ruckig
+    # replan overshoot an endpoint even though every target is inside it.
+    rng = np.random.default_rng(7)
+    tg = TrajectoryGenerator(np.zeros(NJ), position_limits=np.tile([-.2, .2], (NJ, 1)))
+    positions = [tg.pos.copy()] * 3
+    for k in range(1000):
+        if k % 20 == 0:
+            target = rng.choice([-1, 1], NJ) * .2
+        positions.append(tg.step(target))
+    positions = np.array(positions)
+    assert np.all(np.abs(positions) <= .2 + 1e-10)
+    velocity = np.diff(positions, axis=0) / CONTROL_DT
+    acceleration = np.diff(velocity, axis=0) / CONTROL_DT
+    assert np.all(np.abs(velocity) <= VEL_LIMIT + 1e-8)
+    assert np.all(np.abs(acceleration) <= ACC_LIMIT + 1e-8)
+    if RUCKIG:
+        jerk = np.diff(acceleration, axis=0) / CONTROL_DT
+        assert np.all(np.abs(jerk) <= JERK_LIMIT + 1e-7)

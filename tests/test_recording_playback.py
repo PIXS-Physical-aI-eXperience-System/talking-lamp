@@ -435,3 +435,58 @@ def test_recording_path_accepts_only_a_recording_in_the_given_directory(tmp_path
         recording_path(tmp_path, "../nod")
     with pytest.raises(RecordingValidationError, match="not found"):
         recording_path(tmp_path, "missing")
+
+
+@pytest.mark.parametrize("parking", [False, True], ids=["playback", "parking"])
+@pytest.mark.parametrize("delay_at", ["send", "sleep"])
+def test_late_playback_preserves_spacing_and_every_bounded_step(parking, delay_at):
+    now = 0.0
+    sleep_count = 0
+    starts = []
+    completed = []
+    poses = [HOME_POSE.copy()]
+    disconnected = False
+
+    class Robot:
+        def get_observation(self):
+            return poses[-1].copy()
+
+        def send_action(self, action):
+            nonlocal now
+            starts.append(now)
+            poses.append(action.copy())
+            if delay_at == "send" and len(starts) == 1:
+                now += 0.2
+            completed.append(now)
+            return action
+
+        def disconnect(self):
+            nonlocal disconnected
+            disconnected = True
+
+    def sleep(delay):
+        nonlocal now, sleep_count
+        sleep_count += 1
+        now += delay
+        if delay_at == "sleep" and sleep_count == 1:
+            now += 0.2
+
+    fps = 60.0 if parking else 30.0
+    target = SLEEP_POSE if parking else _pose(20.0)
+    options = dict(command_fps=fps, transition_seconds=1.0, max_step=1.0)
+    if parking:
+        report = park_and_disconnect(Robot(), **options, clock=lambda: now, sleep=sleep)
+    else:
+        report = play_actions(
+            Robot(), [target], **options, clock=lambda: now, sleep=sleep
+        )
+
+    assert all(b - a >= 1.0 / fps - 1e-12 for a, b in zip(starts, starts[1:]))
+    # A delayed write may not reach the servo until it completes. Give that
+    # frame a full period before the next write, not an immediate follow-up.
+    assert all(b - a >= 1.0 / fps - 1e-12 for a, b in zip(completed, starts[1:]))
+    for previous, current in zip(poses, poses[1:]):
+        assert max(abs(current[j] - previous[j]) for j in JOINT_KEYS) <= 1.0 + 1e-12
+    assert poses[-1] == pytest.approx(target)
+    assert report.frames_sent == len(starts)
+    assert disconnected == parking

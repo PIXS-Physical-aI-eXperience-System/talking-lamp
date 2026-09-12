@@ -5,9 +5,11 @@ import sys
 import numpy as np
 import pytest
 
-from motion.config import JOINT_NAMES, REST_POSE
+from motion.config import ACC_LIMIT, CONTROL_DT, JERK_LIMIT, JOINT_NAMES, REST_POSE, VEL_LIMIT
 from motion.hardware_alignment import HardwareAlignment
+from motion.primitives import Primitive, PrimitiveLibrary
 from motion.runtime import MotionRuntime
+from motion.sim_backend import MujocoKinematicsBackend
 
 
 class FakeRobot:
@@ -177,3 +179,58 @@ def test_parking_failure_propagates_without_releasing_torque():
     with pytest.raises(TimeoutError, match="sleep pose"):
         backend.close()
     assert robot.is_connected
+
+
+@pytest.mark.parametrize("direction", [-1, 1])
+def test_tracking_plus_expression_brakes_within_calibrated_command_limits(direction):
+    alignment = HardwareAlignment.load()
+    limits = alignment.joint_limits
+    initial = REST_POSE.copy()
+    initial[0] = limits[0, 1 if direction > 0 else 0] - direction * 0.12
+    offsets = np.zeros((4, 5))
+    offsets[1:3, 0] = direction * 0.65
+    clip = Primitive("boundary", np.array([0.0, 0.2, 3.0, 3.2]), offsets, loop=True)
+    backend, robot, _ = make_backend()
+    sim = MujocoKinematicsBackend(q0=initial)
+    physical = MotionRuntime(
+        backend=backend, initial_pose=initial,
+        primitives=PrimitiveLibrary(_cache={"boundary": clip}),
+    )
+    simulated = MotionRuntime(
+        backend=sim, initial_pose=initial,
+        primitives=PrimitiveLibrary(_cache={"boundary": clip}),
+    )
+    physical.play_primitive("boundary")
+    simulated.play_primitive("boundary")
+    commands = [initial.copy()] * 3
+    outside_target = False
+    for k in range(650):
+        target = np.array([-0.3, direction * 0.8, 0.3])
+        if k == 300:
+            physical.barge_in()
+            simulated.barge_in()
+        physical.track.observe_point(target)
+        simulated.track.observe_point(target)
+        state = physical.step()
+        sim_state = simulated.step()
+        actual = alignment.normalized_to_radians(np.array(list(robot.actions[-1].values())))
+        commands.append(actual)
+        outside_target |= bool(np.any(state.q_blend < limits[:, 0])
+                               or np.any(state.q_blend > limits[:, 1]))
+        np.testing.assert_allclose(actual, state.q_cmd, atol=1e-12)
+        np.testing.assert_allclose(actual, physical.traj.pos, atol=1e-12)
+        np.testing.assert_allclose(actual, sim_state.q_cmd, atol=1e-12)
+        np.testing.assert_allclose(actual, sim.measured(), atol=1e-12)
+
+    assert outside_target  # L1+L2 composition actually exercises the boundary.
+    commands = np.array(commands)
+    assert np.all(commands >= limits[:, 0] - 1e-12)
+    assert np.all(commands <= limits[:, 1] + 1e-12)
+    velocity = np.diff(commands, axis=0) / CONTROL_DT
+    acceleration = np.diff(velocity, axis=0) / CONTROL_DT
+    assert np.all(np.abs(velocity) <= VEL_LIMIT + 1e-8)
+    assert np.all(np.abs(acceleration) <= ACC_LIMIT + 1e-8)
+    if physical.traj.backend == "ruckig":
+        jerk = np.diff(acceleration, axis=0) / CONTROL_DT
+        assert np.all(np.abs(jerk) <= JERK_LIMIT + 1e-7)
+    assert backend.clamped_ticks == 0

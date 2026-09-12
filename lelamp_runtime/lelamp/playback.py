@@ -407,12 +407,15 @@ def play_actions(
     clipped_joints: Counter[str] = Counter()
     frames_sent = 0
     interrupted = False
-    deadline = clock()
     frame_period = 1.0 / command_fps
     for action in planned:
         if should_stop():
             interrupted = True
             break
+        # Keep every planned (step-limited) sample, but start its period at
+        # the actual send time. A late send or wakeup stretches playback;
+        # expired periods must never cause a burst or skipped-pose jump.
+        deadline = clock() + frame_period
         sent_action = robot.send_action(action)
         frames_sent += 1
         clipped = [
@@ -425,10 +428,10 @@ def play_actions(
             clipped_frames += 1
             clipped_joints.update(clipped)
 
-        deadline += frame_period
         remaining = deadline - clock()
-        if remaining > 0:
-            sleep(remaining)
+        # If the write itself overran, it may only just have reached the
+        # servo. Give it a fresh period before sending the following step.
+        sleep(remaining if remaining > 0 else frame_period)
 
     return PlaybackReport(
         frames_sent=frames_sent,

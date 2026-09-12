@@ -4,6 +4,7 @@ import pytest
 from motion import MotionRuntime
 from motion.config import ACC_LIMIT, CONTROL_DT, REST_POSE, VEL_LIMIT
 from motion.trajectory import TrajectoryGenerator
+from motion.hardware_alignment import HardwareAlignment
 
 RUCKIG = TrajectoryGenerator(np.zeros(5)).backend == "ruckig"
 
@@ -107,3 +108,59 @@ def test_reflex_overrides_idle_but_yields_to_task_light(rt):
     prios = [ly.priority for ly in rt.blender.layers]
     assert prios == sorted(prios)
     assert rt.blender.layers[-1].name == "task_light"
+
+
+def test_initial_pose_outside_calibration_is_rejected_without_sending():
+    initial = REST_POSE.copy()
+    initial[0] = HardwareAlignment.load().joint_limits[0, 1] + 0.01
+    with pytest.raises(ValueError, match="position limits"):
+        MotionRuntime(initial_pose=initial)
+
+
+@pytest.mark.parametrize("endpoint", [0, 1])
+def test_measured_calibrated_endpoint_is_a_valid_initial_pose(endpoint):
+    initial = HardwareAlignment.load().joint_limits[:, endpoint]
+    runtime = MotionRuntime(initial_pose=initial)
+    np.testing.assert_array_equal(runtime.traj.pos, initial)
+    assert np.max(np.abs(runtime.step().q_cmd - initial)) < .003
+
+
+@pytest.mark.parametrize("dt", [.02, .005, 0, -.01, float("nan"), float("inf")])
+def test_invalid_period_does_not_advance_runtime_or_layers(rt, dt):
+    rt.play_primitive("nod")
+    rt.track.observe_point([.4, .1, .3])
+    before = rt.traj.state
+    with pytest.raises(ValueError, match="control period"):
+        rt.step(dt=dt)
+    assert rt.t == 0.0
+    assert rt.primitive.env.level == 0.0
+    assert rt.track.env.level == 0.0
+    assert rt.backend.measured() is None
+    for old, new in zip(before, rt.traj.state):
+        np.testing.assert_array_equal(old, new)
+
+
+def test_replaying_cached_primitive_with_zero_scale_emits_only_idle_motion(rt):
+    idle = MotionRuntime()
+    rt.play_primitive("nod")
+    rt.play_primitive("nod", scale=np.zeros(5))
+    for _ in range(80):
+        np.testing.assert_allclose(rt.step().q_cmd, idle.step().q_cmd, atol=1e-12)
+
+
+def test_reading_step_trace_keeps_commands_envelopes_and_filter_unchanged(rt):
+    unlogged = MotionRuntime()
+    for runtime in (rt, unlogged):
+        runtime.play_primitive("nod")
+        runtime.track.observe_point([.4, .1, .3])
+    logged_authority = []
+    for _ in range(120):
+        state = rt.step()
+        logged_authority.append({n: np.linalg.norm(v) for n, v in state.trace.authority.items()})
+        np.testing.assert_array_equal(state.trace.q, state.q_blend)
+        np.testing.assert_array_equal(state.q_cmd, unlogged.step().q_cmd)
+        assert rt.primitive.env.level == unlogged.primitive.env.level
+        assert rt.track.env.level == unlogged.track.env.level
+        np.testing.assert_array_equal(rt.track.track.x, unlogged.track.track.x)
+        np.testing.assert_array_equal(rt.track.track.P, unlogged.track.track.P)
+    assert any(entry.get("primitive", 0) > 0 for entry in logged_authority)
