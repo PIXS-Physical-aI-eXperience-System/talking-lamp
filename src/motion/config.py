@@ -38,7 +38,13 @@ VEL_LIMIT = np.array([3.0, 2.5, 2.5, 4.0, 4.0])      # rad/s
 ACC_LIMIT = np.array([12.0, 10.0, 10.0, 20.0, 20.0])  # rad/s^2
 JERK_LIMIT = np.array([120.0, 100.0, 100.0, 250.0, 250.0])  # rad/s^3
 
-# A relaxed, "alive"-looking neutral pose: facing forward, leaning over the desk,
-# head ~14 cm ahead of the base and 40 cm up, gaze angled down at the work area.
-# Used as the idle base pose and the IK null-space bias. All joints mid-range.
-REST_POSE = np.array([0.0, 0.9, -0.5, 0.0, -0.3])
+# Relaxed operating pose derived from the manually measured vertical reference.
+# Base pitch is reversed from the former forward extension; elbow is 70 deg
+# lower than the previous operating pose.
+REST_POSE = np.array([
+    0.2617993877991494,
+    0.07629817559829882,
+    -0.04058412526635097,
+    0.0,
+    0.9402527974893196,
+])

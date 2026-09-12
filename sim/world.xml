@@ -39,7 +39,8 @@
   </worldbody>
 
   <keyframe>
-    <!-- neutral "home" pose; nq = 5 hinges after the root weld -->
-    <key name="home" qpos="0 0 0 0 0"/>
+    <!-- Relaxed operating home followed by the measured calibration reference. -->
+    <key name="home" qpos="0.2617993877991494 0.07629817559829882 -0.04058412526635097 0 0.9402527974893196"/>
+    <key name="calibration_straight" qpos="0 -0.4473006 -1.9953528875 0 0.73081328725"/>
   </keyframe>
 </mujoco>

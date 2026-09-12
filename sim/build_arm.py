@@ -41,6 +41,11 @@ import mujoco
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
+import sys
+sys.path.insert(0, str(ROOT / "src"))
+
+from motion.hardware_alignment import HardwareAlignment
+
 SRC_SCENE = ROOT / "LeLamp" / "simulation" / "scene.xml"
 DST = ROOT / "sim" / "lelamp_arm.xml"
 MESHDIR = "../LeLamp/simulation/assets"
@@ -92,6 +97,12 @@ def main() -> None:
         anchor[jname] = data.xanchor[jid].copy()
         axis[jname] = data.xaxis[jid].copy()
         jrange[jname] = model.jnt_range[jid].copy()
+
+    # The CAD export contains generic limits. Use the measured limits from the
+    # physical lamp so rebuilding this generated file preserves hardware parity.
+    alignment = HardwareAlignment.load()
+    for (jname, _, _), limits in zip(CHAIN, alignment.joint_limits):
+        jrange[jname] = limits
 
     # link i (1..5) sits at anchor of CHAIN[i-1]; link 0 sits at origin
     link_origin = [np.zeros(3)] + [anchor[CHAIN[i][0]] for i in range(5)]
@@ -174,7 +185,9 @@ def main() -> None:
     w('  </asset>')
 
     w('  <worldbody>')
-    w('    <body name="base" pos="0 0 0" childclass="sts3215">')
+    # The CAD export faces -x. Rotate the complete lamp so the public motion
+    # coordinate contract remains +x = physical front (opposite the base holes).
+    w('    <body name="base" pos="0 0 0" quat="0 0 0 1" childclass="sts3215">')
     _emit_geoms(w, 2, link_meshes[0], mesh_world, link_origin[0])
     _emit_proxy(w, 2, link_origin[0], link_origin[1], link_mass[0])
 
@@ -252,21 +265,27 @@ def _verify():
 
     m, d = load()
     base = head_pose(m, d).copy()
-    print("  articulation check (sweep each joint over its full range, head-tip travel):")
+    site = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "head")
+    base_rot = d.site_xmat[site].reshape(3, 3).copy()
+    print("  articulation check (head-tip travel / orientation change):")
     ok = True
     for name in JOINT_NAMES:
         jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, name)
         qadr = m.jnt_qposadr[jid]
         span = 0.0
+        turn = 0.0
         for val in np.linspace(*m.jnt_range[jid], 30):
-            d.qpos[:] = 0.0
+            mujoco.mj_resetDataKeyframe(m, d, 0)
             d.qpos[qadr] = val
             mujoco.mj_forward(m, d)
             span = max(span, float(np.linalg.norm(head_pose(m, d) - base)))
-        flag = "" if span > 0.03 else "  <-- barely moves, check chain"
+            relative = base_rot.T @ d.site_xmat[site].reshape(3, 3)
+            angle = np.arccos(np.clip((np.trace(relative) - 1.0) / 2.0, -1.0, 1.0))
+            turn = max(turn, float(angle))
+        flag = "" if span > 0.03 or turn > np.deg2rad(10) else "  <-- barely moves, check chain"
         if flag:
             ok = False
-        print(f"    {name:<13} {span * 1000:6.0f} mm{flag}")
+        print(f"    {name:<13} {span * 1000:6.0f} mm / {np.degrees(turn):6.1f} deg{flag}")
     print("  OK - serial chain articulates" if ok else "  WARNING: chain still wrong")
 
 

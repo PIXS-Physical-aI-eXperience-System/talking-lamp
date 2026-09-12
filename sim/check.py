@@ -32,6 +32,7 @@ def main() -> None:
 
     ranges = lamp.joint_ranges(model)
     qadr = lamp.qpos_order(model)
+    home_q = data.qpos[qadr].copy()
     print("\njoint           servo   range (deg)")
     for name, (lo, hi) in zip(lamp.JOINT_NAMES, ranges):
         print(f"  {name:<13} id {lamp.SERVO_ID[name]}   [{np.degrees(lo):7.1f}, {np.degrees(hi):7.1f}]")
@@ -45,6 +46,7 @@ def main() -> None:
         seg = []
         for val in np.linspace(*ranges[i], 60):
             data.qpos[:] = 0.0
+            data.qpos[qadr] = home_q
             data.qpos[qadr[i]] = val
             mujoco.mj_forward(model, data)
             seg.append(lamp.head_pose(model, data))
@@ -59,6 +61,7 @@ def main() -> None:
         print(f"  {lab}  {allpts[:, ax].min():+.3f} .. {allpts[:, ax].max():+.3f}")
 
     mujoco.mj_resetDataKeyframe(model, data, 0)
+    data.ctrl[lamp.actuator_order(model)] = data.qpos[qadr]
     for _ in range(3000):
         mujoco.mj_step(model, data)  # ctrl stays 0 -> hold home
     drift = float(np.linalg.norm(lamp.head_pose(model, data) - home))
@@ -79,8 +82,9 @@ def render_poses(model: mujoco.MjModel, data: mujoco.MjData) -> None:
     OUT.mkdir(exist_ok=True)
     ranges = lamp.joint_ranges(model)
     qadr = lamp.qpos_order(model)
+    home_q = data.qpos[qadr].copy()
     poses = {
-        "home": np.zeros(5),
+        "home": home_q,
         "reach_forward": np.array([0.0, ranges[1, 1] * 0.6, ranges[2, 0] * 0.5, 0.0, 0.3]),
         "look_left": np.array([1.0, 0.2, -0.6, 0.5, 0.2]),
     }

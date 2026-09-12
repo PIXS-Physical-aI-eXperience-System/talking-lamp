@@ -52,6 +52,7 @@ PYTHONPATH= .venv/bin/python sim/view.py   # 관절 슬라이더만 있는 소�
 | `lelamp_arm.xml` | **생성물.** 손으로 고치지 말고 `build_arm.py`를 고칠 것 |
 | `world.xml` | 씬 — 팔 + 책상(윗면 z=0) + 조명 + `home` 키프레임 + `work_target` 사이트(S1용) + `closeup` 카메라 |
 | `lamp.py` | 헬퍼 — 로드, 관절/액추에이터/qpos 인덱스, 관절 범위, `head` 사이트 위치 |
+| `hardware_alignment.json` | 실기기 캘리브레이션 범위, 수직 기준 엔코더값, 관절 방향 |
 | `check.py` | 헤드리스 검증 |
 | `view.py` | 인터랙티브 뷰어 |
 
@@ -66,6 +67,14 @@ PYTHONPATH= .venv/bin/python sim/view.py   # 관절 슬라이더만 있는 소�
 | 5 | `wrist_pitch` | -48.9° … 131.1° |
 
 관절 = 액추에이터 이름. `ctrl`/`qpos` 인덱스는 `lamp.actuator_order()` / `lamp.qpos_order()`로.
+
+실기기의 LeRobot 정규화 위치를 시뮬레이터 각도로 바꿀 때는
+`lamp.normalized_to_qpos(values)`를 사용한다. 반대 변환은
+`lamp.qpos_to_normalized(qpos)`이다. 두 변환은
+`hardware_alignment.json`의 실측 수직 자세를 영점 기준으로 사용하며, STS3215
+엔코더 4096카운트를 정확히 한 바퀴로 환산한다. MJCF 관절 범위와
+`calibration_straight` 키프레임도 같은 실측값을 사용한다. `home`은 이
+기준에서 만든 굽힌 기본 대기 자세다.
 `head` 사이트 = 헤드 셸(디퓨저+램프헤드) 바운딩박스 중심, IK 타겟 기준점. `work_target` 사이트 = 책상 위 예시 목표점(런타임에 옮겨서 S1 테스트).
 
 home 자세에서 헤드 팁 ≈ `(-0.166, 0.097, 0.259) m`, 단일 관절 스윕 도달 범위 ≈

@@ -11,20 +11,34 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from motion.hardware_alignment import HardwareAlignment
+
 WORLD_XML = Path(__file__).resolve().parent / "world.xml"
 
 JOINT_NAMES = ["base_yaw", "base_pitch", "elbow_pitch", "wrist_roll", "wrist_pitch"]
 SERVO_ID = {"base_yaw": 1, "base_pitch": 2, "elbow_pitch": 3, "wrist_roll": 4, "wrist_pitch": 5}
 
 HEAD_SITE = "head"  # tip of the head (where the work light will mount)
+HARDWARE_ALIGNMENT = HardwareAlignment.load()
 
 
 def load() -> tuple[mujoco.MjModel, mujoco.MjData]:
     model = mujoco.MjModel.from_xml_path(str(WORLD_XML))
     data = mujoco.MjData(model)
     mujoco.mj_resetDataKeyframe(model, data, 0)  # "home"
+    data.ctrl[actuator_order(model)] = data.qpos[qpos_order(model)]
     mujoco.mj_forward(model, data)
     return model, data
+
+
+def normalized_to_qpos(normalized: np.ndarray) -> np.ndarray:
+    """Convert the five LeRobot normalized positions to aligned MuJoCo radians."""
+    return HARDWARE_ALIGNMENT.normalized_to_radians(normalized)
+
+
+def qpos_to_normalized(qpos: np.ndarray) -> np.ndarray:
+    """Convert aligned MuJoCo radians to the five LeRobot normalized positions."""
+    return HARDWARE_ALIGNMENT.radians_to_normalized(qpos)
 
 
 def actuator_order(model: mujoco.MjModel) -> list[int]:

@@ -214,18 +214,19 @@ class TaskLightLayer:
 
     def place(self, target_point, q_seed=None) -> IKResult:
         target_point = np.asarray(target_point, float)
-        # stand off up and back toward the base: a raking light angle, and a pose
-        # the arm can hit without swinging the base around
-        back = np.array([-target_point[0], -target_point[1], 0.0])
-        n = np.linalg.norm(back)
+        # Stand off above and beyond the work point. With +x defined as the
+        # physical front of the calibrated lamp, this produces a reachable
+        # raking-light pose that aims back toward the work surface.
+        away = np.array([target_point[0], target_point[1], 0.0])
+        n = np.linalg.norm(away)
         offset = np.array([0.0, 0.0, 1.0]) if n < 1e-6 else (
-            0.55 * back / n + np.array([0.0, 0.0, 1.0])
+            0.55 * away / n + np.array([0.0, 0.0, 1.0])
         )
         offset = offset / np.linalg.norm(offset) * self.standoff
         approach = target_point + offset
         res = self.ik.solve(
             approach, q0=q_seed if q_seed is not None else REST_POSE,
-            aim_point=target_point, restarts=4,
+            aim_point=target_point, restarts=6,
         )
         self.q_hold = res.q
         self._active = True
