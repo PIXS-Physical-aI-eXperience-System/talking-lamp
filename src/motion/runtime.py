@@ -4,7 +4,7 @@
 
 The blender output can jump (a primitive fires, a track appears); the trajectory
 generator absorbs that into a velocity/accel/jerk-limited path. The backend is
-either the MuJoCo sim (dynamics or kinematic) or, later, the Feetech bus.
+either the MuJoCo sim (dynamics or kinematic) or the Feetech bus.
 
 Wiring for the rest of the team:
 * D (vision) / C (audio):  ``rt.track.observe_point(xyz)`` / ``observe_bearing(...)``
@@ -21,7 +21,7 @@ from typing import Callable, Protocol
 import numpy as np
 
 from .blender import BlendContext, MotionBlender
-from .config import CONTROL_DT, REST_POSE
+from .config import CONTROL_DT, NJ, REST_POSE
 from .idle import IdleConfig
 from .kinematics import ArmKinematics
 from .layers import IdleLayer, PrimitiveLayer, TaskLightLayer, TrackLayer
@@ -63,6 +63,7 @@ class MotionRuntime:
         kin: ArmKinematics | None = None,
         backend: Backend | None = None,
         rest_pose: np.ndarray = REST_POSE,
+        initial_pose: np.ndarray | None = None,
         idle_cfg: IdleConfig | None = None,
         dt: float = CONTROL_DT,
         primitives: PrimitiveLibrary | None = None,
@@ -80,8 +81,11 @@ class MotionRuntime:
         )
 
         self.backend = backend or NullBackend()
-        self.traj = TrajectoryGenerator(self.rest_pose, dt=self.dt)
-        self.track.seed_pose(self.rest_pose)
+        initial = self.rest_pose if initial_pose is None else np.asarray(initial_pose, float)
+        if initial.shape != (NJ,) or not np.all(np.isfinite(initial)):
+            raise ValueError("initial_pose must contain five finite radians")
+        self.traj = TrajectoryGenerator(initial, dt=self.dt)
+        self.track.seed_pose(initial)
         self.t = 0.0
 
     # -- team-facing controls ----------------------------------------

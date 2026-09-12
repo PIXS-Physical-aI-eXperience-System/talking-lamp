@@ -28,6 +28,43 @@ Running pytest directly (`.venv/bin/python -m pytest tests`) also works - the
 repo's `addopts` blocks the ROS pytest plugins - but `make` is the safe path.
 First-time setup: `make venv`.
 
+## Physical lamp
+
+Use an environment with this project's NumPy, MuJoCo, and Ruckig dependencies
+plus the LeRobot dependencies from `lelamp_runtime/pyproject.toml`. From the
+repository root, expose both source trees (no LeRobot import is needed for
+simulation or `--help`):
+
+```bash
+PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" python -m motion.hardware_run \
+  --port /dev/ttyACM0 --lamp-id YOUR_EXISTING_CALIBRATION_ID \
+  --primitive nod --duration 10 --feedback-hz 20
+```
+
+Use the serial port and saved calibration id for the assembled lamp. Connection
+uses `calibrate=False` and normalized servo positions. Omit `--primitive` for
+idle motion. The runtime seeds its trajectory and tracking pose from the first
+physical measurement while keeping `REST_POSE` as its idle target. All outbound
+radian commands pass through `HardwareAlignment` and clamp to calibrated servo
+endpoints.
+
+The runner uses monotonic 10 ms deadlines. It skips expired command slots to
+avoid sending a burst after an overrun, and reports `sent_ticks`,
+`deadline_misses` (skipped slots), `clamped_ticks`, and per-joint clamp counts.
+Each sent command advances the trajectory by 10 ms; overload therefore slows
+motion instead of increasing a command's trajectory step. Position feedback is
+cached, with a default read every five sends (20 Hz nominal); `measured()` does
+not perform a bus read. `--feedback-hz` accepts rates in `(0, 100]`, with lower
+rates reducing serial traffic. Real hardware timing still needs measurement.
+
+Ruckig is required before the serial connection opens. The deliberate override
+`--allow-analytic-fallback` permits the degraded acceleration-limited tracker,
+which does **not** bound jerk. Completion, Ctrl-C, and runtime exceptions call
+`lelamp.playback.park_and_disconnect`: reach the captured `SLEEP_POSE`, confirm
+it, then disconnect and release torque. Parking can take several additional
+seconds beyond `--duration`. If parking fails, the existing helper raises and
+keeps torque engaged; the runner does not force a disconnect.
+
 ## Modules
 
 | module | what |
@@ -42,6 +79,8 @@ First-time setup: `make venv`.
 | `blender.py` | `MotionBlender` + `BlendContext` - priority compositing, `gain·weight` authority, additive vs absolute layers |
 | `layers.py` | `IdleLayer` `TrackLayer` `PrimitiveLayer` `TaskLightLayer` + `Envelope` |
 | `runtime.py` | `MotionRuntime` - owns the loop and the 4 layers; team-facing API below |
+| `hardware_backend.py` | `FeetechBackend` - lazy physical follower adapter, calibrated commands, cached feedback, clamp counts, safe parking |
+| `hardware_run.py` | physical CLI with Ruckig gate and monotonic 100 Hz deadlines |
 | `sim_backend.py` | `MujocoDynamicsBackend` (servo lag, gravity) / `MujocoKinematicsBackend` (exact) |
 
 ## Team-facing API (`MotionRuntime`)
