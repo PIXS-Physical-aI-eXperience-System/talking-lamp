@@ -1,0 +1,17 @@
+# 단계 D LMDeploy TurboMind 실험용. 격리 venv에 설치한다.
+# 주의: 제약 없이 lmdeploy를 설치하면 torch 2.12+cu13으로 승격되고
+# 사전 빌드 _turbomind.so가 libcublas.so.12를 못 찾는다. 아래 순서로 고정한다.
+#
+#   python -m venv --system-site-packages venv-lmdeploy
+#   source venv-lmdeploy/bin/activate
+#   pip install -c constraints-lmdeploy.txt \
+#       --extra-index-url https://download.pytorch.org/whl/cu128 \
+#       lmdeploy==0.17.0
+#
+# constraints-lmdeploy.txt:
+#   torch==2.8.0+cu128
+#   torchvision==0.23.0+cu128
+#   transformers==4.57.6
+#   triton==3.4.0
+
+lmdeploy==0.17.0

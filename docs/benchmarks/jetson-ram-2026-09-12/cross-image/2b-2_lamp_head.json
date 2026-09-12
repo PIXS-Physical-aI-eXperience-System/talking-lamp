@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "model_dir": "/mnt/ssd/internvl3_5-2b-nf4",
+  "image_sha256": "db8252e942838ec7446bc47358bf86211fad7eb250e61dfbeac8f64b9c6c5405",
+  "prompt": "Describe this image in one short English sentence.",
+  "one_tile": true,
+  "max_new_tokens": 32,
+  "load_s": 9.078663142994628,
+  "total_wake_to_response_s": 37.504861238994636,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 12.04282336399774,
+      "generated_tokens": 32,
+      "text": "A person holds a blue plastic case containing a green circuit board labeled \"SPEED IO\" with wires connected to it, placed on a keyboard and a notepad",
+      "cuda_peak_allocated_bytes": 2452110848,
+      "cuda_peak_reserved_bytes": 2508193792
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "wav": "/mnt/ssd/ram-results/final-tts/attempt-2.wav",
+  "text": "여기에는 USB 충전기와 전원 어댑터가 보여요.",
+  "expected": "여기에는 USB 충전기와 전원 어댑터가 보여요.",
+  "passed": true,
+  "load_s": 2.0568295510020107,
+  "infer_s": 2.0951457189948997
+}

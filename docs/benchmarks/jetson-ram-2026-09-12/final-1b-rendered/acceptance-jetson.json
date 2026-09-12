@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "ram_gate": {
+    "min_available_bytes": 800000000,
+    "max_swap_pages": 0
+  },
+  "worst_minimum_available_bytes": 3703259136,
+  "attempts": [
+    {
+      "attempt": 1,
+      "passed": true,
+      "checks": {
+        "ram": true,
+        "image": true,
+        "vlm_quality": true,
+        "korean_render": true,
+        "korean_script": true,
+        "tts_metadata": true,
+        "tts_wav": true,
+        "speech_roundtrip": true
+      },
+      "minimum_available_bytes": 3703259136,
+      "vlm_text": "USB charger, power adapter.",
+      "korean_text": "여기에는 USB 충전기와 전원 어댑터가 보여요.",
+      "audio_s": 4.46984126984127,
+      "wav": "/mnt/ssd/ram-results/final-tts/attempt-1.wav",
+      "roundtrip_text": "여기에는 USB 충전기와 전원 어댑터가 보여요."
+    },
+    {
+      "attempt": 2,
+      "passed": true,
+      "checks": {
+        "ram": true,
+        "image": true,
+        "vlm_quality": true,
+        "korean_render": true,
+        "korean_script": true,
+        "tts_metadata": true,
+        "tts_wav": true,
+        "speech_roundtrip": true
+      },
+      "minimum_available_bytes": 3741687808,
+      "vlm_text": "USB charger, power adapter.",
+      "korean_text": "여기에는 USB 충전기와 전원 어댑터가 보여요.",
+      "audio_s": 4.46984126984127,
+      "wav": "/mnt/ssd/ram-results/final-tts/attempt-2.wav",
+      "roundtrip_text": "여기에는 USB 충전기와 전원 어댑터가 보여요."
+    },
+    {
+      "attempt": 3,
+      "passed": true,
+      "checks": {
+        "ram": true,
+        "image": true,
+        "vlm_quality": true,
+        "korean_render": true,
+        "korean_script": true,
+        "tts_metadata": true,
+        "tts_wav": true,
+        "speech_roundtrip": true
+      },
+      "minimum_available_bytes": 3744403456,
+      "vlm_text": "USB charger, power adapter.",
+      "korean_text": "여기에는 USB 충전기와 전원 어댑터가 보여요.",
+      "audio_s": 4.46984126984127,
+      "wav": "/mnt/ssd/ram-results/final-tts/attempt-3.wav",
+      "roundtrip_text": "여기에는 USB 충전기와 전원 어댑터가 보여요."
+    }
+  ]
+}

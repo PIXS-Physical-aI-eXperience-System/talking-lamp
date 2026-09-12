@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/vlm-1b-rendered/attempt-3-ko.json",
+  "text": "여기에는 유에스비 충전기, 전원 어댑터 등이 보여요.",
+  "wav": "/mnt/ssd/ram-results/tts-1b-rendered/attempt-3.wav",
+  "sample_rate": 44100,
+  "audio_s": 4.957460317460318,
+  "load_s": 9.55,
+  "synth_s": 3.0967065330041805,
+  "providers": [
+    "CUDAExecutionProvider",
+    "CPUExecutionProvider"
+  ]
+}

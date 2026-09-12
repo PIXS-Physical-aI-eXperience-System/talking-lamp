@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/cross-image/2b-2_lamp_head.json",
+  "image_sha256": "db8252e942838ec7446bc47358bf86211fad7eb250e61dfbeac8f64b9c6c5405",
+  "expected_image_sha256": "db8252e942838ec7446bc47358bf86211fad7eb250e61dfbeac8f64b9c6c5405",
+  "image_matches": true,
+  "language": "en",
+  "required_any": [
+    [
+      "electronic",
+      "circuit",
+      "device"
+    ],
+    [
+      "person",
+      "hand",
+      "holding",
+      "holds"
+    ]
+  ],
+  "passed": true,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "A person holds a blue plastic case containing a green circuit board labeled \"SPEED IO\" with wires connected to it, placed on a keyboard and a notepad",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    }
+  ]
+}

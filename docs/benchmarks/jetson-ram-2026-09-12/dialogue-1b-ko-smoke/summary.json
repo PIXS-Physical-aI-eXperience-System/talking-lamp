@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "command": [
+    "bash",
+    "tools/run_dialogue_memory.sh"
+  ],
+  "gate": {
+    "min_available_bytes": 800000000,
+    "max_swap_pages": 0
+  },
+  "passed": true,
+  "worst_minimum_available_bytes": 3191087104,
+  "runs": [
+    {
+      "attempt": 1,
+      "result": "/mnt/ssd/ram-results/dialogue-1b-ko-smoke/attempt-1.json",
+      "passed": true,
+      "minimum_available_bytes": 3191087104,
+      "swap_activity_pages": 0,
+      "timed_out": false,
+      "returncode": 0
+    }
+  ]
+}

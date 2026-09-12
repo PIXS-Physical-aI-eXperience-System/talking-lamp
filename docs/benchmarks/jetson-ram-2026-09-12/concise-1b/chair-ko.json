@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/concise-1b/chair.json",
+  "source_text": "Office chair, desk with items.",
+  "language": "ko",
+  "text": "사무실 의자, 물건이 있는 책상.",
+  "load_s": 11.415257331012981,
+  "infer_s": 4.335056719995919,
+  "generated_tokens": 13,
+  "cuda_peak_allocated_bytes": 1247022592,
+  "cuda_peak_reserved_bytes": 1266679808
+}

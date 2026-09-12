@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/concise-1b/circuit.json",
+  "source_text": "Blue box with Arduino, laptop, keyboard, notebook.",
+  "language": "ko",
+  "text": "여기에는 아두이노가 든 파란 상자, 노트북, 키보드, 공책 등이 보여요.",
+  "unknown_items": [],
+  "passed": true
+}

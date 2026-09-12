@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "command": [
+    "bash",
+    "tools/run_dialogue_memory.sh"
+  ],
+  "gate": {
+    "min_available_bytes": 800000000,
+    "max_swap_pages": 0
+  },
+  "passed": true,
+  "worst_minimum_available_bytes": 2451910656,
+  "runs": [
+    {
+      "attempt": 1,
+      "result": "/mnt/ssd/ram-results/dialogue-2b-sequential/attempt-1.json",
+      "passed": true,
+      "minimum_available_bytes": 2469326848,
+      "swap_activity_pages": 0,
+      "timed_out": false,
+      "returncode": 0
+    },
+    {
+      "attempt": 2,
+      "result": "/mnt/ssd/ram-results/dialogue-2b-sequential/attempt-2.json",
+      "passed": true,
+      "minimum_available_bytes": 2472562688,
+      "swap_activity_pages": 0,
+      "timed_out": false,
+      "returncode": 0
+    },
+    {
+      "attempt": 3,
+      "result": "/mnt/ssd/ram-results/dialogue-2b-sequential/attempt-3.json",
+      "passed": true,
+      "minimum_available_bytes": 2451910656,
+      "swap_activity_pages": 0,
+      "timed_out": false,
+      "returncode": 0
+    }
+  ]
+}

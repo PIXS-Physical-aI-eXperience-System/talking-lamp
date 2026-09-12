@@ -1,0 +1,13 @@
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "first_inference", "infer_s": 0.8297921779958415, "generated_tokens": 18, "text": "A stop sign stands in front of a Chinese gate with a black car passing by.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.4107951710029738, "generated_tokens": 18, "text": "A stop sign stands in front of a Chinese gate with a black car passing by.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.41110406599909766, "generated_tokens": 18, "text": "A stop sign stands in front of a Chinese gate with a black car passing by.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.409249512005772, "generated_tokens": 18, "text": "A stop sign stands in front of a Chinese gate with a black car passing by.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.41142857099475805, "generated_tokens": 18, "text": "A stop sign stands in front of a Chinese gate with a black car passing by.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.4103865799988853, "generated_tokens": 18, "text": "A stop sign stands in front of a Chinese gate with a black car passing by.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+System peak: 5.994 GB; exit=0; result=/work/results/short_en-system.json

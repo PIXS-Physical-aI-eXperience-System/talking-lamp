@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/cross-image/1b-chair.json",
+  "image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "expected_image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "image_matches": true,
+  "language": "en",
+  "required_any": [
+    [
+      "chair",
+      "seat"
+    ]
+  ],
+  "passed": true,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "A worn and slightly damaged office chair with visible stitching and a tear on the seat.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    }
+  ]
+}

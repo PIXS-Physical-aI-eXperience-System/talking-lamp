@@ -1,0 +1,13 @@
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "first_inference", "infer_s": 1.116327984003874, "generated_tokens": 32, "text": "이 사진은 한국의 한 도시의 도심을 보여주는 장면입니다. 도심에 있는 한 개의 마을을 보여주는", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.7273771570035024, "generated_tokens": 32, "text": "이 사진은 한국의 한 도시의 도심을 보여주는 장면입니다. 도심에 있는 한 개의 마을을 보여주는", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.6924661619996186, "generated_tokens": 32, "text": "이 사진은 한국의 한 도시의 도심을 보여주는 장면입니다. 도심에 있는 한 개의 마을을 보여주는", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.6910723339969991, "generated_tokens": 32, "text": "이 사진은 한국의 한 도시의 도심을 보여주는 장면입니다. 도심에 있는 한 개의 마을을 보여주는", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.6925287269987166, "generated_tokens": 32, "text": "이 사진은 한국의 한 도시의 도심을 보여주는 장면입니다. 도심에 있는 한 개의 마을을 보여주는", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.7154960569969262, "generated_tokens": 32, "text": "이 사진은 한국의 한 도시의 도심을 보여주는 장면입니다. 도심에 있는 한 개의 마을을 보여주는", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+System peak: 6.477 GB; exit=0; result=/work/results-1b/short_ko-system.json

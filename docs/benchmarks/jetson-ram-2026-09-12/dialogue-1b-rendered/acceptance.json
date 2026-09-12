@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "ram_gate": {
+    "min_available_bytes": 800000000,
+    "max_swap_pages": 0
+  },
+  "worst_minimum_available_bytes": 3739598848,
+  "attempts": [
+    {
+      "attempt": 1,
+      "passed": true,
+      "checks": {
+        "ram": true,
+        "image": true,
+        "vlm_quality": true,
+        "korean_render": true,
+        "korean_script": true,
+        "tts_metadata": true,
+        "tts_wav": true
+      },
+      "minimum_available_bytes": 3791822848,
+      "vlm_text": "USB charger, power adapter.",
+      "korean_text": "여기에는 USB 충전기, 전원 어댑터 등이 보여요.",
+      "audio_s": 5.038730158730159,
+      "wav": "/mnt/ssd/ram-results/tts-1b-rendered/attempt-1.wav"
+    },
+    {
+      "attempt": 2,
+      "passed": true,
+      "checks": {
+        "ram": true,
+        "image": true,
+        "vlm_quality": true,
+        "korean_render": true,
+        "korean_script": true,
+        "tts_metadata": true,
+        "tts_wav": true
+      },
+      "minimum_available_bytes": 3785457664,
+      "vlm_text": "USB charger, power adapter.",
+      "korean_text": "여기에는 USB 충전기, 전원 어댑터 등이 보여요.",
+      "audio_s": 4.922630385487528,
+      "wav": "/mnt/ssd/ram-results/tts-1b-rendered/attempt-2.wav"
+    },
+    {
+      "attempt": 3,
+      "passed": true,
+      "checks": {
+        "ram": true,
+        "image": true,
+        "vlm_quality": true,
+        "korean_render": true,
+        "korean_script": true,
+        "tts_metadata": true,
+        "tts_wav": true
+      },
+      "minimum_available_bytes": 3739598848,
+      "vlm_text": "USB charger, power adapter.",
+      "korean_text": "여기에는 USB 충전기, 전원 어댑터 등이 보여요.",
+      "audio_s": 4.957460317460318,
+      "wav": "/mnt/ssd/ram-results/tts-1b-rendered/attempt-3.wav"
+    }
+  ]
+}

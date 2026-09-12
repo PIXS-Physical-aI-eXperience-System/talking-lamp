@@ -1,0 +1,13 @@
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "first_inference", "infer_s": 1.1066175380037748, "generated_tokens": 32, "text": "이 사진은 한국어로 설명해드리겠습니다.\n\n이미지에는 한국의 한 곳에서의 도로 상황을 보여줍니다.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.6973336340015521, "generated_tokens": 32, "text": "이 사진은 한국어로 설명해드리겠습니다.\n\n이미지에는 한국의 한 곳에서의 도로 상황을 보여줍니다.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.696979342996201, "generated_tokens": 32, "text": "이 사진은 한국어로 설명해드리겠습니다.\n\n이미지에는 한국의 한 곳에서의 도로 상황을 보여줍니다.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.6956954330016742, "generated_tokens": 32, "text": "이 사진은 한국어로 설명해드리겠습니다.\n\n이미지에는 한국의 한 곳에서의 도로 상황을 보여줍니다.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.6962644540035399, "generated_tokens": 32, "text": "이 사진은 한국어로 설명해드리겠습니다.\n\n이미지에는 한국의 한 곳에서의 도로 상황을 보여줍니다.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.6941513459969428, "generated_tokens": 32, "text": "이 사진은 한국어로 설명해드리겠습니다.\n\n이미지에는 한국의 한 곳에서의 도로 상황을 보여줍니다.", "cuda_peak_allocated_bytes": 2220479488, "cuda_peak_reserved_bytes": 2290089984}
+System peak: 5.894 GB; exit=0; result=/work/results/short_ko-system.json

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/concise-1b/power.json",
+  "source_text": "USB charger, power adapter.",
+  "language": "ko",
+  "text": "여기에는 USB 충전기, 전원 어댑터 등이 보여요.",
+  "unknown_items": [],
+  "passed": true
+}

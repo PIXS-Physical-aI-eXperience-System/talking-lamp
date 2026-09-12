@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "model_dir": "/mnt/ssd/internvl3_5-2b-nf4",
+  "image_sha256": "0b330fabeba2f80490d797593ef3cee8bf38f4b7ff12ed625f5a6d05720606bf",
+  "prompt": "Describe this image in one short English sentence.",
+  "one_tile": true,
+  "max_new_tokens": 32,
+  "load_s": 8.72548152199306,
+  "total_wake_to_response_s": 31.330114005002542,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 11.34056157899613,
+      "generated_tokens": 20,
+      "text": "A robotic arm is being held over a cluttered desk with various electronic components and a notebook.",
+      "cuda_peak_allocated_bytes": 2452110848,
+      "cuda_peak_reserved_bytes": 2508193792
+    }
+  ]
+}

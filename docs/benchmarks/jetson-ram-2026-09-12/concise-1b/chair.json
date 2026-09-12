@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "model_dir": "/mnt/ssd/internvl3_5-1b-nf4",
+  "image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "prompt": "List only the two most important visible objects in simple English, maximum 8 words.",
+  "one_tile": true,
+  "max_new_tokens": 16,
+  "load_s": 5.633403081010329,
+  "total_wake_to_response_s": 21.103777859985712,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 3.659725049001281,
+      "generated_tokens": 8,
+      "text": "Office chair, desk with items.",
+      "cuda_peak_allocated_bytes": 1170142208,
+      "cuda_peak_reserved_bytes": 1239416832
+    }
+  ]
+}

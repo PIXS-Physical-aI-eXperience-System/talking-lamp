@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/cross-image/1b-lelamp_irl.json",
+  "image_sha256": "0b330fabeba2f80490d797593ef3cee8bf38f4b7ff12ed625f5a6d05720606bf",
+  "expected_image_sha256": "0b330fabeba2f80490d797593ef3cee8bf38f4b7ff12ed625f5a6d05720606bf",
+  "image_matches": true,
+  "language": "en",
+  "required_any": [
+    [
+      "robot",
+      "robotic"
+    ],
+    [
+      "desk",
+      "table"
+    ]
+  ],
+  "passed": true,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "A person is using a robotic arm to pick up a piece of paper from a desk with various electronic devices and a laptop.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    }
+  ]
+}

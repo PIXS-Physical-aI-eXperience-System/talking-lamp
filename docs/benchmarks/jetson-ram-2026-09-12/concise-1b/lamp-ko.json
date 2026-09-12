@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/concise-1b/lamp.json",
+  "source_text": "Workstation, robot arm, laptop, notebook.",
+  "language": "ko",
+  "text": "작업장, 로봇 팔, 노트북, 노트북",
+  "load_s": 9.802748707006685,
+  "infer_s": 4.488910207990557,
+  "generated_tokens": 16,
+  "cuda_peak_allocated_bytes": 1247227392,
+  "cuda_peak_reserved_bytes": 1266679808
+}

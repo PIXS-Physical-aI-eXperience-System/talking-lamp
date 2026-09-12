@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "model_dir": "/mnt/ssd/internvl3_5-1b-nf4",
+  "image_sha256": "0b330fabeba2f80490d797593ef3cee8bf38f4b7ff12ed625f5a6d05720606bf",
+  "prompt": "Describe this image in one short English sentence.",
+  "one_tile": true,
+  "max_new_tokens": 32,
+  "load_s": 5.390096752991667,
+  "total_wake_to_response_s": 25.32451569598925,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 7.246579785001813,
+      "generated_tokens": 26,
+      "text": "A person is using a robotic arm to pick up a piece of paper from a desk with various electronic devices and a laptop.",
+      "cuda_peak_allocated_bytes": 1170142208,
+      "cuda_peak_reserved_bytes": 1239416832
+    }
+  ]
+}

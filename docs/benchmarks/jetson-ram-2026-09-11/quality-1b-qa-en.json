@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "source": "docs/benchmarks/jetson-ram-2026-09-11/qa_demo_1b.json",
+  "image_sha256": null,
+  "expected_image_sha256": null,
+  "image_matches": true,
+  "language": "en",
+  "required_any": [
+    [
+      "power",
+      "adapter"
+    ],
+    [
+      "table",
+      "desk"
+    ]
+  ],
+  "passed": true,
+  "records": [
+    {
+      "index": 0,
+      "kind": "warm_inference",
+      "text": "A white power adapter with multiple sockets and a black power strip is placed on a table in a room with shelves and various items in the background.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/concise-1b/lamp.json",
+  "source_text": "Workstation, robot arm, laptop, notebook.",
+  "language": "ko",
+  "text": "여기에는 작업대, 로봇 팔, 노트북, 공책 등이 보여요.",
+  "unknown_items": [],
+  "passed": true
+}

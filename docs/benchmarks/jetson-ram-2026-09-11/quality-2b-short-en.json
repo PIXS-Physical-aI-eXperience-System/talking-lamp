@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "source": "docs/benchmarks/jetson-ram-2026-09-11/short_en.json",
+  "image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "expected_image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "image_matches": true,
+  "language": "en",
+  "required_any": [
+    [
+      "chair",
+      "seat"
+    ]
+  ],
+  "passed": true,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "A gray office chair with a metal armrest and a visible crack on the seat.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    },
+    {
+      "index": 1,
+      "kind": "warm_inference",
+      "text": "A gray office chair with a metal armrest and a visible crack on the seat.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    },
+    {
+      "index": 2,
+      "kind": "warm_inference",
+      "text": "A gray office chair with a metal armrest and a visible crack on the seat.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    },
+    {
+      "index": 3,
+      "kind": "warm_inference",
+      "text": "A gray office chair with a metal armrest and a visible crack on the seat.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    },
+    {
+      "index": 4,
+      "kind": "warm_inference",
+      "text": "A gray office chair with a metal armrest and a visible crack on the seat.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    },
+    {
+      "index": 5,
+      "kind": "warm_inference",
+      "text": "A gray office chair with a metal armrest and a visible crack on the seat.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    }
+  ]
+}

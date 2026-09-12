@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "model_dir": "/mnt/ssd/internvl3_5-1b-nf4",
+  "image_sha256": "24efd9a8c01727ea4780ff9bfa6047a816e7c6ac6690c7e58de63a75963fd17f",
+  "prompt": "List only the two most important visible objects in simple English, maximum 8 words.",
+  "one_tile": true,
+  "max_new_tokens": 16,
+  "load_s": 5.393557431001682,
+  "total_wake_to_response_s": 23.34210376300325,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 3.5469302569981664,
+      "generated_tokens": 7,
+      "text": "USB charger, power adapter.",
+      "cuda_peak_allocated_bytes": 1170142208,
+      "cuda_peak_reserved_bytes": 1239416832
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "model_id": "OpenGVLab/InternVL3_5-1B-HF",
+  "load_s": 6.201569631999973,
+  "one_tile": true,
+  "max_new_tokens": 96,
+  "qa": [
+    {
+      "question": "이 사진에 뭐가 보여?",
+      "answer": "이 사진에는 다음과 같은内容이 보입니다:\n\n1. **전기장치**: \n   - 상단에 있는黑色의 전기장치(이름이 obscured)가 있습니다. \n   - 전기장치에는白色的지동이 있습니다.\n\n2. **전기장치의 배치**:\n   - 전기장치는白色的지동이 있는白色的배치대에 mounted.\n   - 배치대에는白色的지동이 있는",
+      "infer_s": 19.737575332999768,
+      "generated_tokens": 96,
+      "cuda_peak_allocated_gb": 1.073151488,
+      "kind": "first_inference"
+    },
+    {
+      "question": "이 장면은 어디인 것 같아?",
+      "answer": "이 장면은 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 브리그스 �",
+      "infer_s": 17.443542450000223,
+      "generated_tokens": 96,
+      "cuda_peak_allocated_gb": 1.073903104,
+      "kind": "warm_inference"
+    },
+    {
+      "question": "사람이 지금 뭘 하고 있는 것 같아?",
+      "answer": "사람이 지금 뭘 하고 있는 것 같아? \n\n이미지에서 사람의 actions에 대한 정보를 제공하려면 주변 화장실의 contents, 장소, 및 기타 요소를 고려해야 합니다. \n\n이미지에서 다음과 같은 요소가 있습니다:\n\n1. **장소**: 화장실에서, 블루이스 테이블에 있는 장소.\n2. **기 used**:",
+      "infer_s": 17.38972336400002,
+      "generated_tokens": 96,
+      "cuda_peak_allocated_gb": 1.07365632,
+      "kind": "warm_inference"
+    },
+    {
+      "question": "Describe this image in one short English sentence.",
+      "answer": "A white power adapter with multiple sockets and a black power strip is placed on a table in a room with shelves and various items in the background.",
+      "infer_s": 5.722840800000085,
+      "generated_tokens": 30,
+      "cuda_peak_allocated_gb": 1.073777152,
+      "kind": "warm_inference"
+    }
+  ]
+}

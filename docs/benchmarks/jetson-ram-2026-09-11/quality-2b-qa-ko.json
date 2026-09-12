@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source": "docs/benchmarks/jetson-ram-2026-09-11/qa_demo.json",
+  "image_sha256": null,
+  "expected_image_sha256": null,
+  "image_matches": true,
+  "language": "ko",
+  "required_any": [
+    [
+      "충전",
+      "어댑터",
+      "전원"
+    ]
+  ],
+  "passed": false,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "이 사진에는 테이블에 있는 충전坞가 보입니다. 충전坞에는 여러 개의 충전구가 있습니다. 그중 하나는 스마트폰을 충전하는 데 사용되는 디지털 충전기입니다. 다른 한 쪽에는 스마트폰이나 태블릿과 같은 스마트폰을 충전할 수 있는 전원插座가 있습니다. 충전",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": false,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": false
+    }
+  ]
+}

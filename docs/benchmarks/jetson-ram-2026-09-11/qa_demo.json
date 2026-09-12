@@ -1,0 +1,40 @@
+{
+  "model_id": "OpenGVLab/InternVL3_5-2B-HF",
+  "load_s": 63.910084170999994,
+  "one_tile": true,
+  "max_new_tokens": 96,
+  "qa": [
+    {
+      "question": "이 사진에 뭐가 보여?",
+      "answer": "이 사진에는 테이블에 있는 충전坞가 보입니다. 충전坞에는 여러 개의 충전구가 있습니다. 그중 하나는 스마트폰을 충전하는 데 사용되는 디지털 충전기입니다. 다른 한 쪽에는 스마트폰이나 태블릿과 같은 스마트폰을 충전할 수 있는 전원插座가 있습니다. 충전",
+      "infer_s": 32.74198977599997,
+      "generated_tokens": 96,
+      "cuda_peak_allocated_gb": 2.22569984,
+      "kind": "first_inference"
+    },
+    {
+      "question": "이 장면은 어디인 것 같아?",
+      "answer": "이 장면은 책상이나 테이블에 있는 모습으로 보입니다. 책상 옆에는 책상 뒷부屋에 있는 선반에 책과 기타 물건이 보입니다. 책상 위에는 편안한 의자와 패브릭 의자 cushion이 있습니다. 책상 위에는 전원插座이 여러 개의插座에 연결되어 있으며, 그 중 하나는 전원插座로, 다른 하나는 무",
+      "infer_s": 17.24984753399997,
+      "generated_tokens": 96,
+      "cuda_peak_allocated_gb": 2.225994752,
+      "kind": "warm_inference"
+    },
+    {
+      "question": "사람이 지금 뭘 하고 있는 것 같아?",
+      "answer": "이미지에 보이는 장치를 살펴보면, 주로 사용 중인 것은 무선 하드웨어 전원 공급기입니다. 이 전원 공급기는 여러 디바이스를 동시에 충전할 수 있는 디바이스입니다. 전원 공급기가 여러 개의插座에 연결되어 있으며, 그 중 하나는 무선 하드웨어 전원 공급기 자체를 사용하고 있습니다.\n\n이",
+      "infer_s": 17.243753555000012,
+      "generated_tokens": 96,
+      "cuda_peak_allocated_gb": 2.226311168,
+      "kind": "warm_inference"
+    },
+    {
+      "question": "Describe this image in one short English sentence.",
+      "answer": "A black power bank is placed on a white power strip with a white plug adapter on a dark table.",
+      "infer_s": 4.384518654999965,
+      "generated_tokens": 22,
+      "cuda_peak_allocated_gb": 2.225850368,
+      "kind": "warm_inference"
+    }
+  ]
+}

@@ -1,0 +1,1986 @@
+{
+  "schema_version": 1,
+  "hardware_scope": "PC dGPU; not Jetson measurement",
+  "engine": "lmdeploy-turbomind",
+  "model_id": "OpenGVLab/InternVL3_5-2B-HF",
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "machine": "x86_64",
+  "versions": {
+    "lmdeploy": "0.17.0",
+    "torch": "2.8.0+cu128",
+    "transformers": "4.57.6",
+    "torchvision": "0.23.0+cu128"
+  },
+  "image_sha256": "2070aff92b7dee3228fb49b6e2ba2557c53d9aedf3f7e1b01fac47c9755c1552",
+  "prompt": "이 사진을 한국어로 설명해줘",
+  "max_new_tokens": 128,
+  "cache_max_entry_count": 0.1,
+  "session_len": 8192,
+  "gpu_idle_bytes": 498073600,
+  "gpu_after_load_bytes": 7266631680,
+  "gpu_peak_used_bytes": 7465861120,
+  "load_s": 12.985092847004125,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 0.9916191149968654,
+      "generated_tokens": 128,
+      "input_tokens": 1812,
+      "text": "이 사진은 한국어로 설명하자면 다음과 같습니다:\n\n이 사진은 한국어로 \"중화門\"이라는 문을 가리킵니다. 이 문은 한국 전통적인 장소로, 한국인들의 문화와 전통을 상징하는 장소입니다. 문의 옆에는 \"STOP\"라는 STOP 펜alty sign이 있습니다. 이는 이 지역의 차량이 주의를 받을 수 있도록 하는 표지판입니다. 문 옆에는 두隻의 동물로 보이는 statue가 있습니다. 이 지역은 다양한 상점들이 있는 도시로, \"OPTUS",
+      "gpu_used_bytes": 7275020288
+    },
+    {
+      "kind": "warm_inference",
+      "infer_s": 0.9608100330005982,
+      "generated_tokens": 128,
+      "input_tokens": 1812,
+      "text": "이 사진은 한국어로 설명하자면 다음과 같습니다:\n\n이 사진은 한국어로 \"중화門\"이라는 문을 가리킵니다. 이 문은 한국 전통적인 장소로, 한국인들의 문화와 전통을 상징하는 장소입니다. 문의 옆에는 \"STOP\"라는 STOP 펜alty sign이 있습니다. 이는 이 지역의 차량이 주의를 받을 수 있도록 하는 표지판입니다. 문 옆에는 두隻의 동물로 보이는 statue가 있습니다. 이 지역은 다양한 상점들이 있는 도시로, \"OPTUS",
+      "gpu_used_bytes": 7275020288
+    },
+    {
+      "kind": "warm_inference",
+      "infer_s": 0.9573538350014132,
+      "generated_tokens": 128,
+      "input_tokens": 1812,
+      "text": "이 사진은 한국어로 설명하자면 다음과 같습니다:\n\n이 사진은 한국어로 \"중화門\"이라는 문을 가리킵니다. 이 문은 한국 전통적인 장소로, 한국인들의 문화와 전통을 상징하는 장소입니다. 문의 옆에는 \"STOP\"라는 STOP 펜alty sign이 있습니다. 이는 이 지역의 차량이 주의를 받을 수 있도록 하는 표지판입니다. 문 옆에는 두隻의 동물로 보이는 statue가 있습니다. 이 지역은 다양한 상점들이 있는 도시로, \"OPTUS",
+      "gpu_used_bytes": 7275020288
+    },
+    {
+      "kind": "warm_inference",
+      "infer_s": 0.9587649420063826,
+      "generated_tokens": 128,
+      "input_tokens": 1812,
+      "text": "이 사진은 한국어로 설명하자면 다음과 같습니다:\n\n이 사진은 한국어로 \"중화門\"이라는 문을 가리킵니다. 이 문은 한국 전통적인 장소로, 한국인들의 문화와 전통을 상징하는 장소입니다. 문의 옆에는 \"STOP\"라는 STOP 펜alty sign이 있습니다. 이는 이 지역의 차량이 주의를 받을 수 있도록 하는 표지판입니다. 문 옆에는 두隻의 동물로 보이는 statue가 있습니다. 이 지역은 다양한 상점들이 있는 도시로, \"OPTUS",
+      "gpu_used_bytes": 7275020288
+    },
+    {
+      "kind": "warm_inference",
+      "infer_s": 0.9585271190007916,
+      "generated_tokens": 128,
+      "input_tokens": 1812,
+      "text": "이 사진은 한국어로 설명하자면 다음과 같습니다:\n\n이 사진은 한국어로 \"중화門\"이라는 문을 가리킵니다. 이 문은 한국 전통적인 장소로, 한국인들의 문화와 전통을 상징하는 장소입니다. 문의 옆에는 \"STOP\"라는 STOP 펜alty sign이 있습니다. 이는 이 지역의 차량이 주의를 받을 수 있도록 하는 표지판입니다. 문 옆에는 두隻의 동물로 보이는 statue가 있습니다. 이 지역은 다양한 상점들이 있는 도시로, \"OPTUS",
+      "gpu_used_bytes": 7275020288
+    },
+    {
+      "kind": "warm_inference",
+      "infer_s": 0.9583910240035038,
+      "generated_tokens": 128,
+      "input_tokens": 1812,
+      "text": "이 사진은 한국어로 설명하자면 다음과 같습니다:\n\n이 사진은 한국어로 \"중화門\"이라는 문을 가리킵니다. 이 문은 한국 전통적인 장소로, 한국인들의 문화와 전통을 상징하는 장소입니다. 문의 옆에는 \"STOP\"라는 STOP 펜alty sign이 있습니다. 이는 이 지역의 차량이 주의를 받을 수 있도록 하는 표지판입니다. 문 옆에는 두隻의 동물로 보이는 statue가 있습니다. 이 지역은 다양한 상점들이 있는 도시로, \"OPTUS",
+      "gpu_used_bytes": 7275020288
+    }
+  ],
+  "after_unload_gpu_used_bytes": 851443712,
+  "after_unload_rss_bytes": 1514246144,
+  "rss_peak_bytes_by_phase": {
+    "first_inference": 21675888640,
+    "imports": 551124992,
+    "load": 21532913664,
+    "unload": 21538168832,
+    "warm_inference": 21689032704
+  },
+  "samples": [
+    {
+      "phase": "imports",
+      "rss_bytes": 24223744,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.020414776
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 32231424,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.088709456
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 437170176,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.377152352
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 454602752,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.455615972
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 463785984,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.532757388
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 470876160,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.600025415
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 479141888,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.6680817
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 487247872,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.736988349
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 492924928,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.804947043
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 496197632,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.877285643
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 506753024,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42994.989342971
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 513941504,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.056323773
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 523640832,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.125221887
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 529686528,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.194029792
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 534667264,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.265277481
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 541904896,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.33254107
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 542519296,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.399737624
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 542625792,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.466648616
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 542961664,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.534769441
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 543260672,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.602679434
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 543469568,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.669664484
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 547323904,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.764200738
+    },
+    {
+      "phase": "imports",
+      "rss_bytes": 551124992,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.831835448
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 558731264,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.898306471
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 560861184,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42995.965267065
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 560861184,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.03299064
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 560861184,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.099203171
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 560885760,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.165836706
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 575885312,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.233560612
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 577216512,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.301828401
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 577277952,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.370111259
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 577974272,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.437294478
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 585994240,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.504443212
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 596115456,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.613960849
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 607797248,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.681594678
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 617869312,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.749587104
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 672387072,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.817163195
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 676798464,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.885433679
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 690245632,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42996.95466906
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 696303616,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42997.085203781
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 704552960,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42997.152658937
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 713261056,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42997.221381814
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 739479552,
+      "gpu_used_bytes": 498073600,
+      "time_s": 42997.294143863
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 839725056,
+      "gpu_used_bytes": 562036736,
+      "time_s": 42997.363179482
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 980189184,
+      "gpu_used_bytes": 736100352,
+      "time_s": 42997.698141049
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1049845760,
+      "gpu_used_bytes": 736100352,
+      "time_s": 42998.125819542
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1050980352,
+      "gpu_used_bytes": 736100352,
+      "time_s": 42998.334568858
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1077297152,
+      "gpu_used_bytes": 736100352,
+      "time_s": 42998.705740717
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1098371072,
+      "gpu_used_bytes": 748683264,
+      "time_s": 42998.77277603
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1150271488,
+      "gpu_used_bytes": 851443712,
+      "time_s": 42999.014996958
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1238024192,
+      "gpu_used_bytes": 1474297856,
+      "time_s": 42999.081904523
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1417388032,
+      "gpu_used_bytes": 1474297856,
+      "time_s": 42999.149108471
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1616617472,
+      "gpu_used_bytes": 1474297856,
+      "time_s": 42999.216499016
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1819422720,
+      "gpu_used_bytes": 2099249152,
+      "time_s": 42999.284609251
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2039623680,
+      "gpu_used_bytes": 2099249152,
+      "time_s": 42999.352959754
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2254057472,
+      "gpu_used_bytes": 2099249152,
+      "time_s": 42999.420133546
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2428813312,
+      "gpu_used_bytes": 3372220416,
+      "time_s": 42999.488126132
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2598277120,
+      "gpu_used_bytes": 3506438144,
+      "time_s": 42999.555112364
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2767077376,
+      "gpu_used_bytes": 3707764736,
+      "time_s": 42999.622402933
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2949419008,
+      "gpu_used_bytes": 3875536896,
+      "time_s": 42999.690128913
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3134574592,
+      "gpu_used_bytes": 4076863488,
+      "time_s": 42999.757479814
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3292725248,
+      "gpu_used_bytes": 4211081216,
+      "time_s": 42999.824460235
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3501965312,
+      "gpu_used_bytes": 4412407808,
+      "time_s": 42999.890605721
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3680899072,
+      "gpu_used_bytes": 4613734400,
+      "time_s": 42999.95782635
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3865669632,
+      "gpu_used_bytes": 4815060992,
+      "time_s": 43000.025464245
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4042043392,
+      "gpu_used_bytes": 4982833152,
+      "time_s": 43000.092211312
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4225630208,
+      "gpu_used_bytes": 5117050880,
+      "time_s": 43000.159349537
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4387119104,
+      "gpu_used_bytes": 5318377472,
+      "time_s": 43000.226612295
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4569206784,
+      "gpu_used_bytes": 5519704064,
+      "time_s": 43000.293566788
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4749844480,
+      "gpu_used_bytes": 5687476224,
+      "time_s": 43000.36136407
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4939395072,
+      "gpu_used_bytes": 5888802816,
+      "time_s": 43000.428495462
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5127356416,
+      "gpu_used_bytes": 6023020544,
+      "time_s": 43000.495639779
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5435179008,
+      "gpu_used_bytes": 6996099072,
+      "time_s": 43000.563240275
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5452111872,
+      "gpu_used_bytes": 7465861120,
+      "time_s": 43000.630621793
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2589503488,
+      "gpu_used_bytes": 7465861120,
+      "time_s": 43000.698165934
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1224691712,
+      "gpu_used_bytes": 6702497792,
+      "time_s": 43000.765445372
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1400020992,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43000.833689868
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1594703872,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43000.902159132
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1788796928,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43000.969942989
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 1984294912,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.038090193
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2180493312,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.106304934
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2377105408,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.174470572
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2572283904,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.242685953
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2767757312,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.310792873
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 2963288064,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.378945527
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3158302720,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.447197607
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3354861568,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.515496964
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3551076352,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.583954897
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3746787328,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.652204763
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 3943772160,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.720859201
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4142116864,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.789924205
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4338204672,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.858470322
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4533092352,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.926015245
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4729438208,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43001.994376988
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 4926898176,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.062970935
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5121576960,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.130764821
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5318553600,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.199126224
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5517664256,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.268327922
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5714911232,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.336605129
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 5912416256,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.405243377
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 6106513408,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.473988024
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 6302441472,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.54213078
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 6500659200,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.611108311
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 6698733568,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.679842128
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 6896279552,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.748486117
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 7092703232,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.81692258
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 7291232256,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.885789685
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 7486099456,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43002.953573462
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 7683416064,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.022147521
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 7880699904,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.090371859
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 8078573568,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.159161029
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 8276541440,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.227931865
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 8474853376,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.296647427
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 8674037760,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.365928593
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 8875167744,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.435790161
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 9072889856,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.504191749
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 9269350400,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.572277178
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 9466650624,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.640758414
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 9665368064,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.709690049
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 9862017024,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.778038889
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 10060808192,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.846965053
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 10257297408,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.915262267
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 10453303296,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43003.983578075
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 10650718208,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43004.052168986
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 10843914240,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43004.119146582
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 11041800192,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43004.187899975
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 11240083456,
+      "gpu_used_bytes": 6769606656,
+      "time_s": 43004.256551017
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 11260350464,
+      "gpu_used_bytes": 6782189568,
+      "time_s": 43004.348017203
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 11327696896,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.416076974
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 11513896960,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.484118551
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 11682504704,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.551192977
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 11854184448,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.619340352
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 12016078848,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.688195945
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 12179931136,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.75700938
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 12335042560,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.824965849
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 12506181632,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.894009543
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 12685676544,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43004.9630446
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 12859858944,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.031705721
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 13027221504,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.099929288
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 13189189632,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.167734475
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 13360959488,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.236277266
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 13557190656,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.304861764
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 13753933824,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.373179626
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 13952139264,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.442156756
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 14142697472,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.509918372
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 14337495040,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.578105721
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 14534561792,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.646782972
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 14732451840,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.715545191
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 14929575936,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.784792604
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 15100260352,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.853851476
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 15268122624,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.922359262
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 15421788160,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43005.989337569
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 15587827712,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.057856455
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 15747043328,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.124976135
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 15904116736,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.192671458
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 16073809920,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.261465597
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 16241336320,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.329759384
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 16408727552,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.39824095
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 16571351040,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.466818606
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 16747569152,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.53666781
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 16919597056,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.605865861
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 17078427648,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.67967985
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 17240809472,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.748698276
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 17429266432,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.817837959
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 17627566080,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.886712417
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 17814499328,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43006.954353689
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 18012336128,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.02327263
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 18195410944,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.091994093
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 18370240512,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.162025627
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 18545266688,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.231248324
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 18722983936,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.300833737
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 18914996224,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.369440657
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 19103313920,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.439051076
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 19297009664,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.508195557
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 19476692992,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.576867528
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 19669614592,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.646569889
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 19841851392,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.715821229
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 20034174976,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.785492471
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 20225994752,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.855340593
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 20416585728,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.924567498
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 20612763648,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43007.99370186
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 20803067904,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43008.063184762
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21000908800,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43008.132720372
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21192183808,
+      "gpu_used_bytes": 6788481024,
+      "time_s": 43008.20206168
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21279494144,
+      "gpu_used_bytes": 6801063936,
+      "time_s": 43008.344487938
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21329256448,
+      "gpu_used_bytes": 6895435776,
+      "time_s": 43008.41344491
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21482819584,
+      "gpu_used_bytes": 6895435776,
+      "time_s": 43008.481562188
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21520633856,
+      "gpu_used_bytes": 6895435776,
+      "time_s": 43008.551048215
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21520801792,
+      "gpu_used_bytes": 7031750656,
+      "time_s": 43008.619523811
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21523722240,
+      "gpu_used_bytes": 7266631680,
+      "time_s": 43008.757586442
+    },
+    {
+      "phase": "load",
+      "rss_bytes": 21532913664,
+      "gpu_used_bytes": 7266631680,
+      "time_s": 43008.837102851
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21592625152,
+      "gpu_used_bytes": 7266631680,
+      "time_s": 43008.904786211
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21649227776,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43008.973548901
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21669998592,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.041109352
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.110153376
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.178483851
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.247396511
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.316379602
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.384371917
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.453115632
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.521454763
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.590023482
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.657956787
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.725909268
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21675888640,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.794834251
+    },
+    {
+      "phase": "first_inference",
+      "rss_bytes": 21636354048,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.862948052
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.931160919
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43009.998135198
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.068405977
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.137547463
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.207805047
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.276663806
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.345377936
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.414338534
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.483595174
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.551156417
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.618888207
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644869632,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.687434253
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644873728,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.755914718
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21644873728,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.824632685
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686149120,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.892508233
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686149120,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43010.960865368
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686149120,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.030692941
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686149120,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.099563191
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686149120,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.168304321
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686149120,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.237413116
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686149120,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.306711303
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686153216,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.375093545
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686153216,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.443145321
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686153216,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.511657344
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686153216,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.580160891
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686153216,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.648079459
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686153216,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.715774361
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686153216,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.783881459
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.852941564
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.92126234
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43011.989421096
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.057586173
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.128574197
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.196744354
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.265591251
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.33487958
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689024512,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.403998844
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689028608,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.472438652
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689032704,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.54121068
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689032704,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.610036488
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689032704,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.677739073
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21689032704,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.74622617
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21662101504,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.813672268
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.88230729
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43012.950227671
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.019820557
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.088487138
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.157105329
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.225172784
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.293055015
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.362345137
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686272000,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.430358441
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686276096,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.499355758
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686276096,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.568290589
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686276096,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.636358995
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686284288,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.704101766
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686284288,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.772691313
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.841174513
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.909552426
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43013.977342795
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.046449225
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.11526843
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.184389648
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.25316391
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.322559066
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.391089764
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686333440,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.460731411
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686337536,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.529687001
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686337536,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.598372387
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686337536,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.667840881
+    },
+    {
+      "phase": "warm_inference",
+      "rss_bytes": 21686337536,
+      "gpu_used_bytes": 7275020288,
+      "time_s": 43014.736840553
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 21538168832,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43014.985093952
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.230157611
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.298545513
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.366422313
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.434072681
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.501744429
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.569160641
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.636432645
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.702965962
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.770830359
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.837562427
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.904846443
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43015.972522258
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43016.040824931
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11611299840,
+      "gpu_used_bytes": 6855589888,
+      "time_s": 43016.108654654
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 11466596352,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43016.346057454
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43016.609178605
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43016.677106449
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43016.745062777
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43016.812961979
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43016.879868702
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43016.947849636
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.016358112
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.08439493
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.152508641
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.220670542
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.289223571
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.357243247
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.425554175
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1592156160,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.493722869
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1517371392,
+      "gpu_used_bytes": 6834618368,
+      "time_s": 43017.563075247
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43017.707762125
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43017.775721148
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43017.842942386
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43017.910658738
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43017.977230718
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43018.044602026
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43018.112701231
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514242048,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43018.179411487
+    },
+    {
+      "phase": "unload",
+      "rss_bytes": 1514246144,
+      "gpu_used_bytes": 851443712,
+      "time_s": 43018.24560918
+    }
+  ]
+}

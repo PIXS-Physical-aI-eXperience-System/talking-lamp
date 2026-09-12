@@ -1,0 +1,2724 @@
+{
+  "schema_version": 1,
+  "host": "2a5ecae96aca",
+  "machine": "x86_64",
+  "kernel": "6.8.0-138-generic",
+  "command": [
+    "python",
+    "/work/bench_vlm_ram.py",
+    "--image",
+    "/work/lamp-bench-australia.jpg",
+    "--out",
+    "/work/results-1b/short_en.json",
+    "--model-id",
+    "OpenGVLab/InternVL3_5-1B-HF",
+    "--one-tile",
+    "--max-new-tokens",
+    "32",
+    "--prompt",
+    "Describe this image in one short English sentence."
+  ],
+  "returncode": 0,
+  "wall_s": 14.844341837000684,
+  "sample_interval_s": 0.05,
+  "before": {
+    "monotonic_s": 42509.021717126,
+    "total_bytes": 33281888256,
+    "used_bytes": 4534394880,
+    "available_bytes": 28747493376,
+    "swap_used_bytes": 0,
+    "swap_in_pages": 0,
+    "swap_out_pages": 0
+  },
+  "after_exit": {
+    "monotonic_s": 42524.866335137,
+    "total_bytes": 33281888256,
+    "used_bytes": 4453949440,
+    "available_bytes": 28827938816,
+    "swap_used_bytes": 0,
+    "swap_in_pages": 0,
+    "swap_out_pages": 0
+  },
+  "system_peak_used_bytes": 6451568640,
+  "system_peak_delta_bytes": 1917173760,
+  "swap_activity_pages": {
+    "swap_in_pages": 0,
+    "swap_out_pages": 0
+  },
+  "samples": [
+    {
+      "monotonic_s": 42509.021717126,
+      "total_bytes": 33281888256,
+      "used_bytes": 4534394880,
+      "available_bytes": 28747493376,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.022012396,
+      "total_bytes": 33281888256,
+      "used_bytes": 4534394880,
+      "available_bytes": 28747493376,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.072308564,
+      "total_bytes": 33281888256,
+      "used_bytes": 4542439424,
+      "available_bytes": 28739448832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.122611935,
+      "total_bytes": 33281888256,
+      "used_bytes": 4566953984,
+      "available_bytes": 28714934272,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.172926236,
+      "total_bytes": 33281888256,
+      "used_bytes": 4641013760,
+      "available_bytes": 28640874496,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.223238083,
+      "total_bytes": 33281888256,
+      "used_bytes": 4698558464,
+      "available_bytes": 28583329792,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.273527418,
+      "total_bytes": 33281888256,
+      "used_bytes": 4715073536,
+      "available_bytes": 28566814720,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.326236281,
+      "total_bytes": 33281888256,
+      "used_bytes": 4731584512,
+      "available_bytes": 28550303744,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.376552997,
+      "total_bytes": 33281888256,
+      "used_bytes": 4731949056,
+      "available_bytes": 28549939200,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.426886905,
+      "total_bytes": 33281888256,
+      "used_bytes": 4737839104,
+      "available_bytes": 28544049152,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.477228307,
+      "total_bytes": 33281888256,
+      "used_bytes": 4750225408,
+      "available_bytes": 28531662848,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.527508645,
+      "total_bytes": 33281888256,
+      "used_bytes": 4751515648,
+      "available_bytes": 28530372608,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.577816905,
+      "total_bytes": 33281888256,
+      "used_bytes": 4752547840,
+      "available_bytes": 28529340416,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.628129402,
+      "total_bytes": 33281888256,
+      "used_bytes": 4752547840,
+      "available_bytes": 28529340416,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.678414459,
+      "total_bytes": 33281888256,
+      "used_bytes": 4752547840,
+      "available_bytes": 28529340416,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.728763065,
+      "total_bytes": 33281888256,
+      "used_bytes": 4752547840,
+      "available_bytes": 28529340416,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.779096852,
+      "total_bytes": 33281888256,
+      "used_bytes": 4752547840,
+      "available_bytes": 28529340416,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.82942538,
+      "total_bytes": 33281888256,
+      "used_bytes": 4747923456,
+      "available_bytes": 28533964800,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.879716729,
+      "total_bytes": 33281888256,
+      "used_bytes": 4748435456,
+      "available_bytes": 28533452800,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.930045818,
+      "total_bytes": 33281888256,
+      "used_bytes": 4748156928,
+      "available_bytes": 28533731328,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42509.980382581,
+      "total_bytes": 33281888256,
+      "used_bytes": 4748156928,
+      "available_bytes": 28533731328,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.030658421,
+      "total_bytes": 33281888256,
+      "used_bytes": 4748156928,
+      "available_bytes": 28533731328,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.080975657,
+      "total_bytes": 33281888256,
+      "used_bytes": 4748660736,
+      "available_bytes": 28533227520,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.13126918,
+      "total_bytes": 33281888256,
+      "used_bytes": 4748660736,
+      "available_bytes": 28533227520,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.181573172,
+      "total_bytes": 33281888256,
+      "used_bytes": 4748660736,
+      "available_bytes": 28533227520,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.231890169,
+      "total_bytes": 33281888256,
+      "used_bytes": 4749434880,
+      "available_bytes": 28532453376,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.282199952,
+      "total_bytes": 33281888256,
+      "used_bytes": 4750467072,
+      "available_bytes": 28531421184,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.33247502,
+      "total_bytes": 33281888256,
+      "used_bytes": 4750467072,
+      "available_bytes": 28531421184,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.382786666,
+      "total_bytes": 33281888256,
+      "used_bytes": 4750467072,
+      "available_bytes": 28531421184,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.433099926,
+      "total_bytes": 33281888256,
+      "used_bytes": 4750467072,
+      "available_bytes": 28531421184,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.483393057,
+      "total_bytes": 33281888256,
+      "used_bytes": 4752273408,
+      "available_bytes": 28529614848,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.533658788,
+      "total_bytes": 33281888256,
+      "used_bytes": 4757688320,
+      "available_bytes": 28524199936,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.583961869,
+      "total_bytes": 33281888256,
+      "used_bytes": 4774461440,
+      "available_bytes": 28507426816,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.634305114,
+      "total_bytes": 33281888256,
+      "used_bytes": 4786331648,
+      "available_bytes": 28495556608,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.684677633,
+      "total_bytes": 33281888256,
+      "used_bytes": 4786331648,
+      "available_bytes": 28495556608,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.735011351,
+      "total_bytes": 33281888256,
+      "used_bytes": 4794589184,
+      "available_bytes": 28487299072,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.785333126,
+      "total_bytes": 33281888256,
+      "used_bytes": 4799680512,
+      "available_bytes": 28482207744,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.835637038,
+      "total_bytes": 33281888256,
+      "used_bytes": 4804259840,
+      "available_bytes": 28477628416,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.885929889,
+      "total_bytes": 33281888256,
+      "used_bytes": 4807344128,
+      "available_bytes": 28474544128,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.936221007,
+      "total_bytes": 33281888256,
+      "used_bytes": 4814270464,
+      "available_bytes": 28467617792,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42510.986527534,
+      "total_bytes": 33281888256,
+      "used_bytes": 4815736832,
+      "available_bytes": 28466151424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.036822419,
+      "total_bytes": 33281888256,
+      "used_bytes": 4821188608,
+      "available_bytes": 28460699648,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.087203234,
+      "total_bytes": 33281888256,
+      "used_bytes": 4821188608,
+      "available_bytes": 28460699648,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.137505734,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825350144,
+      "available_bytes": 28456538112,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.187739154,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826107904,
+      "available_bytes": 28455780352,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.237973587,
+      "total_bytes": 33281888256,
+      "used_bytes": 4827111424,
+      "available_bytes": 28454776832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.288389137,
+      "total_bytes": 33281888256,
+      "used_bytes": 4827111424,
+      "available_bytes": 28454776832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.338696535,
+      "total_bytes": 33281888256,
+      "used_bytes": 4827111424,
+      "available_bytes": 28454776832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.388984297,
+      "total_bytes": 33281888256,
+      "used_bytes": 4827111424,
+      "available_bytes": 28454776832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.439254916,
+      "total_bytes": 33281888256,
+      "used_bytes": 4827111424,
+      "available_bytes": 28454776832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.489508815,
+      "total_bytes": 33281888256,
+      "used_bytes": 4819935232,
+      "available_bytes": 28461953024,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.539790736,
+      "total_bytes": 33281888256,
+      "used_bytes": 4819935232,
+      "available_bytes": 28461953024,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.590088466,
+      "total_bytes": 33281888256,
+      "used_bytes": 4819935232,
+      "available_bytes": 28461953024,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.640310686,
+      "total_bytes": 33281888256,
+      "used_bytes": 4819935232,
+      "available_bytes": 28461953024,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.690514712,
+      "total_bytes": 33281888256,
+      "used_bytes": 4819935232,
+      "available_bytes": 28461953024,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.740772688,
+      "total_bytes": 33281888256,
+      "used_bytes": 4821741568,
+      "available_bytes": 28460146688,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.791013442,
+      "total_bytes": 33281888256,
+      "used_bytes": 4827230208,
+      "available_bytes": 28454658048,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.841324056,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825649152,
+      "available_bytes": 28456239104,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.891562266,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825653248,
+      "available_bytes": 28456235008,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.941843285,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825653248,
+      "available_bytes": 28456235008,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42511.992158779,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826677248,
+      "available_bytes": 28455211008,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.042412927,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.092900492,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.143212008,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.193477889,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.243773765,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.294048372,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.344513224,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.394814872,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.445108635,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826935296,
+      "available_bytes": 28454952960,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.495399852,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826169344,
+      "available_bytes": 28455718912,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.545695369,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826304512,
+      "available_bytes": 28455583744,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.595932907,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826304512,
+      "available_bytes": 28455583744,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.646158222,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826304512,
+      "available_bytes": 28455583744,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.69636865,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826304512,
+      "available_bytes": 28455583744,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.746594586,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826533888,
+      "available_bytes": 28455354368,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.796835099,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826533888,
+      "available_bytes": 28455354368,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.847055075,
+      "total_bytes": 33281888256,
+      "used_bytes": 4824694784,
+      "available_bytes": 28457193472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.897268869,
+      "total_bytes": 33281888256,
+      "used_bytes": 4824694784,
+      "available_bytes": 28457193472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.947476331,
+      "total_bytes": 33281888256,
+      "used_bytes": 4824694784,
+      "available_bytes": 28457193472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42512.997705824,
+      "total_bytes": 33281888256,
+      "used_bytes": 4824694784,
+      "available_bytes": 28457193472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.047972686,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825206784,
+      "available_bytes": 28456681472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.098228649,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825206784,
+      "available_bytes": 28456681472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.148487667,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825206784,
+      "available_bytes": 28456681472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.198755812,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825206784,
+      "available_bytes": 28456681472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.248974886,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825206784,
+      "available_bytes": 28456681472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.299195592,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825464832,
+      "available_bytes": 28456423424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.349468286,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825464832,
+      "available_bytes": 28456423424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.399753423,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825464832,
+      "available_bytes": 28456423424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.450042697,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825464832,
+      "available_bytes": 28456423424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.500327833,
+      "total_bytes": 33281888256,
+      "used_bytes": 4825464832,
+      "available_bytes": 28456423424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.550620985,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826181632,
+      "available_bytes": 28455706624,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.600881597,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826181632,
+      "available_bytes": 28455706624,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.65117583,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826181632,
+      "available_bytes": 28455706624,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.70164028,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826181632,
+      "available_bytes": 28455706624,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.751869382,
+      "total_bytes": 33281888256,
+      "used_bytes": 4826177536,
+      "available_bytes": 28455710720,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.802159068,
+      "total_bytes": 33281888256,
+      "used_bytes": 4824895488,
+      "available_bytes": 28456992768,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.852803654,
+      "total_bytes": 33281888256,
+      "used_bytes": 4824281088,
+      "available_bytes": 28457607168,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.903188275,
+      "total_bytes": 33281888256,
+      "used_bytes": 4823228416,
+      "available_bytes": 28458659840,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42513.95353126,
+      "total_bytes": 33281888256,
+      "used_bytes": 4864000000,
+      "available_bytes": 28417888256,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.003889914,
+      "total_bytes": 33281888256,
+      "used_bytes": 4913287168,
+      "available_bytes": 28368601088,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.054303329,
+      "total_bytes": 33281888256,
+      "used_bytes": 4962574336,
+      "available_bytes": 28319313920,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.10464985,
+      "total_bytes": 33281888256,
+      "used_bytes": 4962574336,
+      "available_bytes": 28319313920,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.154924437,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930256896,
+      "available_bytes": 28351631360,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.20514876,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930514944,
+      "available_bytes": 28351373312,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.255370178,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930957312,
+      "available_bytes": 28350930944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.305602487,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930957312,
+      "available_bytes": 28350930944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.35579989,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930957312,
+      "available_bytes": 28350930944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.406121604,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930957312,
+      "available_bytes": 28350930944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.456409987,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930957312,
+      "available_bytes": 28350930944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.506661591,
+      "total_bytes": 33281888256,
+      "used_bytes": 4930957312,
+      "available_bytes": 28350930944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.556943832,
+      "total_bytes": 33281888256,
+      "used_bytes": 4911329280,
+      "available_bytes": 28370558976,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.607184185,
+      "total_bytes": 33281888256,
+      "used_bytes": 4911329280,
+      "available_bytes": 28370558976,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.657461066,
+      "total_bytes": 33281888256,
+      "used_bytes": 4911325184,
+      "available_bytes": 28370563072,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.708097958,
+      "total_bytes": 33281888256,
+      "used_bytes": 4911325184,
+      "available_bytes": 28370563072,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.758507296,
+      "total_bytes": 33281888256,
+      "used_bytes": 4911325184,
+      "available_bytes": 28370563072,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.808792864,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907548672,
+      "available_bytes": 28374339584,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.859042774,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907548672,
+      "available_bytes": 28374339584,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.909279421,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907548672,
+      "available_bytes": 28374339584,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42514.959487273,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907098112,
+      "available_bytes": 28374790144,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.009722417,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907098112,
+      "available_bytes": 28374790144,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.059971927,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907098112,
+      "available_bytes": 28374790144,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.110168609,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907098112,
+      "available_bytes": 28374790144,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.160425883,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907098112,
+      "available_bytes": 28374790144,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.210633946,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907098112,
+      "available_bytes": 28374790144,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.260920876,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907089920,
+      "available_bytes": 28374798336,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.3112798,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907315200,
+      "available_bytes": 28374573056,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.361492882,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907315200,
+      "available_bytes": 28374573056,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.411801933,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907307008,
+      "available_bytes": 28374581248,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.462014495,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907307008,
+      "available_bytes": 28374581248,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.51240136,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907307008,
+      "available_bytes": 28374581248,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.562723235,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907307008,
+      "available_bytes": 28374581248,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.613183668,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907307008,
+      "available_bytes": 28374581248,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.663471289,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907786240,
+      "available_bytes": 28374102016,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.713774449,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907716608,
+      "available_bytes": 28374171648,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.764010113,
+      "total_bytes": 33281888256,
+      "used_bytes": 4907671552,
+      "available_bytes": 28374216704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.814258532,
+      "total_bytes": 33281888256,
+      "used_bytes": 4908032000,
+      "available_bytes": 28373856256,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.864535353,
+      "total_bytes": 33281888256,
+      "used_bytes": 4893581312,
+      "available_bytes": 28388306944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.915225554,
+      "total_bytes": 33281888256,
+      "used_bytes": 4893581312,
+      "available_bytes": 28388306944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42515.965494741,
+      "total_bytes": 33281888256,
+      "used_bytes": 4893581312,
+      "available_bytes": 28388306944,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.015724334,
+      "total_bytes": 33281888256,
+      "used_bytes": 4890742784,
+      "available_bytes": 28391145472,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.066085322,
+      "total_bytes": 33281888256,
+      "used_bytes": 4904357888,
+      "available_bytes": 28377530368,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.116416574,
+      "total_bytes": 33281888256,
+      "used_bytes": 4910465024,
+      "available_bytes": 28371423232,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.166794393,
+      "total_bytes": 33281888256,
+      "used_bytes": 4933197824,
+      "available_bytes": 28348690432,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.217135003,
+      "total_bytes": 33281888256,
+      "used_bytes": 4969451520,
+      "available_bytes": 28312436736,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.267658955,
+      "total_bytes": 33281888256,
+      "used_bytes": 4980838400,
+      "available_bytes": 28301049856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.317955492,
+      "total_bytes": 33281888256,
+      "used_bytes": 4980838400,
+      "available_bytes": 28301049856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.368159468,
+      "total_bytes": 33281888256,
+      "used_bytes": 4980822016,
+      "available_bytes": 28301066240,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.418403979,
+      "total_bytes": 33281888256,
+      "used_bytes": 4980822016,
+      "available_bytes": 28301066240,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.468713069,
+      "total_bytes": 33281888256,
+      "used_bytes": 4980822016,
+      "available_bytes": 28301066240,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.518942822,
+      "total_bytes": 33281888256,
+      "used_bytes": 4980822016,
+      "available_bytes": 28301066240,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.569220595,
+      "total_bytes": 33281888256,
+      "used_bytes": 4980822016,
+      "available_bytes": 28301066240,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.619494701,
+      "total_bytes": 33281888256,
+      "used_bytes": 5005852672,
+      "available_bytes": 28276035584,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.669828107,
+      "total_bytes": 33281888256,
+      "used_bytes": 5005852672,
+      "available_bytes": 28276035584,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.720174588,
+      "total_bytes": 33281888256,
+      "used_bytes": 5006110720,
+      "available_bytes": 28275777536,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.770461518,
+      "total_bytes": 33281888256,
+      "used_bytes": 5009727488,
+      "available_bytes": 28272160768,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.820784564,
+      "total_bytes": 33281888256,
+      "used_bytes": 4997836800,
+      "available_bytes": 28284051456,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.871068379,
+      "total_bytes": 33281888256,
+      "used_bytes": 4997844992,
+      "available_bytes": 28284043264,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.92139393,
+      "total_bytes": 33281888256,
+      "used_bytes": 4997844992,
+      "available_bytes": 28284043264,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42516.971719081,
+      "total_bytes": 33281888256,
+      "used_bytes": 4997844992,
+      "available_bytes": 28284043264,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.022260445,
+      "total_bytes": 33281888256,
+      "used_bytes": 4997844992,
+      "available_bytes": 28284043264,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.072593881,
+      "total_bytes": 33281888256,
+      "used_bytes": 4997844992,
+      "available_bytes": 28284043264,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.122926205,
+      "total_bytes": 33281888256,
+      "used_bytes": 5000163328,
+      "available_bytes": 28281724928,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.173290289,
+      "total_bytes": 33281888256,
+      "used_bytes": 5024677888,
+      "available_bytes": 28257210368,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.223609889,
+      "total_bytes": 33281888256,
+      "used_bytes": 5106995200,
+      "available_bytes": 28174893056,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.273935231,
+      "total_bytes": 33281888256,
+      "used_bytes": 5167599616,
+      "available_bytes": 28114288640,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.324305746,
+      "total_bytes": 33281888256,
+      "used_bytes": 5184114688,
+      "available_bytes": 28097773568,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.376249312,
+      "total_bytes": 33281888256,
+      "used_bytes": 5202178048,
+      "available_bytes": 28079710208,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.426583009,
+      "total_bytes": 33281888256,
+      "used_bytes": 5230821376,
+      "available_bytes": 28051066880,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.476894143,
+      "total_bytes": 33281888256,
+      "used_bytes": 5238820864,
+      "available_bytes": 28043067392,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.527230846,
+      "total_bytes": 33281888256,
+      "used_bytes": 5254303744,
+      "available_bytes": 28027584512,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.577538815,
+      "total_bytes": 33281888256,
+      "used_bytes": 5255852032,
+      "available_bytes": 28026036224,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.627814503,
+      "total_bytes": 33281888256,
+      "used_bytes": 5263335424,
+      "available_bytes": 28018552832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.678110109,
+      "total_bytes": 33281888256,
+      "used_bytes": 5270044672,
+      "available_bytes": 28011843584,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.728403391,
+      "total_bytes": 33281888256,
+      "used_bytes": 5278302208,
+      "available_bytes": 28003586048,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.778699157,
+      "total_bytes": 33281888256,
+      "used_bytes": 5279076352,
+      "available_bytes": 28002811904,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.828987509,
+      "total_bytes": 33281888256,
+      "used_bytes": 5283205120,
+      "available_bytes": 27998683136,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.879238131,
+      "total_bytes": 33281888256,
+      "used_bytes": 5293940736,
+      "available_bytes": 27987947520,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.929521964,
+      "total_bytes": 33281888256,
+      "used_bytes": 5306978304,
+      "available_bytes": 27974909952,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42517.979808103,
+      "total_bytes": 33281888256,
+      "used_bytes": 5361172480,
+      "available_bytes": 27920715776,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.030095573,
+      "total_bytes": 33281888256,
+      "used_bytes": 5379903488,
+      "available_bytes": 27901984768,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.080487849,
+      "total_bytes": 33281888256,
+      "used_bytes": 5595164672,
+      "available_bytes": 27686723584,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.130873763,
+      "total_bytes": 33281888256,
+      "used_bytes": 5601206272,
+      "available_bytes": 27680681984,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.181352049,
+      "total_bytes": 33281888256,
+      "used_bytes": 5872148480,
+      "available_bytes": 27409739776,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.2317576,
+      "total_bytes": 33281888256,
+      "used_bytes": 5598642176,
+      "available_bytes": 27683246080,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.282315083,
+      "total_bytes": 33281888256,
+      "used_bytes": 5605609472,
+      "available_bytes": 27676278784,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.332697651,
+      "total_bytes": 33281888256,
+      "used_bytes": 5610164224,
+      "available_bytes": 27671724032,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.383088214,
+      "total_bytes": 33281888256,
+      "used_bytes": 5614493696,
+      "available_bytes": 27667394560,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.433451476,
+      "total_bytes": 33281888256,
+      "used_bytes": 5615755264,
+      "available_bytes": 27666132992,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.483831749,
+      "total_bytes": 33281888256,
+      "used_bytes": 5631238144,
+      "available_bytes": 27650650112,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.534191033,
+      "total_bytes": 33281888256,
+      "used_bytes": 5635624960,
+      "available_bytes": 27646263296,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.58453037,
+      "total_bytes": 33281888256,
+      "used_bytes": 5636599808,
+      "available_bytes": 27645288448,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.634846654,
+      "total_bytes": 33281888256,
+      "used_bytes": 5636599808,
+      "available_bytes": 27645288448,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.685176794,
+      "total_bytes": 33281888256,
+      "used_bytes": 5636599808,
+      "available_bytes": 27645288448,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.735457472,
+      "total_bytes": 33281888256,
+      "used_bytes": 5673730048,
+      "available_bytes": 27608158208,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.785676165,
+      "total_bytes": 33281888256,
+      "used_bytes": 5673467904,
+      "available_bytes": 27608420352,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.835943357,
+      "total_bytes": 33281888256,
+      "used_bytes": 5674754048,
+      "available_bytes": 27607134208,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.886208967,
+      "total_bytes": 33281888256,
+      "used_bytes": 5674754048,
+      "available_bytes": 27607134208,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.936402904,
+      "total_bytes": 33281888256,
+      "used_bytes": 5674754048,
+      "available_bytes": 27607134208,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42518.986641824,
+      "total_bytes": 33281888256,
+      "used_bytes": 5674754048,
+      "available_bytes": 27607134208,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.03688954,
+      "total_bytes": 33281888256,
+      "used_bytes": 5675528192,
+      "available_bytes": 27606360064,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.087244676,
+      "total_bytes": 33281888256,
+      "used_bytes": 5675528192,
+      "available_bytes": 27606360064,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.137584064,
+      "total_bytes": 33281888256,
+      "used_bytes": 5674631168,
+      "available_bytes": 27607257088,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.187924232,
+      "total_bytes": 33281888256,
+      "used_bytes": 5725208576,
+      "available_bytes": 27556679680,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.238305848,
+      "total_bytes": 33281888256,
+      "used_bytes": 5766787072,
+      "available_bytes": 27515101184,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.288667617,
+      "total_bytes": 33281888256,
+      "used_bytes": 5871329280,
+      "available_bytes": 27410558976,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.339016733,
+      "total_bytes": 33281888256,
+      "used_bytes": 5992353792,
+      "available_bytes": 27289534464,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.389353986,
+      "total_bytes": 33281888256,
+      "used_bytes": 6054764544,
+      "available_bytes": 27227123712,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.439669719,
+      "total_bytes": 33281888256,
+      "used_bytes": 6153592832,
+      "available_bytes": 27128295424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.49007001,
+      "total_bytes": 33281888256,
+      "used_bytes": 6253088768,
+      "available_bytes": 27028799488,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.540423272,
+      "total_bytes": 33281888256,
+      "used_bytes": 6358503424,
+      "available_bytes": 26923384832,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.590765254,
+      "total_bytes": 33281888256,
+      "used_bytes": 6383685632,
+      "available_bytes": 26898202624,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.641118938,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450073600,
+      "available_bytes": 26831814656,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.691425604,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450057216,
+      "available_bytes": 26831831040,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.741717783,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450057216,
+      "available_bytes": 26831831040,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.791980999,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450319360,
+      "available_bytes": 26831568896,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.842278708,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450040832,
+      "available_bytes": 26831847424,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.892601023,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450814976,
+      "available_bytes": 26831073280,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.942878575,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450814976,
+      "available_bytes": 26831073280,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42519.993218854,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450814976,
+      "available_bytes": 26831073280,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.043449248,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450814976,
+      "available_bytes": 26831073280,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.093709278,
+      "total_bytes": 33281888256,
+      "used_bytes": 6450814976,
+      "available_bytes": 26831073280,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.144017697,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451060736,
+      "available_bytes": 26830827520,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.194301731,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451052544,
+      "available_bytes": 26830835712,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.244566569,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451314688,
+      "available_bytes": 26830573568,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.294832109,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451314688,
+      "available_bytes": 26830573568,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.345116343,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451052544,
+      "available_bytes": 26830835712,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.395414032,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451052544,
+      "available_bytes": 26830835712,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.445694199,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451306496,
+      "available_bytes": 26830581760,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.495969356,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451306496,
+      "available_bytes": 26830581760,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.546249944,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451568640,
+      "available_bytes": 26830319616,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.596542524,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451306496,
+      "available_bytes": 26830581760,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.64685456,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451302400,
+      "available_bytes": 26830585856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.697134176,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451302400,
+      "available_bytes": 26830585856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.747447734,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451302400,
+      "available_bytes": 26830585856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.797753669,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451302400,
+      "available_bytes": 26830585856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.84805238,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451564544,
+      "available_bytes": 26830323712,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.898365629,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451302400,
+      "available_bytes": 26830585856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.948626469,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451298304,
+      "available_bytes": 26830589952,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42520.998944427,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451560448,
+      "available_bytes": 26830327808,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.049241425,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451560448,
+      "available_bytes": 26830327808,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.099495342,
+      "total_bytes": 33281888256,
+      "used_bytes": 6451560448,
+      "available_bytes": 26830327808,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.149776942,
+      "total_bytes": 33281888256,
+      "used_bytes": 6443315200,
+      "available_bytes": 26838573056,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.200062769,
+      "total_bytes": 33281888256,
+      "used_bytes": 6443315200,
+      "available_bytes": 26838573056,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.250358094,
+      "total_bytes": 33281888256,
+      "used_bytes": 6443290624,
+      "available_bytes": 26838597632,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.300645464,
+      "total_bytes": 33281888256,
+      "used_bytes": 6443749376,
+      "available_bytes": 26838138880,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.351015108,
+      "total_bytes": 33281888256,
+      "used_bytes": 6443692032,
+      "available_bytes": 26838196224,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.401297969,
+      "total_bytes": 33281888256,
+      "used_bytes": 6445109248,
+      "available_bytes": 26836779008,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.451556015,
+      "total_bytes": 33281888256,
+      "used_bytes": 6445608960,
+      "available_bytes": 26836279296,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.501818378,
+      "total_bytes": 33281888256,
+      "used_bytes": 6445871104,
+      "available_bytes": 26836017152,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.552093725,
+      "total_bytes": 33281888256,
+      "used_bytes": 6445608960,
+      "available_bytes": 26836279296,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.6023405,
+      "total_bytes": 33281888256,
+      "used_bytes": 6445608960,
+      "available_bytes": 26836279296,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.652619224,
+      "total_bytes": 33281888256,
+      "used_bytes": 6442549248,
+      "available_bytes": 26839339008,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.70288285,
+      "total_bytes": 33281888256,
+      "used_bytes": 6445514752,
+      "available_bytes": 26836373504,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.753179737,
+      "total_bytes": 33281888256,
+      "used_bytes": 6444843008,
+      "available_bytes": 26837045248,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.803473039,
+      "total_bytes": 33281888256,
+      "used_bytes": 6441512960,
+      "available_bytes": 26840375296,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.853719192,
+      "total_bytes": 33281888256,
+      "used_bytes": 6445670400,
+      "available_bytes": 26836217856,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.90406461,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446944256,
+      "available_bytes": 26834944000,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42521.954320882,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446944256,
+      "available_bytes": 26834944000,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.004611338,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446936064,
+      "available_bytes": 26834952192,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.05491578,
+      "total_bytes": 33281888256,
+      "used_bytes": 6447198208,
+      "available_bytes": 26834690048,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.105144561,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446936064,
+      "available_bytes": 26834952192,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.155397116,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446936064,
+      "available_bytes": 26834952192,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.205654189,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446919680,
+      "available_bytes": 26834968576,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.255935097,
+      "total_bytes": 33281888256,
+      "used_bytes": 6447181824,
+      "available_bytes": 26834706432,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.306222868,
+      "total_bytes": 33281888256,
+      "used_bytes": 6447181824,
+      "available_bytes": 26834706432,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.356488257,
+      "total_bytes": 33281888256,
+      "used_bytes": 6447181824,
+      "available_bytes": 26834706432,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.406742425,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446919680,
+      "available_bytes": 26834968576,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.457031669,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446919680,
+      "available_bytes": 26834968576,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.507315803,
+      "total_bytes": 33281888256,
+      "used_bytes": 6447181824,
+      "available_bytes": 26834706432,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.557622869,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446919680,
+      "available_bytes": 26834968576,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.60798585,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446919680,
+      "available_bytes": 26834968576,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.658357968,
+      "total_bytes": 33281888256,
+      "used_bytes": 6447181824,
+      "available_bytes": 26834706432,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.70870031,
+      "total_bytes": 33281888256,
+      "used_bytes": 6446919680,
+      "available_bytes": 26834968576,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.759233688,
+      "total_bytes": 33281888256,
+      "used_bytes": 6432780288,
+      "available_bytes": 26849107968,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.809472718,
+      "total_bytes": 33281888256,
+      "used_bytes": 6432776192,
+      "available_bytes": 26849112064,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.859787199,
+      "total_bytes": 33281888256,
+      "used_bytes": 6414249984,
+      "available_bytes": 26867638272,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.910142145,
+      "total_bytes": 33281888256,
+      "used_bytes": 6413996032,
+      "available_bytes": 26867892224,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42522.960394008,
+      "total_bytes": 33281888256,
+      "used_bytes": 6413996032,
+      "available_bytes": 26867892224,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.010690916,
+      "total_bytes": 33281888256,
+      "used_bytes": 6413996032,
+      "available_bytes": 26867892224,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.061008542,
+      "total_bytes": 33281888256,
+      "used_bytes": 6415286272,
+      "available_bytes": 26866601984,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.111325768,
+      "total_bytes": 33281888256,
+      "used_bytes": 6415548416,
+      "available_bytes": 26866339840,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.161634908,
+      "total_bytes": 33281888256,
+      "used_bytes": 6200598528,
+      "available_bytes": 27081289728,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.211937667,
+      "total_bytes": 33281888256,
+      "used_bytes": 6184087552,
+      "available_bytes": 27097800704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.262231469,
+      "total_bytes": 33281888256,
+      "used_bytes": 6184087552,
+      "available_bytes": 27097800704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.312515032,
+      "total_bytes": 33281888256,
+      "used_bytes": 6184087552,
+      "available_bytes": 27097800704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.362733674,
+      "total_bytes": 33281888256,
+      "used_bytes": 6184087552,
+      "available_bytes": 27097800704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.412979025,
+      "total_bytes": 33281888256,
+      "used_bytes": 6184087552,
+      "available_bytes": 27097800704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.463248261,
+      "total_bytes": 33281888256,
+      "used_bytes": 6184087552,
+      "available_bytes": 27097800704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.513539739,
+      "total_bytes": 33281888256,
+      "used_bytes": 6184087552,
+      "available_bytes": 27097800704,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.563845092,
+      "total_bytes": 33281888256,
+      "used_bytes": 6182813696,
+      "available_bytes": 27099074560,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.614129697,
+      "total_bytes": 33281888256,
+      "used_bytes": 6178861056,
+      "available_bytes": 27103027200,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.664424981,
+      "total_bytes": 33281888256,
+      "used_bytes": 6178861056,
+      "available_bytes": 27103027200,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.71478692,
+      "total_bytes": 33281888256,
+      "used_bytes": 6178861056,
+      "available_bytes": 27103027200,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.76510662,
+      "total_bytes": 33281888256,
+      "used_bytes": 5105926144,
+      "available_bytes": 28175962112,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.815466986,
+      "total_bytes": 33281888256,
+      "used_bytes": 4533620736,
+      "available_bytes": 28748267520,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    },
+    {
+      "monotonic_s": 42523.865997309,
+      "total_bytes": 33281888256,
+      "used_bytes": 4459462656,
+      "available_bytes": 28822425600,
+      "swap_used_bytes": 0,
+      "swap_in_pages": 0,
+      "swap_out_pages": 0
+    }
+  ],
+  "limitations": "Sampled system pressure, not process RSS or CUDA allocations. Child must wait for its workers. wall_s includes load and all inference."
+}

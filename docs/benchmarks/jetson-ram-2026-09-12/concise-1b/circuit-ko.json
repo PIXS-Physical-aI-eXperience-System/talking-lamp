@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/concise-1b/circuit.json",
+  "source_text": "Blue box with Arduino, laptop, keyboard, notebook.",
+  "language": "ko",
+  "text": "블루 박스, 아루디노, 노트북, 키보드, 노트북",
+  "load_s": 9.278584214000148,
+  "infer_s": 2.598440533998655,
+  "generated_tokens": 23,
+  "cuda_peak_allocated_bytes": 1247329792,
+  "cuda_peak_reserved_bytes": 1266679808
+}

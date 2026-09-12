@@ -1,0 +1,13 @@
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "first_inference", "infer_s": 0.9870969670009799, "generated_tokens": 23, "text": "A street scene shows a stop sign and a black car driving past a traditional Chinese gate with red lanterns.", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.4963708260038402, "generated_tokens": 23, "text": "A street scene shows a stop sign and a black car driving past a traditional Chinese gate with red lanterns.", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.49905188100092346, "generated_tokens": 23, "text": "A street scene shows a stop sign and a black car driving past a traditional Chinese gate with red lanterns.", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.4969611350024934, "generated_tokens": 23, "text": "A street scene shows a stop sign and a black car driving past a traditional Chinese gate with red lanterns.", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.5023686790009378, "generated_tokens": 23, "text": "A street scene shows a stop sign and a black car driving past a traditional Chinese gate with red lanterns.", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.
+{"kind": "warm_inference", "infer_s": 0.4921689460024936, "generated_tokens": 23, "text": "A street scene shows a stop sign and a black car driving past a traditional Chinese gate with red lanterns.", "cuda_peak_allocated_bytes": 1069889024, "cuda_peak_reserved_bytes": 1124073472}
+System peak: 6.452 GB; exit=0; result=/work/results-1b/short_en-system.json

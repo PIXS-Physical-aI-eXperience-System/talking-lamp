@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "model_dir": "/mnt/ssd/internvl3_5-2b-nf4",
+  "image_sha256": "24efd9a8c01727ea4780ff9bfa6047a816e7c6ac6690c7e58de63a75963fd17f",
+  "prompt": "Describe this image in one short English sentence.",
+  "one_tile": true,
+  "max_new_tokens": 32,
+  "load_s": 71.11133616199368,
+  "total_wake_to_response_s": 113.22109648000333,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 19.12763263999659,
+      "generated_tokens": 22,
+      "text": "A black power bank is placed on a white power strip with a white plug adapter on a dark table.",
+      "cuda_peak_allocated_bytes": 2452110848,
+      "cuda_peak_reserved_bytes": 2508193792
+    }
+  ]
+}

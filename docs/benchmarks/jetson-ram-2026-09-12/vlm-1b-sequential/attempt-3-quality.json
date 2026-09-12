@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/vlm-1b-sequential/attempt-3.json",
+  "image_sha256": "24efd9a8c01727ea4780ff9bfa6047a816e7c6ac6690c7e58de63a75963fd17f",
+  "expected_image_sha256": "24efd9a8c01727ea4780ff9bfa6047a816e7c6ac6690c7e58de63a75963fd17f",
+  "image_matches": true,
+  "language": "en",
+  "required_any": [
+    [
+      "power",
+      "adapter"
+    ],
+    [
+      "table",
+      "desk"
+    ]
+  ],
+  "passed": true,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "A white power adapter with multiple sockets and a black power strip is placed on a table in a room with shelves and various items in the background.",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": true
+      },
+      "passed": true
+    }
+  ]
+}

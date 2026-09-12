@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/concise-1b/power.json",
+  "source_text": "USB charger, power adapter.",
+  "language": "ko",
+  "text": "USB 충전 장치, 전력 어댑터",
+  "load_s": 12.38546528200095,
+  "infer_s": 4.739023627989809,
+  "generated_tokens": 13,
+  "cuda_peak_allocated_bytes": 1247073792,
+  "cuda_peak_reserved_bytes": 1266679808
+}

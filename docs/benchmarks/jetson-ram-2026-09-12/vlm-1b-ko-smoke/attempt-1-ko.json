@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source": "/mnt/ssd/ram-results/vlm-1b-ko-smoke/attempt-1.json",
+  "source_text": "A white power adapter with multiple sockets and a black power strip is placed on a table in a room with shelves and various items in the background.",
+  "language": "ko",
+  "text": "여러 소켓과 검은 전력 스트립을 가진 흰색 전력 어댑터는 래프와 배경에 다양한 아이템이 있는 방의 테이블에 배치된다.",
+  "load_s": 11.488257318997057,
+  "infer_s": 4.570941882993793,
+  "generated_tokens": 39,
+  "cuda_peak_allocated_bytes": 1249047040,
+  "cuda_peak_reserved_bytes": 1268776960
+}

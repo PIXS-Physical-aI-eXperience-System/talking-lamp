@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source": "docs/benchmarks/jetson-ram-2026-09-11/qa_demo_1b.json",
+  "image_sha256": null,
+  "expected_image_sha256": null,
+  "image_matches": true,
+  "language": "ko",
+  "required_any": [
+    [
+      "충전",
+      "어댑터",
+      "전원"
+    ]
+  ],
+  "passed": false,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "이 사진에는 다음과 같은内容이 보입니다:\n\n1. **전기장치**: \n   - 상단에 있는黑色의 전기장치(이름이 obscured)가 있습니다. \n   - 전기장치에는白色的지동이 있습니다.\n\n2. **전기장치의 배치**:\n   - 전기장치는白色的지동이 있는白色的배치대에 mounted.\n   - 배치대에는白色的지동이 있는",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": false,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": false
+      },
+      "passed": false
+    }
+  ]
+}

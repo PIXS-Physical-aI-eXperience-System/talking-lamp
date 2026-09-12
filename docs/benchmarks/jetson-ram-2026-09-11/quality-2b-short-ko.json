@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "source": "docs/benchmarks/jetson-ram-2026-09-11/short_ko.json",
+  "image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "expected_image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "image_matches": true,
+  "language": "ko",
+  "required_any": [
+    [
+      "의자",
+      "좌석"
+    ]
+  ],
+  "passed": false,
+  "records": [
+    {
+      "index": 0,
+      "kind": "first_inference",
+      "text": "이 사진에는 노란색의 테이블에 있는 음식이 있습니다. 음식은 여러 조각으로 나뉘어 있으며,",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": false
+      },
+      "passed": false
+    },
+    {
+      "index": 1,
+      "kind": "warm_inference",
+      "text": "이 사진에는 노란색의 테이블에 있는 음식이 있습니다. 음식은 여러 조각으로 나뉘어 있으며,",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": false
+      },
+      "passed": false
+    },
+    {
+      "index": 2,
+      "kind": "warm_inference",
+      "text": "이 사진에는 노란색의 테이블에 있는 음식이 있습니다. 음식은 여러 조각으로 나뉘어 있으며,",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": false
+      },
+      "passed": false
+    },
+    {
+      "index": 3,
+      "kind": "warm_inference",
+      "text": "이 사진에는 노란색의 테이블에 있는 음식이 있습니다. 음식은 여러 조각으로 나뉘어 있으며,",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": false
+      },
+      "passed": false
+    },
+    {
+      "index": 4,
+      "kind": "warm_inference",
+      "text": "이 사진에는 노란색의 테이블에 있는 음식이 있습니다. 음식은 여러 조각으로 나뉘어 있으며,",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": false
+      },
+      "passed": false
+    },
+    {
+      "index": 5,
+      "kind": "warm_inference",
+      "text": "이 사진에는 노란색의 테이블에 있는 음식이 있습니다. 음식은 여러 조각으로 나뉘어 있으며,",
+      "checks": {
+        "nonempty": true,
+        "no_replacement_character": true,
+        "expected_script": true,
+        "max_consecutive_token_repeat": true,
+        "required_concepts": false
+      },
+      "passed": false
+    }
+  ]
+}

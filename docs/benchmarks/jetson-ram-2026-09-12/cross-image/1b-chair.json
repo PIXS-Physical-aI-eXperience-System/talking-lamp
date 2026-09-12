@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "model_dir": "/mnt/ssd/internvl3_5-1b-nf4",
+  "image_sha256": "5eaba71a31d999061f30348e103b688afdce65bc900fcf56bb0b90b86cd38c1d",
+  "prompt": "Describe this image in one short English sentence.",
+  "one_tile": true,
+  "max_new_tokens": 32,
+  "load_s": 5.811068775001331,
+  "total_wake_to_response_s": 28.753747634007595,
+  "runs": [
+    {
+      "kind": "first_inference",
+      "infer_s": 8.346233326999936,
+      "generated_tokens": 18,
+      "text": "A worn and slightly damaged office chair with visible stitching and a tear on the seat.",
+      "cuda_peak_allocated_bytes": 1170142208,
+      "cuda_peak_reserved_bytes": 1239416832
+    }
+  ]
+}
