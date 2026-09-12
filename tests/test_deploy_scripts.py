@@ -1,10 +1,12 @@
 """Installer behavior in a staged filesystem; never mutate the host systemd."""
 import configparser
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import shlex
 import stat
 import subprocess
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -12,6 +14,76 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "deploy/pi/install-motion-service.sh"
 UNIT = ROOT / "deploy/pi/talking-lamp-motion.service"
+
+
+@dataclass(frozen=True)
+class RosSections:
+    goal: list[str]
+    result: list[str]
+    feedback: list[str]
+
+
+def read_ros_sections(relative_path):
+    """Read a ROS action definition into its goal, result, and feedback sections."""
+    sections = (ROOT / relative_path).read_text().split("---")
+    assert len(sections) == 3
+    return RosSections(*[
+        [line.strip() for line in section.splitlines()
+         if line.strip() and not line.lstrip().startswith("#")]
+        for section in sections
+    ])
+
+
+def read_ros_fields(relative_path):
+    return [line.strip() for line in (ROOT / relative_path).read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def read_ros_service_sections(relative_path):
+    request, response = (ROOT / relative_path).read_text().split("---")
+    return (
+        [line.strip() for line in request.splitlines() if line.strip() and not line.lstrip().startswith("#")],
+        [line.strip() for line in response.splitlines() if line.strip() and not line.lstrip().startswith("#")],
+    )
+
+
+def test_play_motion_action_is_generic_and_cancellable():
+    sections = read_ros_sections("jetson_ws/src/lamp_interfaces/action/PlayMotion.action")
+    assert sections.goal == ["string name", "bool replace_current", "float32 intensity", "uint32 repeat"]
+    assert sections.result == ["bool success", "string code", "string message"]
+    assert sections.feedback == ["string state", "float32 progress"]
+
+
+def test_task_light_action_reports_target_progress_and_result():
+    sections = read_ros_sections("jetson_ws/src/lamp_interfaces/action/PlaceTaskLight.action")
+    assert sections.goal == ["geometry_msgs/PointStamped target"]
+    assert sections.result == ["bool success", "string code", "string message"]
+    assert sections.feedback == ["string state", "float32 progress"]
+
+
+def test_motion_status_exposes_bridge_health_and_control_counters():
+    assert read_ros_fields("jetson_ws/src/lamp_interfaces/msg/MotionStatus.msg") == [
+        "builtin_interfaces/Time stamp", "bool connected", "string state", "string active_motion",
+        "bool busy", "string fault", "uint64 sent_ticks", "uint64 deadline_misses",
+    ]
+
+
+def test_motion_services_list_catalog_and_interrupt_active_work():
+    assert read_ros_service_sections("jetson_ws/src/lamp_interfaces/srv/ListMotions.srv") == (
+        [], ["string[] motions"])
+    assert read_ros_service_sections("jetson_ws/src/lamp_interfaces/srv/InterruptMotion.srv") == (
+        [], ["bool success", "string code", "string message"])
+
+
+def test_interface_package_exports_ament_rosidl_metadata():
+    package = ET.parse(ROOT / "jetson_ws/src/lamp_interfaces/package.xml").getroot()
+    assert package.findtext("export/build_type") == "ament_cmake"
+    assert {element.text for element in package.findall("buildtool_depend")} >= {
+        "ament_cmake", "rosidl_default_generators"}
+    assert {element.text for element in package.findall("depend")} >= {
+        "builtin_interfaces", "geometry_msgs"}
+    assert package.findtext("exec_depend") == "rosidl_default_runtime"
+    assert package.findtext("member_of_group") == "rosidl_interface_packages"
 
 
 @pytest.fixture
