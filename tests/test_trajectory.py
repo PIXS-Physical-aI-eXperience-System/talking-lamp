@@ -44,6 +44,14 @@ def test_respects_jerk_limit():
     assert np.all(np.abs(jerk) <= JERK_LIMIT + 1.0)
 
 
+@ruckig_only
+def test_loaded_pitch_acceleration_changes_gently_enough_for_physical_arm():
+    """Keep pitch setpoints from exciting the assembled lamp's visible flex."""
+    _, _, acceleration, _ = _run(np.array([0.0, 1.5, -1.5, 0.0, 0.0]))
+    pitch_acceleration_step = np.abs(np.diff(acceleration[:, 1:3], axis=0))
+    assert np.max(pitch_acceleration_step) <= 0.25 + 1e-7
+
+
 def test_no_meaningful_overshoot():
     target = np.ones(NJ)
     pos, *_ = _run(target)

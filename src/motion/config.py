@@ -36,7 +36,10 @@ CONTROL_DT = 1.0 / CONTROL_HZ
 # the real head weight is measured (docs/파트-분배.md 4.5, "관절 속도·가속 제한값").
 VEL_LIMIT = np.array([3.0, 2.5, 2.5, 4.0, 4.0])      # rad/s
 ACC_LIMIT = np.array([12.0, 10.0, 10.0, 20.0, 20.0])  # rad/s^2
-JERK_LIMIT = np.array([120.0, 100.0, 100.0, 250.0, 250.0])  # rad/s^3
+# The assembled arm visibly excited its compliant links at the former limits.
+# A physical A/B run found that quarter-rate jerk reduced the shake while
+# preserving the original velocity and acceleration ceilings.
+JERK_LIMIT = np.array([30.0, 25.0, 25.0, 62.5, 62.5])  # rad/s^3
 
 # Relaxed operating pose derived from the manually measured vertical reference.
 # Base pitch is reversed from the former forward extension; elbow is 70 deg
