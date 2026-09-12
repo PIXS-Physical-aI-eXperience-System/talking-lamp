@@ -22,7 +22,14 @@ from lelamp.playback import (  # noqa: E402
     retarget_actions,
     resample_actions,
 )
-from lelamp.motor_tuning import position_p_coefficient  # noqa: E402
+from lelamp.motor_tuning import (  # noqa: E402
+    EXPECTED_CALIBRATION_ID,
+    EXPECTED_FOLLOWER_CALIBRATION,
+    position_p_coefficient,
+    require_motor_calibration_match,
+    validate_calibration_profile,
+)
+from motion.hardware_alignment import HardwareAlignment  # noqa: E402
 from lelamp.test.test_motors import select_recordings  # noqa: E402
 
 
@@ -36,6 +43,34 @@ def test_loaded_pitch_joints_use_factory_position_gain():
     assert position_p_coefficient("base_yaw") == 16
     assert position_p_coefficient("wrist_roll") == 16
     assert position_p_coefficient("wrist_pitch") == 16
+
+
+def test_runtime_calibration_profile_matches_motion_alignment():
+    alignment = HardwareAlignment.load()
+    assert EXPECTED_CALIBRATION_ID == alignment.calibration_id
+    for index, joint in enumerate(alignment.raw_ranges):
+        name = tuple(EXPECTED_FOLLOWER_CALIBRATION)[index]
+        expected = EXPECTED_FOLLOWER_CALIBRATION[name]
+        assert expected["id"] == alignment.motor_ids[index]
+        assert expected["drive_mode"] == alignment.drive_modes[index]
+        assert expected["homing_offset"] == alignment.homing_offsets[index]
+        assert [expected["range_min"], expected["range_max"]] == list(joint)
+
+
+def test_runtime_calibration_profile_rejects_recalibrated_joint():
+    calibration = {
+        joint: values.copy()
+        for joint, values in EXPECTED_FOLLOWER_CALIBRATION.items()
+    }
+    calibration["base_pitch"]["homing_offset"] += 1
+    with pytest.raises(ValueError, match="base_pitch"):
+        validate_calibration_profile("lelamp", calibration)
+
+
+def test_runtime_rejects_motor_resident_calibration_mismatch():
+    with pytest.raises(RuntimeError, match="motor-resident calibration"):
+        require_motor_calibration_match(False)
+    require_motor_calibration_match(True)
 
 
 def test_retarget_actions_starts_at_home_and_scales_relative_motion():

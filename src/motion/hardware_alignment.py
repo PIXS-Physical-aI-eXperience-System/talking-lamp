@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 
@@ -23,7 +24,11 @@ ALIGNMENT_FILE = REPO_ROOT / "sim" / "hardware_alignment.json"
 
 @dataclass(frozen=True)
 class HardwareAlignment:
+    calibration_id: str
     counts_per_revolution: float
+    motor_ids: np.ndarray
+    drive_modes: np.ndarray
+    homing_offsets: np.ndarray
     raw_ranges: np.ndarray
     straight_raw: np.ndarray
     straight_normalized: np.ndarray
@@ -49,7 +54,13 @@ class HardwareAlignment:
             raise ValueError("hardware calibration raw ranges must increase")
 
         return cls(
+            calibration_id=str(payload["calibration_id"]),
             counts_per_revolution=float(payload["encoder_counts_per_revolution"]),
+            motor_ids=np.asarray([joint["motor_id"] for joint in ordered], dtype=int),
+            drive_modes=np.asarray([joint["drive_mode"] for joint in ordered], dtype=int),
+            homing_offsets=np.asarray(
+                [joint["homing_offset"] for joint in ordered], dtype=int
+            ),
             raw_ranges=raw_ranges,
             straight_raw=np.asarray([joint["straight_raw"] for joint in ordered], dtype=float),
             straight_normalized=np.asarray(
@@ -60,6 +71,36 @@ class HardwareAlignment:
             ),
             direction_sign=signs,
         )
+
+    def validate_calibration_id(self, lamp_id: str) -> None:
+        if lamp_id != self.calibration_id:
+            raise ValueError(
+                f"Hardware alignment is calibrated for {self.calibration_id!r}, "
+                f"not {lamp_id!r}"
+            )
+
+    def validate_calibration(self, calibration: Mapping[str, object]) -> None:
+        if set(calibration) != set(JOINT_NAMES):
+            raise ValueError("Saved calibration joints do not match hardware alignment")
+        for index, joint in enumerate(JOINT_NAMES):
+            actual = calibration[joint]
+            expected = {
+                "id": int(self.motor_ids[index]),
+                "drive_mode": int(self.drive_modes[index]),
+                "homing_offset": int(self.homing_offsets[index]),
+                "range_min": int(self.raw_ranges[index, 0]),
+                "range_max": int(self.raw_ranges[index, 1]),
+            }
+            mismatches = [
+                f"{field}={getattr(actual, field, None)!r} (expected {value!r})"
+                for field, value in expected.items()
+                if getattr(actual, field, None) != value
+            ]
+            if mismatches:
+                raise ValueError(
+                    f"Saved calibration for {joint} does not match hardware alignment: "
+                    + ", ".join(mismatches)
+                )
 
     @property
     def radians_per_count(self) -> float:

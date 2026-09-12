@@ -123,7 +123,7 @@ Follower motors만 장착한 LeLamp은 다음 명령을 사용합니다. `uv`는
 
 ```bash
 uv run -m lelamp.calibrate \
-  --id your_lamp_name --port the_port_found_in_previous_step \
+  --id lelamp --port the_port_found_in_previous_step \
   --follower-only
 ```
 
@@ -141,6 +141,11 @@ During range recording, move `base_yaw` and `wrist_roll` only about 90 degrees
 clockwise and counterclockwise from center. Move `base_pitch` (the motor directly
 above `base_yaw`), `elbow_pitch`, and `wrist_pitch` through their full mechanically
 safe ranges. If `base_pitch` was not swept through its full range, recalibrate.
+Normal motion is bound to the checked-in `lelamp` calibration and rejects a
+different ID, homing offset, motor ID, drive mode, or raw range before opening
+the motor bus. After recalibration, update both
+`lelamp/motor_tuning.py::EXPECTED_FOLLOWER_CALIBRATION` and
+`sim/hardware_alignment.json` from the new saved calibration before replaying.
 
 ### 2. Unit Testing
 
@@ -163,7 +168,7 @@ uv run -m lelamp.test.test_audio
 
 ```bash
 uv run -m lelamp.test.test_motors \
-  --id your_lamp_name --port the_port_found_in_previous_step \
+  --id lelamp --port the_port_found_in_previous_step \
   --recording movement_sequence_name
 ```
 
@@ -173,7 +178,7 @@ motor torque active after the last motion:
 
 ```bash
 uv run -m lelamp.test.test_motors \
-  --id your_lamp_name --port the_port_found_in_previous_step \
+  --id lelamp --port the_port_found_in_previous_step \
   --all --speed 0.6 --pause-seconds 2 --hold
 ```
 
@@ -218,7 +223,7 @@ This will:
 To replay a recorded movement:
 
 ```bash
-uv run -m lelamp.replay --id your_lamp_name --port the_port_found_in_previous_step --name movement_sequence_name
+uv run -m lelamp.replay --id lelamp --port the_port_found_in_previous_step --name movement_sequence_name
 ```
 
 
@@ -237,7 +242,7 @@ interpolates the recorded frames at a steady command rate:
 
 ```bash
 uv run -m lelamp.replay \
-  --id your_lamp_name --port the_port_found_in_previous_step \
+  --id lelamp --port the_port_found_in_previous_step \
   --name movement_sequence_name \
   --fps 30 \
   --speed 1.0 \
@@ -378,12 +383,9 @@ sudo uv run main.py console
 sudo uv run smooth_animation.py console
 ```
 
-In case your lamp is not `lelamp`, change the id of the lamp inside main.py:
-
-```py
-async def entrypoint(ctx: agents.JobContext):
-    agent = LeLamp(lamp_id="lelamp") # <- Chnage the name here
-```
+The physical motion profile is intentionally bound to the `lelamp` ID. To use
+another ID, recalibrate and update both calibration records described above;
+changing only `main.py` is rejected before the motor bus enables torque.
 
 ## Contributing
 

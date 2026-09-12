@@ -52,6 +52,7 @@ class FeetechBackend:
         if not np.isfinite(feedback_hz) or not 0 < feedback_hz <= CONTROL_HZ:
             raise ValueError(f"feedback_hz must be in (0, {CONTROL_HZ:g}]")
         self.alignment = alignment or HardwareAlignment.load()
+        self.alignment.validate_calibration_id(lamp_id)
         if robot_factory is None or park is None:
             default_factory, default_park = _hardware_dependencies()
             robot_factory = robot_factory or default_factory
@@ -65,6 +66,10 @@ class FeetechBackend:
         self._closed = False
         self.robot = robot_factory(port=port, lamp_id=lamp_id)
         try:
+            # The static alignment contains raw encoder references from one
+            # exact LeRobot calibration. Reject a typo or recalibration before
+            # opening the bus and enabling torque.
+            self.alignment.validate_calibration(self.robot.calibration)
             self.robot.connect(calibrate=False)
             self._measured = self._read_pose()
         except BaseException:

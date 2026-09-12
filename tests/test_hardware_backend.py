@@ -1,6 +1,7 @@
 """Physical boundary tests use a robot double; no serial ports are opened."""
 import importlib
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -19,6 +20,20 @@ class FakeRobot:
         self.observation = {f"{j}.pos": 0.0 for j in JOINT_NAMES}
         self.reads = 0
         self.actions = []
+        homing_offsets = (-653, -1406, 1767, -1491, 2003)
+        alignment = HardwareAlignment.load()
+        self.calibration = {
+            joint: SimpleNamespace(
+                id=index,
+                drive_mode=0,
+                homing_offset=homing_offset,
+                range_min=int(raw_range[0]),
+                range_max=int(raw_range[1]),
+            )
+            for index, (joint, homing_offset, raw_range) in enumerate(
+                zip(JOINT_NAMES, homing_offsets, alignment.raw_ranges), start=1
+            )
+        }
 
     def connect(self, *, calibrate):
         self.connect_args.append(calibrate)
@@ -38,7 +53,7 @@ def make_backend(**kwargs):
     robot = FakeRobot()
     parked = []
     backend = module.FeetechBackend(
-        port="fake", lamp_id="test", robot_factory=lambda **kw: robot,
+        port="fake", lamp_id="lelamp", robot_factory=lambda **kw: robot,
         park=parked.append, **kwargs,
     )
     return backend, robot, parked
@@ -57,6 +72,37 @@ def test_connect_measures_immediately_without_calibration():
     np.testing.assert_allclose(backend.measured(), expected)
     backend.measured()[:] = 123
     np.testing.assert_allclose(backend.measured(), expected)
+
+
+def test_wrong_lamp_id_is_rejected_before_constructing_robot():
+    module = importlib.import_module("motion.hardware_backend")
+    constructed = []
+    with pytest.raises(ValueError, match="calibrated for 'lelamp'"):
+        module.FeetechBackend(
+            port="fake",
+            lamp_id="another-lamp",
+            robot_factory=lambda **kw: constructed.append(kw),
+            park=lambda robot: None,
+        )
+    assert constructed == []
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_value"),
+    [("id", 42), ("homing_offset", -1405), ("range_max", 3072)],
+)
+def test_saved_calibration_mismatch_is_rejected_before_connect(field, wrong_value):
+    module = importlib.import_module("motion.hardware_backend")
+    robot = FakeRobot()
+    setattr(robot.calibration["base_pitch"], field, wrong_value)
+    with pytest.raises(ValueError, match="base_pitch"):
+        module.FeetechBackend(
+            port="fake",
+            lamp_id="lelamp",
+            robot_factory=lambda **kw: robot,
+            park=lambda robot: None,
+        )
+    assert robot.connect_args == []
 
 
 def test_send_converts_clamps_and_decimates_reads():
@@ -97,7 +143,7 @@ def test_failed_initial_read_still_parks():
     robot.observation = {}
     parked = []
     with pytest.raises((KeyError, ValueError)):
-        module.FeetechBackend(port="fake", lamp_id="test", robot_factory=lambda **kw: robot,
+        module.FeetechBackend(port="fake", lamp_id="lelamp", robot_factory=lambda **kw: robot,
                               park=parked.append)
     assert parked == [robot]
 
@@ -125,11 +171,10 @@ def test_missing_hardware_dependency_has_actionable_error(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", guarded_import)
     with pytest.raises(RuntimeError, match="PYTHONPATH"):
-        module.FeetechBackend(port="fake", lamp_id="test")
+        module.FeetechBackend(port="fake", lamp_id="lelamp")
 
 
 def test_real_factory_disables_per_send_position_read_and_degree_mode(monkeypatch):
-    from types import SimpleNamespace
     module = importlib.import_module("motion.hardware_backend")
     configs = []
     robot = FakeRobot()
@@ -144,8 +189,8 @@ def test_real_factory_disables_per_send_position_read_and_degree_mode(monkeypatc
                         SimpleNamespace(LeLampFollowerConfig=SimpleNamespace))
     monkeypatch.setitem(sys.modules, "lelamp.playback",
                         SimpleNamespace(park_and_disconnect=lambda r: None))
-    module.FeetechBackend(port="fake", lamp_id="existing")
-    assert vars(configs[0]) == dict(port="fake", id="existing", use_degrees=False,
+    module.FeetechBackend(port="fake", lamp_id="lelamp")
+    assert vars(configs[0]) == dict(port="fake", id="lelamp", use_degrees=False,
                                    max_relative_target=None, cameras={},
                                    disable_torque_on_disconnect=True)
 
@@ -174,7 +219,7 @@ def test_parking_failure_propagates_without_releasing_torque():
     def failed_park(robot):
         raise TimeoutError("sleep pose not reached")
 
-    backend = module.FeetechBackend(port="fake", lamp_id="test",
+    backend = module.FeetechBackend(port="fake", lamp_id="lelamp",
                                    robot_factory=lambda **kw: robot, park=failed_park)
     with pytest.raises(TimeoutError, match="sleep pose"):
         backend.close()

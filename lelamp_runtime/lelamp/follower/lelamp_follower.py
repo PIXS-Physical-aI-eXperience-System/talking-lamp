@@ -30,7 +30,11 @@ from lerobot.motors.feetech import (
 from lerobot.robots import Robot
 from lerobot.robots.utils import ensure_safe_goal_position
 from .config_lelamp_follower import LeLampFollowerConfig
-from lelamp.motor_tuning import position_p_coefficient
+from lelamp.motor_tuning import (
+    position_p_coefficient,
+    require_motor_calibration_match,
+    validate_calibration_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,17 +98,36 @@ class LeLampFollower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        self.bus.connect()
-        if not self.is_calibrated and calibrate:
-            logger.info(
-                "Mismatch between calibration values in the motor and the calibration file or no calibration file found"
-            )
-            self.calibrate()
+        if self.config.enforce_calibration_profile:
+            # Validate before opening the bus: configure() enables torque and
+            # every motion/sleep pose is bound to this exact calibration.
+            validate_calibration_profile(self.id, self.calibration)
+        try:
+            self.bus.connect()
+            if self.config.enforce_calibration_profile:
+                # Read motor EEPROM after the port opens, then fail before
+                # configure() can enable torque if a servo was reset/replaced.
+                require_motor_calibration_match(self.is_calibrated)
+            elif not self.is_calibrated and calibrate:
+                logger.info(
+                    "Mismatch between calibration values in the motor and the "
+                    "calibration file or no calibration file found"
+                )
+                self.calibrate()
 
-        for cam in self.cameras.values():
-            cam.connect()
+            for cam in self.cameras.values():
+                cam.connect()
 
-        self.configure()
+            self.configure()
+        except BaseException:
+            for cam in self.cameras.values():
+                if cam.is_connected:
+                    cam.disconnect()
+            if self.bus.is_connected:
+                # configure() enables torque only in its success branch; this
+                # also makes an EEPROM mismatch close without motion.
+                self.bus.disconnect(disable_torque=True)
+            raise
         logger.info(f"{self} connected.")
 
     @property

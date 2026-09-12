@@ -141,3 +141,31 @@ def test_connection_failure_before_open_needs_no_parking(service_case):
     assert robot.released_at is None
     assert not robot.is_connected
     assert service.robot is None
+
+
+@pytest.mark.parametrize("service_case", ["animation"], indirect=True)
+def test_animation_restart_clears_stale_playback_before_worker_starts(
+    service_case, monkeypatch
+):
+    service, robot, _ = service_case
+    service._current_recording = "stale"
+    service._current_actions = [{"base_yaw.pos": 99.0}]
+    service._current_frame_index = 7
+    service._event_queue = [("play", "stale")]
+    observed = []
+
+    def inspect_start(thread):
+        observed.append((
+            service._current_recording,
+            service._current_actions.copy(),
+            service._current_frame_index,
+            service._event_queue.copy(),
+        ))
+
+    monkeypatch.setattr("threading.Thread.start", inspect_start)
+    service.start()
+    try:
+        assert observed == [(None, [], 0, [("play", service.idle_recording)])]
+        assert robot.pose == pytest.approx(HOME_POSE)
+    finally:
+        service.stop()

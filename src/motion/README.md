@@ -37,12 +37,13 @@ simulation or `--help`):
 
 ```bash
 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" python -m motion.hardware_run \
-  --port /dev/ttyACM0 --lamp-id YOUR_EXISTING_CALIBRATION_ID \
+  --port /dev/ttyACM0 --lamp-id lelamp \
   --primitive nod --duration 10 --feedback-hz 20
 ```
 
-Use the serial port and saved calibration id for the assembled lamp. Connection
-uses `calibrate=False` and normalized servo positions. Omit `--primitive` for
+Use the serial port and the checked-in `lelamp` calibration profile. The runner
+rejects a different ID, saved calibration, or motor-resident calibration before
+enabling torque. Connection uses `calibrate=False` and normalized servo positions. Omit `--primitive` for
 idle motion. The runtime seeds its trajectory and tracking pose from the first
 physical measurement while keeping `REST_POSE` as its idle target. The trajectory
 generator bounds blended targets to the exact calibrated joint ranges. Ruckig

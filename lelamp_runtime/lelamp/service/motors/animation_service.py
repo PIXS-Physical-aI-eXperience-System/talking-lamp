@@ -65,14 +65,17 @@ class AnimationService:
     def start(self):
         if self.robot is not None:
             raise RuntimeError("Robot is still owned; stop it safely before restarting")
+        self._reset_playback_state()
         self.robot = LeLampFollower(self.robot_config)
         try:
             self.robot.connect(calibrate=False)
             self._current_state = self.robot.get_observation()
             self._running.set()
+            # Queue the measured-pose transition before the worker can inspect
+            # playback state; a restart must never resume a stale frame.
+            self.dispatch("play", self.idle_recording)
             self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
             self._event_thread.start()
-            self.dispatch("play", self.idle_recording)
         except BaseException:
             # stop() retains the handle if parking fails, so the caller can
             # retry cleanup without losing an open bus or releasing torque.
@@ -92,6 +95,15 @@ class AnimationService:
             if self.robot.is_connected or self.robot.bus.is_connected:
                 park_and_disconnect(self.robot)
             self.robot = None
+        self._reset_playback_state()
+
+    def _reset_playback_state(self):
+        self._current_state = None
+        self._current_recording = None
+        self._current_frame_index = 0
+        self._current_actions = []
+        with self._event_lock:
+            self._event_queue.clear()
 
     def dispatch(self, event_type: str, payload: Any):
         """Dispatch an event, using the same interface as ServiceBase."""
