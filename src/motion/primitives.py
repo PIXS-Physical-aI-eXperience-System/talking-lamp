@@ -54,10 +54,25 @@ class Primitive:
         recordings_dir: Path | None = None,
     ) -> "Primitive":
         path = Path(recordings_dir or RECORDINGS_DIR) / f"{name}.csv"
-        raw = np.genfromtxt(path, delimiter=",", names=True)
+        try:
+            raw = np.genfromtxt(path, delimiter=",", names=True)
+        except ValueError as exc:
+            raise ValueError(f"malformed_columns: {exc}") from exc
         # genfromtxt turns the header "base_yaw.pos" into the field "base_yawpos"
-        normalized = np.stack([raw[f"{j}pos"] for j in JOINT_NAMES], axis=1)
-        t = raw["timestamp"].astype(float)
+        fields = raw.dtype.names
+        required_fields = {"timestamp", *(f"{joint}pos" for joint in JOINT_NAMES)}
+        if fields is None or not required_fields.issubset(fields):
+            missing = sorted(required_fields - set(fields or ()))
+            raise ValueError(f"malformed_columns: missing required columns: {missing}")
+
+        normalized = np.column_stack(
+            [np.atleast_1d(raw[f"{joint}pos"]).astype(float) for joint in JOINT_NAMES]
+        )
+        t = np.atleast_1d(raw["timestamp"]).astype(float)
+        if not np.isfinite(t).all() or not np.isfinite(normalized).all():
+            raise ValueError("non_finite: recording contains a non-finite sample")
+        if len(t) < 2 or np.any(np.diff(t) <= 0):
+            raise ValueError("invalid_recording: timestamps must strictly increase")
         t = t - t[0]
 
         rad = HardwareAlignment.load().normalized_to_radians(normalized)
@@ -105,9 +120,12 @@ class Primitive:
 @dataclass
 class PrimitiveLibrary:
     recordings_dir: Path = field(default_factory=lambda: RECORDINGS_DIR)
+    allowed_names: frozenset[str] | None = None
     _cache: dict[str, Primitive] = field(default_factory=dict)
 
     def get(self, name: str, **kw) -> Primitive:
+        if self.allowed_names is not None and name not in self.allowed_names:
+            raise KeyError(f"motion {name!r} is not in the allowed catalog")
         # Custom loads must not inherit or replace a cached default's
         # direction, amplitude, or looping policy.
         if kw:
@@ -119,4 +137,6 @@ class PrimitiveLibrary:
         return self._cache[name]
 
     def available(self) -> list[str]:
+        if self.allowed_names is not None:
+            return sorted(self.allowed_names)
         return sorted(p.stem for p in Path(self.recordings_dir).glob("*.csv"))
