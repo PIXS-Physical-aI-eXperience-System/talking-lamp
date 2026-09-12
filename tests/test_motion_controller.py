@@ -358,3 +358,64 @@ def test_completed_active_request_reenters_recent_cache_after_tracking_churn(con
     controller.tick_once(now=1.01)
     assert active.completed.result().state == "cancelled"
     assert controller.submit(play()) is active
+
+
+@pytest.mark.parametrize("kind, payload", [
+    ("track.point", {"point": [.4, .1, .3]}),
+    ("track.bearing", {"direction": [1., .1, .2]}),
+])
+def test_latest_tracking_observation_replaces_its_sources_longer_ttl(controller, kind, payload):
+    controller.submit(request(kind, "long", expires_at=10., **payload))
+    controller.tick_once(now=1.)
+    controller.submit(request(kind, "short", expires_at=1.02, **payload))
+    controller.tick_once(now=1.01)
+    assert controller.runtime.track.track.active
+    controller.tick_once(now=1.02)
+    assert not controller.runtime.track.track.active
+
+
+@pytest.mark.parametrize("kind, payload, other_kind, other_payload", [
+    ("track.point", {"point": [.4, .1, .3]},
+     "track.bearing", {"direction": [1., .1, .2]}),
+    ("track.bearing", {"direction": [1., .1, .2]},
+     "track.point", {"point": [.4, .1, .3]}),
+])
+def test_shorter_tracking_ttl_preserves_other_source_until_its_own_expiry(
+    controller, kind, payload, other_kind, other_payload,
+):
+    controller.submit(request(kind, "long", expires_at=10., **payload))
+    controller.submit(request(other_kind, "other", expires_at=1.05, **other_payload))
+    controller.tick_once(now=1.)
+    controller.submit(request(kind, "short", expires_at=1.02, **payload))
+    controller.tick_once(now=1.01)
+    controller.tick_once(now=1.02)
+    assert controller.runtime.track.track.active
+    controller.tick_once(now=1.05)
+    assert not controller.runtime.track.track.active
+
+
+def test_finishing_old_hold_preserves_new_same_id_ticket_after_cache_eviction(controller):
+    original = request("task_light.place", "same", point=[.24, 0., 0.])
+    old_ticket = controller.submit(original)
+    for i in range(2000):
+        controller.tick_once(now=1. + i / 100)
+        if old_ticket.completed.done():
+            break
+    assert old_ticket.completed.done()
+    assert old_ticket.completed.result().state == "completed"
+    assert controller.runtime.task_light.busy
+    for i in range(300):
+        controller.submit(request("system.heartbeat", f"churn{i}"))
+        controller.tick_once(now=21. + i / 100)
+    replacement = request("task_light.place", "same", point=[.24, .15, 0.])
+    new_ticket = controller.submit(replacement)
+    assert new_ticket is not old_ticket
+    controller.tick_once(now=25.)
+    assert new_ticket.accepted.result().state == "accepted"
+    assert not new_ticket.completed.done()
+    assert controller.submit(replacement) is new_ticket
+    controller.stop("shutdown")
+    controller.run()
+    assert new_ticket.completed.done()
+    assert new_ticket.completed.result().state == "cancelled"
+    assert old_ticket.completed.result().state == "completed"

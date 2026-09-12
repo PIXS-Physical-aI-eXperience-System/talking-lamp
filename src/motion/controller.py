@@ -73,7 +73,7 @@ class MotionController:
         self._pending: dict[str, CommandTicket] = {}
         self._latest_point: tuple[Request, CommandTicket] | None = None
         self._latest_bearing: tuple[Request, CommandTicket] | None = None
-        self._tracking_expires: float | None = None
+        self._tracking_expires: dict[str, float] = {}
         self._disconnect = False
         self._stop_reason = "stopped"
         self._owner: threading.Thread | None = None
@@ -138,7 +138,8 @@ class MotionController:
                 message: str = "", data: dict[str, object] | None = None) -> None:
         result = CommandResult(ticket.request_id, state, code, message, data or {})
         with self._lock:
-            if self._pending.pop(ticket.request_id, None) is not None:
+            if self._pending.get(ticket.request_id) is ticket:
+                del self._pending[ticket.request_id]
                 self._remember(ticket.request_id, ticket)
             self._resolve(ticket.accepted, result)
             self._resolve(ticket.completed, result)
@@ -198,7 +199,7 @@ class MotionController:
             self._clear_mailbox("cancelled", "disconnected")
         self.runtime.clear_tracking()
         self.runtime.barge_in()
-        self._tracking_expires = None
+        self._tracking_expires.clear()
         self._cancel_motion("disconnected")
         self._cancel_task("disconnected")
         self._safe_wait = True
@@ -208,9 +209,13 @@ class MotionController:
         with self._lock:
             latest = (self._latest_point, self._latest_bearing)
             self._latest_point = self._latest_bearing = None
-        if self._tracking_expires is not None and now >= self._tracking_expires:
-            self.runtime.clear_tracking()
-            self._tracking_expires = None
+        if self._tracking_expires:
+            self._tracking_expires = {
+                source: expiry for source, expiry in self._tracking_expires.items()
+                if now < expiry
+            }
+            if not self._tracking_expires:
+                self.runtime.clear_tracking()
         for entry in latest:
             if entry is None:
                 continue
@@ -222,7 +227,7 @@ class MotionController:
                 self.runtime.observe_point(request.payload["point"])
             else:
                 self.runtime.observe_bearing(request.payload["direction"])
-            self._tracking_expires = max(self._tracking_expires or 0., request.expires_at)
+            self._tracking_expires[request.type] = request.expires_at
             self._safe_wait = False
             self._accept(ticket)
             self._finish(ticket, "completed", "completed")
@@ -286,7 +291,7 @@ class MotionController:
             self._cancel_task("cancelled")
         elif kind == "track.clear":
             self.runtime.clear_tracking()
-            self._tracking_expires = None
+            self._tracking_expires.clear()
         elif kind not in {"motion.list", "motion.status", "system.heartbeat"}:
             self._finish(ticket, "failed", "unknown_type")
             return
