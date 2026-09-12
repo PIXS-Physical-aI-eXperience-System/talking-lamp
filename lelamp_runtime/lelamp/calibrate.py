@@ -16,6 +16,7 @@ def calibrate_follower(lamp_id: str, port: str) -> None:
     follower_config = LeLampFollowerConfig(
         port=port,
         id=lamp_id,
+        enforce_calibration_profile=False,
     )
     
     follower = LeLampFollower(follower_config)

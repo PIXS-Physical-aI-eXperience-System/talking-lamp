@@ -1,220 +1,218 @@
 import os
-import csv
-import time
 import threading
-from typing import Any, List, Dict, Optional, Tuple
-from lelamp.follower import LeLampFollowerConfig, LeLampFollower
+import time
+from typing import Any, Dict, List, Optional
+
+from lelamp.follower import LeLampFollower, LeLampFollowerConfig
+from lelamp.playback import (
+    limit_action_steps,
+    load_recording,
+    park_and_disconnect,
+    recording_path,
+    retarget_actions,
+    resample_actions,
+    smooth_actions,
+    transition_actions,
+)
+
+
+DEFAULT_MAX_PLANNED_STEP: float = 2.0
+DEFAULT_MAX_RELATIVE_TARGET: float | None = None
 
 
 class AnimationService:
-    def __init__(self, port: str, lamp_id: str, fps: int = 30, duration: float = 5.0, idle_recording: str = "idle"):
+    def __init__(
+        self,
+        port: str,
+        lamp_id: str,
+        fps: float = 30.0,
+        source_fps: float = 30.0,
+        speed: float = 1.0,
+        duration: float = 5.0,
+        idle_recording: str = "idle",
+        max_planned_step: float = DEFAULT_MAX_PLANNED_STEP,
+        max_relative_target: int | float | None = DEFAULT_MAX_RELATIVE_TARGET,
+    ):
         self.port = port
         self.lamp_id = lamp_id
         self.fps = fps
+        self.source_fps = source_fps
+        self.speed = speed
         self.duration = duration
         self.idle_recording = idle_recording
-        self.robot_config = LeLampFollowerConfig(port=port, id=lamp_id)
-        self.robot: LeLampFollower = None
-        self.recordings_dir = os.path.join(os.path.dirname(__file__), "..", "..", "recordings")
-        
-        # State management
+        self.max_step = max_planned_step
+        self.robot_config = LeLampFollowerConfig(
+            port=port,
+            id=lamp_id,
+            max_relative_target=max_relative_target,
+        )
+        self.robot: Optional[LeLampFollower] = None
+        self.recordings_dir = os.path.join(
+            os.path.dirname(__file__), "..", "..", "recordings"
+        )
+
         self._recording_cache: Dict[str, List[Dict[str, float]]] = {}
         self._current_state: Optional[Dict[str, float]] = None
         self._current_recording: Optional[str] = None
-        self._current_frame_index: int = 0
+        self._current_frame_index = 0
         self._current_actions: List[Dict[str, float]] = []
-        self._interpolation_frames: int = 0
-        self._interpolation_target: Optional[Dict[str, float]] = None
-        
-        # Custom event handling
+
         self._running = threading.Event()
-        self._event_queue = []
+        self._event_queue: list[tuple[str, Any]] = []
         self._event_lock = threading.Lock()
         self._event_thread: Optional[threading.Thread] = None
-    
+
     def start(self):
+        if self.robot is not None:
+            raise RuntimeError("Robot is still owned; stop it safely before restarting")
+        self._reset_playback_state()
         self.robot = LeLampFollower(self.robot_config)
-        self.robot.connect(calibrate=False)
+        try:
+            self.robot.connect(calibrate=False)
+            self._current_state = self.robot.get_observation()
+            self._running.set()
+            # Queue the measured-pose transition before the worker can inspect
+            # playback state; a restart must never resume a stale frame.
+            self.dispatch("play", self.idle_recording)
+            self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
+            self._event_thread.start()
+        except BaseException:
+            # stop() retains the handle if parking fails, so the caller can
+            # retry cleanup without losing an open bus or releasing torque.
+            self.stop()
+            raise
         print(f"Animation service connected to {self.port}")
-        
-        # Start event processing thread
-        self._running.set()
-        self._event_thread = threading.Thread(target=self._event_loop, daemon=True)
-        self._event_thread.start()
-        
-        # Initialize with idle recording via self dispatch
-        self.dispatch("play", self.idle_recording)
 
     def stop(self, timeout: float = 5.0):
-        # Stop event processing
         self._running.clear()
         if self._event_thread and self._event_thread.is_alive():
             self._event_thread.join(timeout=timeout)
-        
+        if self._event_thread and self._event_thread.is_alive():
+            print("Animation worker is still active; leaving the port connected")
+            return
+
         if self.robot:
-            self.robot.disconnect()
+            if self.robot.is_connected or self.robot.bus.is_connected:
+                park_and_disconnect(self.robot)
             self.robot = None
-    
+        self._reset_playback_state()
+
+    def _reset_playback_state(self):
+        self._current_state = None
+        self._current_recording = None
+        self._current_frame_index = 0
+        self._current_actions = []
+        with self._event_lock:
+            self._event_queue.clear()
+
     def dispatch(self, event_type: str, payload: Any):
-        """Dispatch an event - same interface as ServiceBase"""
+        """Dispatch an event, using the same interface as ServiceBase."""
         if not self._running.is_set():
             print(f"Animation service is not running, ignoring event {event_type}")
             return
-        
+
         with self._event_lock:
             self._event_queue.append((event_type, payload))
-    
+
     def _event_loop(self):
-        """Custom event loop that supports interruption"""
         while self._running.is_set():
-            # Check for events
             with self._event_lock:
                 if self._event_queue:
                     event_type, payload = self._event_queue.pop(0)
                 else:
                     event_type, payload = None, None
-            
+
             if event_type:
                 try:
                     self.handle_event(event_type, payload)
-                except Exception as e:
-                    print(f"Error handling event {event_type}: {e}")
-            
-            # Continue current playback
+                except Exception as exc:
+                    print(f"Error handling event {event_type}: {exc}")
+
             self._continue_playback()
-            
-            time.sleep(1.0 / self.fps)  # Frame rate timing
-    
+            time.sleep(1.0 / self.fps)
+
     def handle_event(self, event_type: str, payload: Any):
         if event_type == "play":
             self._handle_play(payload)
         else:
             print(f"Unknown event type: {event_type}")
-    
+
     def _handle_play(self, recording_name: str):
-        """Start playing a recording with interpolation from current state"""
+        """Start a time-scaled recording after a smooth pose transition."""
         if not self.robot:
             print("Robot not connected")
             return
-        
-        # Load the recording
+
         actions = self._load_recording(recording_name)
-        if actions is None:
+        if not actions:
             return
-        
-        print(f"Starting {recording_name} with interpolation")
-        
-        # Set up new playback
+
+        print(f"Starting {recording_name} at {self.speed:g}x speed")
+        if self._current_state is not None:
+            transition = transition_actions(
+                self._current_state,
+                actions[0],
+                command_fps=self.fps,
+                duration=self.duration,
+            )
+            actions = limit_action_steps(
+                transition + actions[1:],
+                start_pose=self._current_state,
+                max_step=self.max_step,
+            )
+
         self._current_recording = recording_name
         self._current_actions = actions
         self._current_frame_index = 0
-        
-        # If we have a current state, set up interpolation to the first frame
-        if self._current_state is not None:
-            self._interpolation_frames = int(self.duration * self.fps)
-            self._interpolation_target = actions[0]
-        else:
-            self._interpolation_frames = 0
-            self._interpolation_target = None
-    
+
     def _continue_playback(self):
-        """Continue current playback - called every frame"""
-        if not self._current_recording or not self._current_actions:
+        if not self._current_recording or not self._current_actions or not self.robot:
             return
-        
+
         try:
-            # Handle interpolation to first frame
-            if self._interpolation_frames > 0 and self._interpolation_target is not None:
-                # Calculate interpolation progress
-                progress = 1.0 - (self._interpolation_frames / (self.duration * self.fps))
-                progress = max(0.0, min(1.0, progress))
-                
-                # Interpolate between current state and target
-                interpolated_action = {}
-                for joint in self._interpolation_target.keys():
-                    current_val = self._current_state.get(joint, 0)
-                    target_val = self._interpolation_target[joint]
-                    interpolated_action[joint] = current_val + (target_val - current_val) * progress
-                
-                self.robot.send_action(interpolated_action)
-                self._current_state = interpolated_action.copy()
-                self._interpolation_frames -= 1
-                return
-            
-            # Play current frame
             if self._current_frame_index < len(self._current_actions):
                 action = self._current_actions[self._current_frame_index]
-                self.robot.send_action(action)
-                self._current_state = action.copy()
+                sent_action = self.robot.send_action(action)
+                self._current_state = sent_action.copy()
                 self._current_frame_index += 1
-            else:
-                # Recording finished
-                if self._current_recording != self.idle_recording:
-                    # Interpolate back to idle
-                    idle_actions = self._load_recording(self.idle_recording)
-                    if idle_actions is not None and len(idle_actions) > 0:
-                        self._current_recording = self.idle_recording
-                        self._current_actions = idle_actions
-                        self._current_frame_index = 0
-                        # Set up interpolation back to idle
-                        if self._current_state is not None:
-                            self._interpolation_frames = int(self.duration * self.fps)
-                            self._interpolation_target = idle_actions[0]
-                else:
-                    # Loop idle recording
-                    self._current_frame_index = 0
-                    
-        except Exception as e:
-            print(f"Error in playback: {e}")
-            # Reset to safe state
+                return
+
+            self._handle_play(self.idle_recording)
+        except Exception as exc:
+            print(f"Error in playback: {exc}")
             self._current_recording = None
             self._current_actions = []
             self._current_frame_index = 0
-    
+
     def get_available_recordings(self) -> List[str]:
-        """Get list of recording names available for this lamp ID"""
         if not os.path.exists(self.recordings_dir):
             return []
-        
-        recordings = []
-        suffix = f".csv"
-        
-        for filename in os.listdir(self.recordings_dir):
-            if filename.endswith(suffix):
-                # Remove the lamp_id suffix to get the recording name
-                recording_name = filename[:-len(suffix)]
-                recordings.append(recording_name)
-        
-        return sorted(recordings)
-    
-    def _load_recording(self, recording_name: str) -> Optional[List[Dict[str, float]]]:
-        """Load a recording from cache or file"""
-        # Check cache first
+
+        return sorted(
+            filename[:-4]
+            for filename in os.listdir(self.recordings_dir)
+            if filename.endswith(".csv")
+        )
+
+    def _load_recording(
+        self, recording_name: str
+    ) -> Optional[List[Dict[str, float]]]:
         if recording_name in self._recording_cache:
             return self._recording_cache[recording_name]
-        
-        csv_filename = f"{recording_name}.csv"
-        csv_path = os.path.join(self.recordings_dir, csv_filename)
-        
-        if not os.path.exists(csv_path):
-            print(f"Recording not found: {csv_path}")
-            return None
-        
+
         try:
-            with open(csv_path, 'r') as csvfile:
-                csv_reader = csv.DictReader(csvfile)
-                actions = []
-                for row in csv_reader:
-                    # Extract action data (exclude timestamp column)
-                    action = {key: float(value) for key, value in row.items() if key != 'timestamp'}
-                    actions.append(action)
-            
-            # Cache the recording
+            csv_path = recording_path(self.recordings_dir, recording_name)
+            source_actions = smooth_actions(
+                retarget_actions(load_recording(csv_path))
+            )
+            actions = resample_actions(
+                source_actions,
+                source_fps=self.source_fps,
+                command_fps=self.fps,
+                speed=self.speed,
+            )
             self._recording_cache[recording_name] = actions
             return actions
-            
-        except Exception as e:
-            print(f"Error loading recording {recording_name}: {e}")
+        except Exception as exc:
+            print(f"Error loading recording {recording_name}: {exc}")
             return None
-    
-    

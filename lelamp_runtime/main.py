@@ -45,7 +45,12 @@ Demo rules:
         self.motors_service = MotorsService(
             port=port,
             lamp_id=lamp_id,
-            fps=30
+            fps=30.0,
+            source_fps=30.0,
+            speed=1.0,
+            transition_seconds=3.0,
+            max_planned_step=2.0,
+            max_relative_target=None,
         )
         self.rgb_service = RGBService(
             led_count=64,

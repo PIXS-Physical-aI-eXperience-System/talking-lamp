@@ -29,10 +29,14 @@ class LeLampFollowerConfig(RobotConfig):
 
     disable_torque_on_disconnect: bool = True
 
+    # HOME/SLEEP and the motion alignment are tied to one measured calibration.
+    # Calibration tooling disables this guard while recording a new profile.
+    enforce_calibration_profile: bool = True
+
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
     # Set this to a positive scalar to have the same value for all motors, or a list that is the same length as
     # the number of motors in your follower arms.
-    max_relative_target: int | None = None
+    max_relative_target: int | float | None = None
 
     # cameras
     cameras: dict[str, CameraConfig] = field(default_factory=dict)

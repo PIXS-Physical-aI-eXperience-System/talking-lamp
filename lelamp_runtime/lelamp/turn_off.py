@@ -6,10 +6,13 @@ sys.path.append(os.path.dirname(__file__))
 
 from service.rgb import RGBService
 from follower import LeLampFollower, LeLampFollowerConfig
+from playback import park_and_disconnect
 
 def turn_off(port: str, lamp_id: str):
     # Initialize robot connection
-    robot_config = LeLampFollowerConfig(port=port, id=lamp_id)
+    robot_config = LeLampFollowerConfig(
+        port=port, id=lamp_id, max_relative_target=2.0
+    )
     robot = LeLampFollower(robot_config)
     
     # Initialize RGB service
@@ -35,8 +38,8 @@ def turn_off(port: str, lamp_id: str):
     finally:
         # Clean up connections
         if robot.is_connected:
-            print("Disconnecting robot...")
-            robot.disconnect()
+            print("Moving to sleep pose, then disconnecting robot...")
+            park_and_disconnect(robot)
             print("Robot disconnected")
         
         rgb_service.stop()

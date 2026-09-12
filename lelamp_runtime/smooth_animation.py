@@ -45,9 +45,13 @@ Demo rules:
         self.animation_service = AnimationService(
             port=port,
             lamp_id=lamp_id,
-            fps=30,
+            fps=30.0,
+            source_fps=30.0,
+            speed=1.0,
             duration=3.0,
-            idle_recording="idle"
+            idle_recording="idle",
+            max_planned_step=2.0,
+            max_relative_target=None,
         )
         self.rgb_service = RGBService(
             led_count=40,
