@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-12-jetson-pi-motion-middleware-design.md`
 
+**Implementation prerequisite:** Raspberry Pi motion-stack PR #1 must be merged first, or the future implementation branch must be based on that PR's reviewed head. This planning PR contains documentation only; middleware code belongs in a separate implementation PR.
+
 ## Global Constraints
 
 - Raspberry Pi remains the sole owner of the Feetech bus, safety limits, blending, trajectory generation, and 100 Hz deadlines.
@@ -715,14 +717,15 @@ git add deploy/jetson docs/motion-middleware.md README.md tests/test_deploy_scri
 git commit -m "docs: add Jetson Pi middleware deployment guide"
 ```
 
-- [ ] **Step 10: Push and update the pull request**
+- [ ] **Step 10: Push a separate implementation pull request**
 
 Run:
 
 ```bash
 git status --short
 git log --oneline --decorate -10
-git push origin feat/motion-stack-e2e-sim
+git push -u origin codex/jetson-pi-motion-middleware
+gh pr create --base main --head codex/jetson-pi-motion-middleware
 ```
 
-Expected: the worktree is clean, the remote branch contains every middleware commit, and PR #1 shows the Pi server, Jetson ROS bridge, tests, and deployment guide.
+Expected: the worktree is clean and the new middleware implementation PR contains the Pi server, Jetson ROS bridge, tests, and deployment guide. PR #1 remains limited to the Raspberry Pi motion stack and this planning PR remains documentation-only.
