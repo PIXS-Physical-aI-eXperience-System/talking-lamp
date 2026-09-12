@@ -1,10 +1,11 @@
 """Motion primitives - short canned clips the cognition layer triggers by tag.
 
 Sourced from the LeLamp recordings (`lelamp_runtime/lelamp/recordings/*.csv`,
-30 Hz, degrees, in LeLamp's *calibrated* joint space). That space does not line
-up with our MuJoCo model (different zero/sign), so clips are used **relative**:
-the delta from frame 0, converted to radians, optionally sign/scale-mapped per
-joint, and added by the blender as an offset on top of the current base pose.
+30 Hz, normalized servo commands in LeLamp's *calibrated* joint space). That
+space does not line up with our MuJoCo model (different zero/sign), so clips
+are used **relative**: the delta from frame 0 is converted to simulation
+radians through the physical calibration, direction/scale-mapped per joint,
+and added by the blender as an offset on top of the current base pose.
 
     prim = Primitive.load("nod")
     off = prim.sample(t)        # (5,) radian offset, 0 at t<=0 and t>=duration
@@ -18,10 +19,11 @@ from pathlib import Path
 import numpy as np
 
 from .config import JOINT_NAMES, NJ, RECORDINGS_DIR
+from .hardware_alignment import HardwareAlignment
 
-# LeLamp calibrated space -> our model. Tune against the sim; +1 = same sense.
-DEFAULT_SIGN = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
-DEFAULT_SCALE = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
+# Verified playback retargeting values. Base pitch is reversed deliberately.
+DEFAULT_SIGN = np.array([1.0, -1.0, 1.0, 1.0, 1.0])
+DEFAULT_SCALE = np.array([0.35, 0.12, 0.15, 0.35, 0.25])
 
 CLIP_NAMES = (
     "nod", "headshake", "curious", "excited", "happy_wiggle",
@@ -53,12 +55,12 @@ class Primitive:
         path = Path(recordings_dir or RECORDINGS_DIR) / f"{name}.csv"
         raw = np.genfromtxt(path, delimiter=",", names=True)
         # genfromtxt turns the header "base_yaw.pos" into the field "base_yawpos"
-        deg = np.stack([raw[f"{j}pos"] for j in JOINT_NAMES], axis=1)
+        normalized = np.stack([raw[f"{j}pos"] for j in JOINT_NAMES], axis=1)
         t = raw["timestamp"].astype(float)
         t = t - t[0]
 
-        rad = np.deg2rad(deg.astype(float))
-        rad = rad - rad[0]  # relative to first frame
+        rad = HardwareAlignment.load().normalized_to_radians(normalized)
+        rad = rad - rad[0]  # relative to first frame in simulation radians
         rad *= (sign if sign is not None else DEFAULT_SIGN)
         rad *= (scale if scale is not None else DEFAULT_SCALE)
 

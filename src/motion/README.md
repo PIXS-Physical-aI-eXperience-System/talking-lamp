@@ -65,8 +65,10 @@ E exposes to the rest of the team ("절대 관절 각도" convention).
   see `sim/README.md`. IK/limits inherit its approximations.
 - **Kinematic limits** (`config.VEL/ACC/JERK_LIMIT`) are conservative guesses;
   retune once the real head weight is measured.
-- **Primitive sign/scale** (`primitives.DEFAULT_SIGN/SCALE`) are identity -
-  eyeball each clip in the viewer and set the per-joint map.
+- **Primitive calibration** follows the measured servo-to-simulation mapping
+  and the verified playback direction/scale map (including reversed base
+  pitch). Recalibrate these values after changing the mechanism, servos, or
+  head load.
 - **Head "forward" axis** comes from the CAD site frame; "look straight ahead"
   can still cock the base ~25°. Fine for faces, revisit if it reads wrong.
 - Trajectory generator's analytic fallback allows a 1-tick decel spike at the

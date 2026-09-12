@@ -1,8 +1,18 @@
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from motion.config import NJ
+from motion.hardware_alignment import HardwareAlignment
 from motion.primitives import CLIP_NAMES, Primitive, PrimitiveLibrary
+
+
+RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "lelamp_runtime"
+sys.path.insert(0, str(RUNTIME_ROOT))
+
+from lelamp.playback import JOINT_KEYS, load_recording, retarget_actions  # noqa: E402
 
 
 @pytest.mark.parametrize("name", CLIP_NAMES)
@@ -31,12 +41,33 @@ def test_idle_clip_loops():
 
 
 def test_sign_and_scale_applied():
-    base = Primitive.load("nod")
-    flipped = Primitive.load("nod", sign=np.array([1, -1, 1, 1, 1.0]))
-    half = Primitive.load("nod", scale=np.full(NJ, 0.5))
-    t = base.duration / 3
-    assert np.allclose(base.sample(t)[1], -flipped.sample(t)[1])
-    assert np.allclose(base.sample(t) * 0.5, half.sample(t), atol=1e-9)
+    unit = Primitive.load("nod", sign=np.ones(NJ), scale=np.ones(NJ))
+    sign = np.array([1, -1, 1, 1, 1.0])
+    scale = np.full(NJ, 0.5)
+    overridden = Primitive.load("nod", sign=sign, scale=scale)
+
+    assert np.allclose(overridden.offsets, unit.offsets * sign * scale, atol=1e-12)
+
+
+@pytest.mark.parametrize("name", CLIP_NAMES)
+def test_default_offsets_match_runtime_retargeting_in_simulation_radians(name):
+    primitive = Primitive.load(name)
+    recording_path = RUNTIME_ROOT / "lelamp" / "recordings" / f"{name}.csv"
+    retargeted = retarget_actions(load_recording(recording_path))
+    normalized = np.asarray(
+        [[frame[joint] for joint in JOINT_KEYS] for frame in retargeted],
+        dtype=float,
+    )
+    simulation_radians = HardwareAlignment.load().normalized_to_radians(normalized)
+    expected_offsets = simulation_radians - simulation_radians[0]
+
+    assert np.allclose(primitive.offsets, expected_offsets, atol=1e-12)
+
+
+def test_default_offsets_reverse_base_pitch_like_runtime_retargeting():
+    primitive = Primitive.load("nod")
+
+    assert primitive.offsets[-1, 1] < 0.0
 
 
 def test_resample_to_control_rate():
