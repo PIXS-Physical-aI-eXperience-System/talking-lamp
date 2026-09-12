@@ -10,7 +10,7 @@
 
 Talking Lamp는 카메라와 마이크로 주변 상황을 인식해 스스로 판단하고 움직이는 관절형 AI 로봇 스탠드입니다. 책이나 키보드를 놓으면 그 위치를 알아보고 조명 각도를 맞추고, 이름을 부르면 고개를 돌려 한국어로 대화합니다.
 
-**모든 AI 추론이 Jetson Orin Nano 8GB 보드 위에서 단독 처리됩니다.** 인터넷 연결이나 외부 서버 없이 완전히 독립적으로 동작하며, 영상·음성이 기기 밖으로 나가지 않습니다.
+**AI 추론은 Jetson Orin Nano 8GB가, 5축 모션과 서보는 Raspberry Pi가 담당합니다.** 두 보드는 유선 로컬 네트워크로 연결되며, Jetson은 행동 태그와 추종 목표만 보내고 Pi가 100 Hz 궤적과 안전 정지를 책임집니다. 인터넷 연결이나 외부 서버 없이 완전히 독립적으로 동작하며, 영상·음성이 기기 밖으로 나가지 않습니다.
 
 기구·서보 기반은 [LeLamp](https://github.com/humancomputerlab/LeLamp) 오픈소스를 개조해 사용하고, 그 위에 온보드 AI·비전·모션 지능을 새로 구현합니다.
 
@@ -36,19 +36,20 @@ Talking Lamp는 카메라와 마이크로 주변 상황을 인식해 스스로 �
 | **L1 반사** | 얼굴·소리 방향 추종 (칼만 필터) | 50 Hz | X |
 | **L0 아이들** | 호흡·미세 시선 등 기본 모션 | 항상 | X |
 
-네 레이어의 출력은 **모션 블렌더**에서 우선순위로 합성되어, **100 Hz 궤적 생성기**를 거쳐 5축 서보로 나갑니다.
+Jetson에서 나온 고수준 행동 태그·비전 목표·소리 방향은 Pi의 **모션 블렌더**에서 우선순위로 합성되어, **100 Hz 궤적 생성기**를 거쳐 5축 서보로 나갑니다. 네트워크로 원시 서보 각도를 스트리밍하지 않습니다.
 
 ## 하드웨어
 
 | 구분 | 사양 |
 | --- | --- |
-| 메인 보드 | Jetson Orin Nano 8GB Developer Kit |
+| AI 보드 | Jetson Orin Nano 8GB Developer Kit — VLM·STT·TTS·비전 |
+| 모션 보드 | Raspberry Pi — IK·모션 블렌더·100 Hz 궤적·Feetech·LED |
 | 서보 | Feetech STS3215 5축 (Base Yaw / Base Pitch / Elbow Pitch / Wrist Roll / Wrist Pitch) |
 | 카메라 | 단안(렌즈 1개) 광각 — 깊이 카메라 불필요 |
 | 마이크 | USB 어레이 4채널 이상 (DOA 지원) |
 | 서보 드라이버 | 기성 버스 서보 드라이버 보드 (USB 연결) |
-| 전원 | Jetson 19V 어댑터 + 서보용 공급기 분리 (기성품) |
-| 서브 MCU | STM32 / ESP32 (LED 제어) |
+| 전원 | Jetson, Raspberry Pi, 서보 전원 계통 분리 (기성품) |
+| 서브 MCU | STM32 / ESP32 (LED 확장 시 선택) |
 | 기구 | LeLamp `.3mf` 개조, FDM 3D 프린터 출력 |
 
 ## 저장소 구조
@@ -64,23 +65,16 @@ talking-lamp/
 │   ├── 3D/                        `.3mf` 출력 파일 7종
 │   ├── simulation/                MuJoCo + URDF (하드웨어 없이 모션 선행 개발)
 │   └── docs/                      원본 조립 가이드 7편
-└── lelamp_runtime/        # 제어 코드 — 개조 대상
-    ├── lelamp/service/motors/     서보 제어 (현재 30fps → 100Hz로 상향 예정)
-    ├── lelamp/recordings/         모션 프리미티브 CSV 11종
-    ├── lelamp/service/rgb/        LED 제어 (Pi 전용 → 서브 MCU 위임 예정)
-    └── main.py                    LiveKit/OpenAI 클라우드 에이전트 → 온보드로 교체 예정
-```
-
-앞으로 추가될 구현 모듈:
-
-```
+├── lelamp_runtime/        # LeLamp 장치 드라이버·안전 종료
+│   ├── lelamp/service/motors/     기존 30fps 재생 경로
+│   ├── lelamp/recordings/         모션 프리미티브 CSV 11종
+│   ├── lelamp/service/rgb/        Raspberry Pi LED 제어
+│   └── main.py                    LeLamp 원본 클라우드 에이전트
 └── src/
-    ├── cognition/     인지 — VLM, 프롬프트, 행동 태그
-    ├── orchestrator/  시스템통합 — 이벤트 버스, 상태머신, 중재기
-    ├── voice/         음성 — STT, TTS, AEC, DOA
-    ├── vision/        비전 — 검출, 캘리브레이션, 조명 배치 계산
-    └── motion/        모션 — IK, 칼만 필터, 모션 블렌더
+    └── motion/        Pi 모션 — IK, 칼만 필터, 블렌더, 100 Hz 실기 구동
 ```
+
+Jetson 측 인지·음성·비전과 B의 이벤트 버스는 각 담당 파트가 추가하며, `motion.play` 같은 고수준 이벤트로 Pi 모션 런타임에 연결합니다.
 
 ### LeLamp에서 가져온 것 / 새로 만드는 것
 
@@ -91,7 +85,7 @@ talking-lamp/
 | 서보 통신 (`feetech-servo-sdk` + `lerobot`) | IK · 칼만 필터 · 모션 블렌더 · 100Hz 궤적 생성기 |
 | MuJoCo 시뮬레이션 | 온보드 STT/TTS · AEC · DOA |
 | 모션 프리미티브 CSV 11종 | 이벤트 버스 · 상태머신 · 시나리오 중재기 |
-| 웨이크워드 (`pvporcupine`) | 작업 조명 모듈, Jetson 이식용 전원·기구 재구성 |
+| 웨이크워드 (`pvporcupine`) | 작업 조명 모듈, Jetson↔Pi 이벤트 연결·전원 구성 |
 
 LeLamp 원본은 **AI를 전부 OpenAI 클라우드로 호출**하고(`main.py`), 모션은 **CSV를 30fps로 단순 재생**하는 구조입니다. 이 프로젝트의 핵심인 온보드 추론·레이어 합성·공간 인지는 전부 새로 만듭니다.
 
