@@ -136,7 +136,7 @@ def _validate_envelope(message: dict[str, Any], expected_token: str) -> None:
         raise ProtocolError("invalid_ttl", "ttl_ms must be an integer from 1 to 10000")
 
     supplied_token = message["token"]
-    if not isinstance(supplied_token, str) or not hmac.compare_digest(supplied_token, expected_token):
+    if not _tokens_match(supplied_token, expected_token):
         raise ProtocolError("unauthorized", "token does not match")
 
     if not isinstance(message["payload"], dict):
@@ -152,7 +152,7 @@ def _validate_payload(request_type: str, payload: dict[str, object]) -> None:
         if not isinstance(payload["replace_current"], bool):
             raise ProtocolError("invalid_payload", "replace_current must be a JSON boolean")
         intensity = payload["intensity"]
-        if not _is_number(intensity) or not 0.0 <= float(intensity) <= 1.0:
+        if not _is_number(intensity) or not 0.0 <= intensity <= 1.0:
             raise ProtocolError("invalid_payload", "intensity must be from 0.0 to 1.0")
         repeat = payload["repeat"]
         if not isinstance(repeat, int) or isinstance(repeat, bool) or not 1 <= repeat <= 3:
@@ -193,11 +193,11 @@ def _require_exact_fields(payload: dict[str, object], expected: set[str]) -> Non
 def _validate_vector(value: object, *, name: str) -> tuple[float, float, float]:
     if not isinstance(value, list) or len(value) != 3 or not all(_is_number(component) for component in value):
         raise ProtocolError("invalid_payload", f"{name} must contain exactly three numbers")
+    if any(abs(component) > 2.0 for component in value):
+        raise ProtocolError("out_of_range", f"{name} coordinates must be within 2 metres")
     vector = tuple(float(component) for component in value)
     if not all(math.isfinite(component) for component in vector):
         raise ProtocolError("non_finite", f"{name} contains a non-finite number")
-    if any(abs(component) > 2.0 for component in vector):
-        raise ProtocolError("out_of_range", f"{name} coordinates must be within 2 metres")
     return vector  # type: ignore[return-value]
 
 
@@ -214,6 +214,15 @@ def _reject_non_finite(value: object) -> None:
 
 def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _tokens_match(supplied_token: object, expected_token: object) -> bool:
+    if not isinstance(supplied_token, str) or not isinstance(expected_token, str):
+        return False
+    try:
+        return hmac.compare_digest(supplied_token, expected_token)
+    except TypeError:
+        return False
 
 
 def _is_canonical_uuid(value: str) -> bool:

@@ -72,6 +72,40 @@ def test_decoder_rejects_a_line_over_16_kib():
         decode_request(line, token="secret", received_at=1.0)
 
 
+@pytest.mark.parametrize(
+    ("supplied_token", "expected_token"),
+    [
+        ("sëcret", "secret"),
+        ("secret", "sëcret"),
+        ("sëcret", "sëcret"),
+    ],
+)
+def test_decoder_fails_closed_for_non_ascii_tokens(supplied_token, expected_token):
+    with pytest.raises(ProtocolError, match="unauthorized"):
+        decode_request(
+            request_line(token=supplied_token), token=expected_token, received_at=1.0
+        )
+
+
+@pytest.mark.parametrize(
+    ("request_type", "payload", "code"),
+    [
+        (
+            "motion.play",
+            {"name": "nod", "replace_current": True, "intensity": 10**400, "repeat": 1},
+            "invalid_payload",
+        ),
+        ("track.point", {"point": [10**400, 0.0, 0.0]}, "out_of_range"),
+        ("track.bearing", {"direction": [10**400, 0.0, 0.0]}, "out_of_range"),
+    ],
+)
+def test_decoder_rejects_huge_integer_payload_numbers(request_type, payload, code):
+    with pytest.raises(ProtocolError, match=code):
+        decode_request(
+            request_line(type=request_type, payload=payload), token="secret", received_at=1.0
+        )
+
+
 def test_encoder_is_compact_and_terminates_with_one_newline():
     encoded = encode_message({"type": "event", "payload": {"state": "accepted"}})
 
