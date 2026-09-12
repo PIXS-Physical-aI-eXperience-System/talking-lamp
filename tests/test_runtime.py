@@ -164,3 +164,38 @@ def test_reading_step_trace_keeps_commands_envelopes_and_filter_unchanged(rt):
         np.testing.assert_array_equal(rt.track.track.x, unlogged.track.track.x)
         np.testing.assert_array_equal(rt.track.track.P, unlogged.track.track.P)
     assert any(entry.get("primitive", 0) > 0 for entry in logged_authority)
+
+
+def test_primitive_progress_is_read_only_and_does_not_change_commands(rt):
+    reference = MotionRuntime()
+    assert rt.primitive.active_name is None
+    assert rt.primitive.started_at is None
+    assert rt.primitive.progress(rt.t) == 0.
+    for runtime in (rt, reference):
+        runtime.play_primitive("nod")
+    assert rt.primitive.active_name == "nod"
+    assert rt.primitive.started_at == 0.
+    duration = rt.primitive.clip.duration
+    assert rt.primitive.progress(-1.) == 0.
+    assert rt.primitive.progress(duration / 2) == pytest.approx(.5)
+    assert rt.primitive.progress(duration * 2) == 1.
+    with pytest.raises(AttributeError):
+        rt.primitive.active_name = "other"
+    for i in range(900):
+        assert 0. <= rt.primitive.progress(rt.t) <= 1.
+        np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+    assert rt.primitive.active_name is None
+    assert rt.primitive.started_at is None
+
+
+def test_runtime_tracking_controls_preserve_layer_behavior(rt):
+    reference = MotionRuntime()
+    rt.observe_point([.4, .1, .3])
+    reference.track.observe_point([.4, .1, .3])
+    np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+    rt.observe_bearing([1., .2, .1])
+    reference.track.observe_bearing([0., 0., 0.], [1., .2, .1])
+    np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+    rt.clear_tracking()
+    reference.track.clear()
+    np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)

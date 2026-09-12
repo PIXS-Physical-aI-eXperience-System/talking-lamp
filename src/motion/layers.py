@@ -183,6 +183,20 @@ class PrimitiveLayer:
     def busy(self) -> bool:
         return self.clip is not None and not self.env.closed
 
+    @property
+    def active_name(self) -> str | None:
+        return self.clip.name if self.busy else None
+
+    @property
+    def started_at(self) -> float | None:
+        return self.t0 if self.busy else None
+
+    def progress(self, now: float) -> float:
+        """Read clip progress on the runtime clock, including its release tail."""
+        if not self.busy:
+            return 0.0
+        return float(np.clip((now - self.t0) / self.clip.duration, 0.0, 1.0))
+
     def update(self, ctx: BlendContext) -> LayerOutput:
         if self.clip is None:
             return LayerOutput.inactive()

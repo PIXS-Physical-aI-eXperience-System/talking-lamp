@@ -97,6 +97,16 @@ class MotionRuntime:
     def play_primitive(self, name: str, **load_kw) -> None:
         self.primitive.play(name, self.t, **load_kw)
 
+    def observe_point(self, point) -> None:
+        self.track.observe_point(point)
+
+    def observe_bearing(self, direction) -> None:
+        """Observe a bearing in the lamp base frame (origin at the base)."""
+        self.track.observe_bearing(np.zeros(3), direction)
+
+    def clear_tracking(self) -> None:
+        self.track.clear()
+
     def place_task_light(self, desk_point, *, seed_from_current: bool = True):
         seed = self.traj.pos if seed_from_current else None
         return self.task_light.place(desk_point, q_seed=seed)
