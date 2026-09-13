@@ -12,7 +12,7 @@ from motion.runtime import MotionRuntime
 
 
 def test_demo_logging_updates_layers_once_per_command(monkeypatch, tmp_path):
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "sim"))
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "sim"))
     demo = importlib.import_module("motion_demo")
     counts = {"step": 0, "compute": 0}
 
@@ -46,7 +46,7 @@ def test_demo_logging_updates_layers_once_per_command(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("mode", ["light", "reach"])
 def test_drive_releases_task_pose_when_switching_to_tracking(monkeypatch, mode):
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "sim"))
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "sim"))
     drive = importlib.import_module("drive")
     snapshots = []
 

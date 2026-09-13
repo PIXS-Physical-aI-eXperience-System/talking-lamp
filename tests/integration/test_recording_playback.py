@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 
-RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "lelamp_runtime"
+RUNTIME_ROOT = Path(__file__).resolve().parents[2] / "lelamp_runtime"
 sys.path.insert(0, str(RUNTIME_ROOT))
 
 from lelamp.playback import (  # noqa: E402
@@ -30,7 +30,7 @@ from lelamp.motor_tuning import (  # noqa: E402
     validate_calibration_profile,
 )
 from motion.hardware_alignment import HardwareAlignment  # noqa: E402
-from lelamp.test.test_motors import select_recordings  # noqa: E402
+from lelamp.test.check_motors import select_recordings  # noqa: E402
 
 
 def _pose(value: float) -> dict[str, float]:

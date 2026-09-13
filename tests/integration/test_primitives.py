@@ -9,7 +9,7 @@ from motion.hardware_alignment import HardwareAlignment
 from motion.primitives import CLIP_NAMES, Primitive, PrimitiveLibrary
 
 
-RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "lelamp_runtime"
+RUNTIME_ROOT = Path(__file__).resolve().parents[2] / "lelamp_runtime"
 sys.path.insert(0, str(RUNTIME_ROOT))
 
 from lelamp.playback import (  # noqa: E402
