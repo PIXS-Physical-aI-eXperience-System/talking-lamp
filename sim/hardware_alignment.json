@@ -1,0 +1,70 @@
+{
+  "servo_model": "Feetech STS3215",
+  "calibration_id": "lelamp",
+  "encoder_counts_per_revolution": 4096,
+  "reference_pose": "vertical_straight",
+  "joints": {
+    "base_yaw": {
+      "motor_id": 1,
+      "drive_mode": 0,
+      "homing_offset": -653,
+      "calibration_raw_range": [1072, 3086],
+      "straight_raw": 2040,
+      "straight_normalized": -3.872889771598807,
+      "simulation_straight_radians": 0.0,
+      "direction_sign": -1,
+      "turn_reference_raw": 2271,
+      "turn_reference_delta_degrees": 20.302734375,
+      "simulation_reference_delta_degrees": -30.0
+    },
+    "base_pitch": {
+      "motor_id": 2,
+      "drive_mode": 0,
+      "homing_offset": -1406,
+      "calibration_raw_range": [939, 3073],
+      "straight_raw": 2030,
+      "straight_normalized": 2.249297094657905,
+      "simulation_straight_radians": -0.4473006,
+      "direction_sign": 1,
+      "front_reference_raw": 1722,
+      "front_reference_delta_degrees": -27.0703125
+    },
+    "elbow_pitch": {
+      "motor_id": 3,
+      "drive_mode": 0,
+      "homing_offset": 1767,
+      "calibration_raw_range": [957, 3192],
+      "straight_raw": 1538,
+      "straight_normalized": -48.008948545861294,
+      "simulation_straight_radians": -1.9953528875,
+      "direction_sign": 1,
+      "front_reference_raw": 1815,
+      "front_reference_delta_degrees": 24.345703125
+    },
+    "wrist_roll": {
+      "motor_id": 4,
+      "drive_mode": 0,
+      "homing_offset": -1491,
+      "calibration_raw_range": [1007, 3076],
+      "straight_raw": 2036,
+      "straight_normalized": -0.5316578057032331,
+      "simulation_straight_radians": 0.0,
+      "direction_sign": 1,
+      "turn_reference_raw": 2293,
+      "turn_reference_delta_degrees": 22.587890625,
+      "simulation_reference_delta_degrees": 30.0
+    },
+    "wrist_pitch": {
+      "motor_id": 5,
+      "drive_mode": 0,
+      "homing_offset": 2003,
+      "calibration_raw_range": [900, 3150],
+      "straight_raw": 1994,
+      "straight_normalized": -2.75555555555556,
+      "simulation_straight_radians": 0.73081328725,
+      "direction_sign": 1,
+      "front_reference_raw": 2272,
+      "front_reference_delta_degrees": 24.43359375
+    }
+  }
+}
