@@ -4,7 +4,7 @@
 
 The blender output can jump (a primitive fires, a track appears); the trajectory
 generator absorbs that into a velocity/accel/jerk-limited path. The backend is
-either the MuJoCo sim (dynamics or kinematic) or, later, the Feetech bus.
+either the MuJoCo sim (dynamics or kinematic) or the Feetech bus.
 
 Wiring for the rest of the team:
 * D (vision) / C (audio):  ``rt.track.observe_point(xyz)`` / ``observe_bearing(...)``
@@ -20,9 +20,10 @@ from typing import Callable, Protocol
 
 import numpy as np
 
-from .blender import BlendContext, MotionBlender
-from .config import CONTROL_DT, REST_POSE
+from .blender import BlendContext, BlendTrace, MotionBlender
+from .config import CONTROL_DT, NJ, REST_POSE
 from .idle import IdleConfig
+from .hardware_alignment import HardwareAlignment
 from .kinematics import ArmKinematics
 from .layers import IdleLayer, PrimitiveLayer, TaskLightLayer, TrackLayer
 from .primitives import PrimitiveLibrary
@@ -54,6 +55,7 @@ class StepState:
     q_cmd: np.ndarray
     q_meas: np.ndarray
     vel: np.ndarray
+    trace: BlendTrace
 
 
 class MotionRuntime:
@@ -63,6 +65,7 @@ class MotionRuntime:
         kin: ArmKinematics | None = None,
         backend: Backend | None = None,
         rest_pose: np.ndarray = REST_POSE,
+        initial_pose: np.ndarray | None = None,
         idle_cfg: IdleConfig | None = None,
         dt: float = CONTROL_DT,
         primitives: PrimitiveLibrary | None = None,
@@ -80,8 +83,14 @@ class MotionRuntime:
         )
 
         self.backend = backend or NullBackend()
-        self.traj = TrajectoryGenerator(self.rest_pose, dt=self.dt)
-        self.track.seed_pose(self.rest_pose)
+        initial = self.rest_pose if initial_pose is None else np.asarray(initial_pose, float)
+        if initial.shape != (NJ,) or not np.all(np.isfinite(initial)):
+            raise ValueError("initial_pose must contain five finite radians")
+        # Preserve the exact measured range, including valid initial poses
+        # at its endpoints; the generated MJCF rounds these same limits.
+        position_limits = HardwareAlignment.load().joint_limits
+        self.traj = TrajectoryGenerator(initial, dt=self.dt, position_limits=position_limits)
+        self.track.seed_pose(initial)
         self.t = 0.0
 
     # -- team-facing controls ----------------------------------------
@@ -108,7 +117,8 @@ class MotionRuntime:
 
     # -- loop -------------------------------------------------------
     def step(self, dt: float | None = None) -> StepState:
-        h = self.dt if dt is None else float(dt)
+        # Reject an unsupported period before advancing time or any layer.
+        h = self.traj.validate_dt(dt)
         self.t += h
         ctx = BlendContext(q_current=self.traj.pos.copy(), t=self.t, dt=h)
         trace = self.blender.compute(ctx)
@@ -116,7 +126,7 @@ class MotionRuntime:
         self.backend.send(q_cmd)
         meas = self.backend.measured()
         q_meas = self.traj.pos if meas is None else np.asarray(meas, float)
-        return StepState(self.t, trace.q, q_cmd, q_meas, self.traj.vel.copy())
+        return StepState(self.t, trace.q, q_cmd, q_meas, self.traj.vel.copy(), trace)
 
     def run(
         self, duration: float, on_step: Callable[[StepState], None] | None = None

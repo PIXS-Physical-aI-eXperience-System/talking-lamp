@@ -8,7 +8,7 @@ and the 100 Hz runtime that blends them into 5-axis servo commands. Covers
 ```
 layers ──▶ MotionBlender ──▶ q_blend ──▶ TrajectoryGenerator ──▶ q_cmd ──▶ backend
   L0 idle        priority-composited        vel/accel/jerk           MuJoCo sim
-  L1 track       (gain·weight per joint)    limited, no overshoot    or Feetech bus
+  L1 track       (gain·weight per joint)    calibrated joint bounds or Feetech bus
   L2 primitive
   L3 task_light
 ```
@@ -18,7 +18,7 @@ layers ──▶ MotionBlender ──▶ q_blend ──▶ TrajectoryGenerator �
 From the repo root (the `.venv` there already has the deps):
 
 ```bash
-make test            # 50 tests (ruckig backend)
+make test            # full suite (ruckig backend)
 make test-fallback   # same, analytic trajectory backend
 make demo            # scripted end-to-end demo -> sim/out/
 ```
@@ -27,6 +27,51 @@ make demo            # scripted end-to-end demo -> sim/out/
 Running pytest directly (`.venv/bin/python -m pytest tests`) also works - the
 repo's `addopts` blocks the ROS pytest plugins - but `make` is the safe path.
 First-time setup: `make venv`.
+
+## Physical lamp
+
+Use an environment with this project's NumPy, MuJoCo, and Ruckig dependencies
+plus the LeRobot dependencies from `lelamp_runtime/pyproject.toml`. From the
+repository root, expose both source trees (no LeRobot import is needed for
+simulation or `--help`):
+
+```bash
+PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" python -m motion.hardware_run \
+  --port /dev/ttyACM0 --lamp-id lelamp \
+  --primitive nod --duration 10 --feedback-hz 20
+```
+
+Use the serial port and the checked-in `lelamp` calibration profile. The runner
+rejects a different ID, saved calibration, or motor-resident calibration before
+enabling torque. Connection uses `calibrate=False` and normalized servo positions. Omit `--primitive` for
+idle motion. The runtime seeds its trajectory and tracking pose from the first
+physical measurement while keeping `REST_POSE` as its idle target. The trajectory
+generator bounds blended targets to the exact calibrated joint ranges. Ruckig
+replans are checked at every continuous-time position extremum; an unsafe replan
+is retried while the previous feasible trajectory continues. This keeps the
+command and planner state consistent at endpoints. The analytic fallback reserves
+braking distance within those same bounds. All outbound radian commands also pass
+through `HardwareAlignment` and a defensive clamp to calibrated servo endpoints.
+
+The runner uses monotonic 10 ms deadlines. It skips expired command slots to
+avoid sending a burst after an overrun, and reports `sent_ticks`,
+`deadline_misses` (skipped slots), `clamped_ticks`, and per-joint clamp counts.
+Each sent command advances the trajectory by 10 ms; overload therefore slows
+motion instead of increasing a command's trajectory step. Position feedback is
+cached, with a default read every five sends (20 Hz nominal); `measured()` does
+not perform a bus read. `--feedback-hz` accepts rates in `(0, 100]`, with lower
+rates reducing serial traffic. Real hardware timing still needs measurement.
+
+Ruckig is required before the serial connection opens. The deliberate override
+`--allow-analytic-fallback` permits the degraded acceleration-limited tracker,
+which does **not** bound jerk. Completion, Ctrl-C, and runtime exceptions call
+`lelamp.playback.park_and_disconnect`: reach the captured `SLEEP_POSE`, confirm
+it, then disconnect and release torque. Parking can take several additional
+seconds beyond `--duration`. Playback and parking keep every planned step after a
+late send or sleep, stretching their duration without a catch-up burst. If parking
+fails, the existing helper raises and keeps torque engaged; the runner does not
+force a disconnect. The legacy motor services retain the follower on startup or
+cleanup failure until it can be safely parked and disconnected.
 
 ## Modules
 
@@ -42,6 +87,8 @@ First-time setup: `make venv`.
 | `blender.py` | `MotionBlender` + `BlendContext` - priority compositing, `gain·weight` authority, additive vs absolute layers |
 | `layers.py` | `IdleLayer` `TrackLayer` `PrimitiveLayer` `TaskLightLayer` + `Envelope` |
 | `runtime.py` | `MotionRuntime` - owns the loop and the 4 layers; team-facing API below |
+| `hardware_backend.py` | `FeetechBackend` - lazy physical follower adapter, calibrated commands, cached feedback, clamp counts, safe parking |
+| `hardware_run.py` | physical CLI with Ruckig gate and monotonic 100 Hz deadlines |
 | `sim_backend.py` | `MujocoDynamicsBackend` (servo lag, gravity) / `MujocoKinematicsBackend` (exact) |
 
 ## Team-facing API (`MotionRuntime`)
@@ -54,21 +101,31 @@ First-time setup: `make venv`.
 | D via B | `rt.place_task_light(desk_xyz)` | light a work spot -> L3 (S1) |
 | - | `rt.reach_to(xyz)` | put the head *on* a point (touch it) |
 | B | `rt.barge_in()` | user talks over the lamp -> drop L2/L3 fast |
-| loop | `rt.step()` at 100 Hz | returns `StepState(t, q_blend, q_cmd, q_meas, vel)` |
+| loop | `rt.step()` at 100 Hz | returns `StepState(t, q_blend, q_cmd, q_meas, vel, trace)` |
 
 All joint arrays are `(5,)` radians in `config.JOINT_NAMES` order - the interface
 E exposes to the rest of the team ("절대 관절 각도" convention).
 
+`dt` is fixed at construction in both `MotionRuntime` and `TrajectoryGenerator`.
+A per-step `dt` may repeat that configured period; a different or non-finite value
+raises before time, layers, or trajectory state advance. `StepState.trace` is the
+blend trace used for that command; logging should read it without calling
+`blender.compute()` again. Explicit primitive `sign`, `scale`, and `loop` options
+reload the clip and leave the cached default unchanged.
+
 ## Known limitations / TODO
 
 - **Kinematics is the `build_arm.py` stopgap model**, not a CAD re-export -
-  see `sim/README.md`. IK/limits inherit its approximations.
+  see `sim/README.md`. Geometry inherits its approximations; joint endpoints use
+  the measured hardware calibration.
 - **Kinematic limits** (`config.VEL/ACC/JERK_LIMIT`) are conservative guesses;
   retune once the real head weight is measured.
-- **Primitive sign/scale** (`primitives.DEFAULT_SIGN/SCALE`) are identity -
-  eyeball each clip in the viewer and set the per-joint map.
+- **Primitive calibration** follows the measured servo-to-simulation mapping
+  and the verified playback direction/scale map (including reversed base
+  pitch). Recalibrate these values after changing the mechanism, servos, or
+  head load.
 - **Head "forward" axis** comes from the CAD site frame; "look straight ahead"
   can still cock the base ~25°. Fine for faces, revisit if it reads wrong.
-- Trajectory generator's analytic fallback allows a 1-tick decel spike at the
-  final corner - install `ruckig` (a declared dep) for clean jerk.
+- The analytic fallback bounds velocity, acceleration, and calibrated position,
+  but does not bound jerk; install `ruckig` (a declared dep) for smooth jerk.
 - No self-collision geometry yet (proxy boxes are inertia-only).

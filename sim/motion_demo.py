@@ -24,7 +24,6 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from motion import MotionRuntime, JOINT_NAMES  # noqa: E402
-from motion.blender import BlendContext  # noqa: E402
 from motion.sim_backend import MujocoDynamicsBackend  # noqa: E402
 from motion.config import REST_POSE  # noqa: E402
 
@@ -82,11 +81,8 @@ def main() -> None:
             s = rt.step()
             t += DT
 
-            # recompute per-layer authority for logging (cheap)
-            ctx = BlendContext(q_current=rt.traj.pos.copy(), t=t, dt=DT)
-            trace = rt.blender.compute(ctx)
             auth = np.array([
-                float(np.linalg.norm(trace.authority.get(n, np.zeros(5)))) for n in layer_names
+                float(np.linalg.norm(s.trace.authority.get(n, np.zeros(5)))) for n in layer_names
             ])
             log_t.append(t)
             log_q.append(s.q_cmd.copy())

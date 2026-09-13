@@ -118,15 +118,34 @@ uv run -m lelamp.setup_motors --id your_lamp_name --port the_port_found_in_previ
 
 This command calibrate your motors.
 
+Follower motors만 장착한 LeLamp은 다음 명령을 사용합니다. `uv`는 가상환경 안의
+`.venv/bin/uv`가 아니라 사용자 명령 경로에 설치되는 실행 파일입니다.
+
 ```bash
-sudo uv run -m lelamp.calibrate --id your_lamp_name --port the_port_found_in_previous_step
+uv run -m lelamp.calibrate \
+  --id lelamp --port the_port_found_in_previous_step \
+  --follower-only
 ```
+
+현재 `lamp-pi`처럼 `uv` 명령은 없고 런타임 가상환경이 이미 설치돼 있으면,
+`lelamp_runtime` 디렉터리에서 `uv run` 대신 `.venv/bin/python -m`을 사용합니다.
 
 The calibration process will:
 
-- Calibrate both follower and leader modes
+- Calibrate follower mode without asking for an absent leader
 - Ensure proper servo positioning and response
 - Set baseline positions for accurate movement
+
+Use the zero pose shown in the LeLamp CAD when prompted for the middle position.
+During range recording, move `base_yaw` and `wrist_roll` only about 90 degrees
+clockwise and counterclockwise from center. Move `base_pitch` (the motor directly
+above `base_yaw`), `elbow_pitch`, and `wrist_pitch` through their full mechanically
+safe ranges. If `base_pitch` was not swept through its full range, recalibrate.
+Normal motion is bound to the checked-in `lelamp` calibration and rejects a
+different ID, homing offset, motor ID, drive mode, or raw range before opening
+the motor bus. After recalibration, update both
+`lelamp/motor_tuning.py::EXPECTED_FOLLOWER_CALIBRATION` and
+`sim/hardware_alignment.json` from the new saved calibration before replaying.
 
 ### 2. Unit Testing
 
@@ -148,8 +167,38 @@ uv run -m lelamp.test.test_audio
 #### Motors
 
 ```bash
-uv run -m lelamp.test.test_motors --id your_lamp_name --port the_port_found_in_previous_step
+uv run -m lelamp.test.test_motors \
+  --id lelamp --port the_port_found_in_previous_step \
+  --recording movement_sequence_name
 ```
+
+Repeat `--recording` to test a chosen sequence, or use `--all` to play every
+named motion except the long `idle` loop. Add `--hold` to keep the service and
+motor torque active after the last motion:
+
+```bash
+uv run -m lelamp.test.test_motors \
+  --id lelamp --port the_port_found_in_previous_step \
+  --all --speed 0.6 --pause-seconds 2 --hold
+```
+
+Without `--hold`, the test disconnects after playback and releases motor torque.
+The loaded pitch joints can then drop under the lamp head's weight; this is not
+a calibration change. Press Ctrl-C when using `--hold` to disconnect and release
+the motors.
+
+At connect time, `base_pitch` and `elbow_pitch` use the STS3215 factory position
+gain of 32 so they can overcome the assembled lamp's static load. The lightly
+loaded yaw and wrist joints keep the original gain of 16 to avoid shaking.
+
+The bundled recordings contain absolute joint positions captured on the source
+lamp. Playback recenters each recording on the hardware-aligned home pose. It
+keeps the official trajectory shape while reducing it to 35% yaw, 12% base
+pitch, 15% elbow pitch, 35% wrist roll, and 25% wrist pitch. `base_pitch`
+is reversed to match this lamp's physical assembly. A motor test
+also returns to that home pose after every selected recording. This prevents a
+recording such as `happy_wiggle` from leaving the assembled head aimed at the
+desk because of the source lamp's different starting posture.
 
 ### 3. Record and Replay Episodes
 
@@ -174,14 +223,56 @@ This will:
 To replay a recorded movement:
 
 ```bash
-uv run -m lelamp.replay --id your_lamp_name --port the_port_found_in_previous_step --name movement_sequence_name
+uv run -m lelamp.replay --id lelamp --port the_port_found_in_previous_step --name movement_sequence_name
 ```
+
+
+Before a normal motor-runtime shutdown, the lamp moves to the captured `SLEEP_POSE`
+and verifies the measured joint positions before releasing servo torque.
 
 The replay system will:
 
 - Load the movement data from the CSV file
 - Execute the recorded movements with proper timing
 - Reproduce the original motion sequence
+
+Playback validates all five joint columns and normalized values before connecting
+to the motors. It then approaches the first frame from the measured pose and
+interpolates the recorded frames at a steady command rate:
+
+```bash
+uv run -m lelamp.replay \
+  --id lelamp --port the_port_found_in_previous_step \
+  --name movement_sequence_name \
+  --fps 30 \
+  --speed 1.0 \
+  --transition-seconds 3.0 \
+  --max-planned-step 2.0 \
+```
+
+You can tune these:
+
+- `--speed`: `1.0` keeps the original recording duration; `0.5` takes twice as long.
+- `--fps`: motor command rate. Keep this at `30` so slow motion remains smooth.
+- `--transition-seconds`: time used to move from the current pose to the first frame.
+- Playback smooths recorded frame noise while preserving the first frame, last
+  frame, and total frame count.
+- `--max-planned-step`: only subdivides a remaining unsafe jump above this
+  amount; the default smoothed recordings stay below `2.0` and are not stretched.
+- `--max-relative-target`: optional measured-position clamp. It is disabled by
+  default because it adds a serial read to every frame and distorts recordings
+  when a motor trails the trajectory. Validated, smoothed targets remain within
+  the calibrated joint range.
+
+To verify recordings before movement, run:
+
+```bash
+uv run -m lelamp.test.analyze_recordings \
+  --recording movement_sequence_name --max-step 3.0
+```
+
+This analysis command never connects to the robot. It prints each joint's full
+range and the largest jump between source frames.
 
 #### Listing Recordings
 
@@ -292,12 +383,9 @@ sudo uv run main.py console
 sudo uv run smooth_animation.py console
 ```
 
-In case your lamp is not `lelamp`, change the id of the lamp inside main.py:
-
-```py
-async def entrypoint(ctx: agents.JobContext):
-    agent = LeLamp(lamp_id="lelamp") # <- Chnage the name here
-```
+The physical motion profile is intentionally bound to the `lelamp` ID. To use
+another ID, recalibrate and update both calibration records described above;
+changing only `main.py` is rejected before the motor bus enables torque.
 
 ## Contributing
 
