@@ -417,8 +417,11 @@ def cmd_calibrate(args):
     wr = best_window(st_right, seconds=3.0)
     r, sd_r = (circ_mean(right), circ_std(right)) if wr is None else (wr["mean"], wr["std"])
     delta = ang_err(r, offset)        # 정면 대비 원시값이 어느 쪽으로 움직였나
-    # 오른쪽으로 갔는데 원시값이 커졌으면 +1. 왼쪽으로 갔는데 커졌으면 -1.
-    sign = (1 if delta > 0 else -1) * (1 if side == "r" else -1)
+    # 규약: 0° = 램프 정면, 반시계 방향 증가. 위에서 내려다볼 때 반시계이므로
+    # 램프의 왼쪽이 +90°, 오른쪽이 -90° 다. 그래서 '왼쪽으로 갔을 때 원시값이
+    # 커진다' 면 부호가 +1 이다. 여기를 뒤집으면 오차표는 멀쩡해 보이는데
+    # 램프가 소리 반대쪽으로 돈다.
+    sign = (1 if delta > 0 else -1) * (1 if side == "l" else -1)
     print(f"  원시값 {r:.1f}°  (정면 대비 {delta:+.1f}°, 산포 {sd_r:.1f}°)")
 
     if sd_r > 10:
@@ -427,7 +430,7 @@ def cmd_calibrate(args):
     if abs(delta) < 20:
         print("  ! 정면과 거의 같다. 위치를 제대로 옮겼는지 확인할 것")
         return 1
-    print(f"  → 원시값이 {'커지는' if sign > 0 else '작아지는'} 쪽이 램프의 오른쪽")
+    print(f"  → 원시값이 {'커지는' if sign > 0 else '작아지는'} 쪽이 램프의 왼쪽(+)")
 
     # 참고용. 이동각을 정확히 모르므로 판정하지 않고 알려만 준다.
     # 원시 각도가 실제 각도에 비례하는지는 measure 결과로 확인한다.
@@ -435,7 +438,7 @@ def cmd_calibrate(args):
           f"{abs(delta):.0f}° 움직였다. 실제 이동각과 크게 다르면 원시 각도가"
           f" 실제에 비례하지 않는 것이고, 그건 measure 결과에서 드러난다)\n")
 
-    json.dump({"offset_deg": offset, "sign": sign,
+    json.dump({"conv": 2, "offset_deg": offset, "sign": sign,
                "n": len(front), "std": sd,
                "side_raw": r, "side_delta": delta, "side_std": sd_r,
                "side": side},
@@ -454,8 +457,9 @@ def cmd_measure(args):
         print("먼저 calibrate 를 실행할 것")
         return 1
     cal = json.load(open(CAL))
-    if "sign" not in cal:
-        print("보정 파일이 예전 형식이다(회전 방향 없음). calibrate 를 다시 실행할 것")
+    if cal.get("conv") != 2:
+        print("보정 파일이 예전 규약이다. calibrate 를 다시 실행할 것")
+        print("  (왼쪽이 + 인 반시계 규약으로 바뀌었다 — 예전 파일은 부호가 반대다)")
         return 1
     offset = cal["offset_deg"]
     os.makedirs(OUT, exist_ok=True)
@@ -466,7 +470,10 @@ def cmd_measure(args):
 
     rows = []
     for truth in ANGLES:
-        input(f"  {truth:>3}° 위치로 이동 → Enter 후 6초간 말하기 (몸 고정) ")
+        signed = ang_err(truth, 0)
+        where = "정면" if signed == 0 else (
+            f"왼쪽 {abs(signed):.0f}°" if signed > 0 else f"오른쪽 {abs(signed):.0f}°")
+        input(f"  {where:<9} ({signed:+.0f}°) 로 이동 → Enter 후 6초간 말하기 (몸 고정) ")
         vals, raws, stmp = sample_doa()
         if not vals:
             print(f"       DOA 읽기 실패: {raws[:1]}")
