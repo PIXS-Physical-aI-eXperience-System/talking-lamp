@@ -150,14 +150,14 @@ def _isfloat(t):
         return False
 
 
-def sample_doa(seconds=3.0, hz=10):
+def sample_doa(seconds=6.0, hz=10):
     """말하는 동안 방위각을 반복 측정해 모은다.
 
     펌웨어가 발화 감지 플래그를 같이 주므로, 그게 켜진 표본만 쓴다. 조용할 때의
     각도는 직전 값이나 잡음 방향이라 섞으면 산포가 부풀려진다. 플래그를 못 읽는
     경로(xvf_host 폴백)에서는 전부 쓴다.
     """
-    vals, raws, gated = [], [], 0
+    vals, raws, stamped, gated = [], [], [], 0
     stream = MicStream(enabled=_USE_STREAM)
     stream.__enter__()
     t_end = time.time() + seconds
@@ -168,12 +168,13 @@ def sample_doa(seconds=3.0, hz=10):
                 gated += 1
             else:
                 vals.append(v)
+                stamped.append((time.time(), v))
         raws.append(raw)
         time.sleep(1.0 / hz)
     stream.__exit__()
     if gated:
         raws.append(f"(발화 없음으로 버린 표본 {gated}개)")
-    return vals, raws[:3]
+    return vals, raws[:3], stamped
 
 
 class MicStream:
@@ -363,14 +364,20 @@ def cmd_calibrate(args):
 
     print("[1/2] 정면")
     print("  램프 정면(사용자가 앉는 방향)에서 1 m 떨어져 서세요.")
-    input("  준비되면 Enter → 3초간 계속 말해주세요 ")
-    front, raws = sample_doa()
+    input("  준비되면 Enter → 6초간 계속 말해주세요 (몸을 고정할 것) ")
+    front, raws, st_front = sample_doa()
     if not front:
         print(f"  ! DOA 를 못 읽었다: {raws[:1]}")
         return 1
-    offset = circ_mean(front)
-    sd = circ_std(front)
-    print(f"  정면 원시값 {offset:.1f}°  (표본 {len(front)}개, 산포 {sd:.1f}°)")
+    # 사람이 6초 내내 완벽히 멈춰 있기를 기대하지 않는다. 가장 안정적이었던
+    # 3초를 골라 쓴다 — 그게 실제로 가만히 있던 구간이다.
+    w = best_window(st_front, seconds=3.0)
+    if w is None:
+        offset, sd = circ_mean(front), circ_std(front)
+    else:
+        offset, sd = w["mean"], w["std"]
+    print(f"  정면 원시값 {offset:.1f}°  (표본 {len(front)}개 중 가장 안정된 3초, "
+          f"산포 {sd:.1f}°)")
     # 한 자리에 서서 3초 말한 값의 산포다. 이게 크면 보정값 자체가 흔들리고,
     # 그 오차가 이후 모든 각도에 그대로 깔린다. 안정된 조건에서는 1° 안쪽이었다.
     if sd > 10:
@@ -385,17 +392,17 @@ def cmd_calibrate(args):
     print("[2/2] 오른쪽")
     print("  램프를 마주 본 채로, 램프에서 볼 때 오른쪽 90° 위치로 이동하세요.")
     print("  (정면에 선 사람이 램프를 축으로 왼쪽으로 걸어간 자리다)")
-    input("  준비되면 Enter → 3초간 계속 말해주세요 ")
-    right, raws = sample_doa()
+    input("  준비되면 Enter → 6초간 계속 말해주세요 (몸을 고정할 것) ")
+    right, raws, st_right = sample_doa()
     if not right:
         print(f"  ! DOA 를 못 읽었다: {raws[:1]}")
         return 1
-    r = circ_mean(right)
+    wr = best_window(st_right, seconds=3.0)
+    r, sd_r = (circ_mean(right), circ_std(right)) if wr is None else (wr["mean"], wr["std"])
     delta = ang_err(r, offset)        # 정면 대비 원시값이 어느 쪽으로 움직였나
     sign = 1 if delta > 0 else -1     # +1 이면 원시값 증가 = 램프 오른쪽
     print(f"  오른쪽 원시값 {r:.1f}°  (정면 대비 {delta:+.1f}°)")
 
-    sd_r = circ_std(right)
     if sd_r > 10:
         print(f"  ! 산포 {sd_r:.1f}° 는 너무 크다. 다시 실행할 것")
         return 1
@@ -443,17 +450,21 @@ def cmd_measure(args):
 
     rows = []
     for truth in ANGLES:
-        input(f"  {truth:>3}° 위치로 이동 → Enter 후 3초간 말하기 ")
-        vals, raws = sample_doa()
+        input(f"  {truth:>3}° 위치로 이동 → Enter 후 6초간 말하기 (몸 고정) ")
+        vals, raws, stmp = sample_doa()
         if not vals:
             print(f"       DOA 읽기 실패: {raws[:1]}")
             continue
-        meas = to_lamp(circ_mean(vals), cal)
+        w = best_window(stmp, seconds=3.0)
+        raw_mean, spread = ((circ_mean(vals), circ_std(vals)) if w is None
+                            else (w["mean"], w["std"]))
+        meas = to_lamp(raw_mean, cal)
         err = ang_err(meas, truth)
         rows.append({"truth": truth, "measured": round(meas, 1),
-                     "error": round(err, 1), "spread": round(circ_std(vals), 1),
-                     "n": len(vals)})
-        print(f"       측정 {meas:>6.1f}°   오차 {err:>+6.1f}°   산포 {circ_std(vals):>5.1f}°")
+                     "raw": round(raw_mean, 1), "error": round(err, 1),
+                     "spread": round(spread, 1), "n": len(vals)})
+        print(f"       측정 {meas:>6.1f}°   오차 {err:>+6.1f}°   산포 {spread:>5.1f}°"
+              f"   (원시 {raw_mean:.1f}°)")
 
     path = os.path.join(OUT, f"{args.label}.json")
     json.dump({"label": args.label, "offset_deg": offset, "rows": rows},
