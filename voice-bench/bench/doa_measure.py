@@ -174,6 +174,44 @@ def sample_doa(seconds=3.0, hz=10):
 
 # ── 절차 ────────────────────────────────────────────────────────────────
 
+def cmd_live(args):
+    """원시 DOA 를 실시간으로 찍는다. 각도 규약을 눈으로 확인하는 용도다.
+
+    펌웨어가 어느 방향을 0° 로 삼는지는 문서에 없다. 선형 배열이면 축 방향이
+    0° 이고 정면(broadside)이 90° 일 가능성이 크지만, 확인 없이 가정하면
+    오차표가 통째로 틀어진다. 좌·정면·우로 옮겨 다니며 값을 보면 규약이 드러난다.
+    """
+    print("원시 DOA 실시간 (Ctrl+C 로 종료)")
+    print("  좌 → 정면 → 우 로 옮겨 다니며 말해서, 값이 어느 쪽으로 늘어나는지 볼 것")
+    print("  선형이면 0~180 범위에 머물 것으로 예상된다\n")
+    lo, hi, seen = 360.0, 0.0, 0
+    try:
+        while True:
+            v, raw, speech = read_doa()
+            if v is None:
+                print(f"  읽기 실패: {raw}")
+                time.sleep(1.0)
+                continue
+            if speech:
+                seen += 1
+                lo, hi = min(lo, v), max(hi, v)
+            mark = "발화" if speech else "  · "
+            print(f"  {mark}  {v:6.1f}°     (발화 중 범위 {lo:.0f}~{hi:.0f}°, "
+                  f"표본 {seen})   ", end="\r", flush=True)
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        print()
+        if seen:
+            print(f"\n발화 중 관측 범위: {lo:.1f}° ~ {hi:.1f}°  (표본 {seen}개)")
+            print("  → 0~180 범위로 보인다. 선형 배열의 반평면 규약이 맞다."
+                  if hi <= 181 else
+                  "  → 180 을 넘는다. 0~360 규약이거나 후면 값도 나온다.")
+        else:
+            print("발화로 인식된 표본이 없다. 더 크게, 더 길게 말해볼 것")
+    return 0
+
+
+
 def cmd_calibrate(args):
     """보드의 0° 와 램프 정면이 어디서 어긋나는지 잰다.
 
@@ -262,6 +300,7 @@ def main() -> int:
                     help="잴 각도를 직접 지정 (쉼표 구분). --geometry 기본값을 덮는다")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("calibrate")
+    sub.add_parser("live")
     m = sub.add_parser("measure")
     m.add_argument("--label", required=True,
                    help="조건 이름 (quiet / fan / elevated / servo)")
@@ -273,7 +312,7 @@ def main() -> int:
         ANGLES = [float(x) % 360 for x in args.angles.split(",")]
 
     return {"calibrate": cmd_calibrate, "measure": cmd_measure,
-            "report": cmd_report}[args.cmd](args)
+            "live": cmd_live, "report": cmd_report}[args.cmd](args)
 
 
 if __name__ == "__main__":
