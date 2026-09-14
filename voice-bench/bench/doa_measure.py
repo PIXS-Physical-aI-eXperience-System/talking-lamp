@@ -43,6 +43,7 @@ ANGLES_CIRCULAR = [0, 45, 90, 135, 180, 225, 270, 315]
 # 늘어놓는다 — 측정할 때 사람이 왔다갔다 하지 않아도 된다.
 ANGLES_LINEAR = [270, 300, 330, 0, 30, 60, 90]
 ANGLES = ANGLES_LINEAR
+_USE_STREAM = True
 
 
 # ── 원형 통계 ───────────────────────────────────────────────────────────
@@ -157,6 +158,8 @@ def sample_doa(seconds=3.0, hz=10):
     경로(xvf_host 폴백)에서는 전부 쓴다.
     """
     vals, raws, gated = [], [], 0
+    stream = MicStream(enabled=_USE_STREAM)
+    stream.__enter__()
     t_end = time.time() + seconds
     while time.time() < t_end:
         v, raw, speech = read_doa()
@@ -167,49 +170,158 @@ def sample_doa(seconds=3.0, hz=10):
                 vals.append(v)
         raws.append(raw)
         time.sleep(1.0 / hz)
+    stream.__exit__()
     if gated:
         raws.append(f"(발화 없음으로 버린 표본 {gated}개)")
     return vals, raws[:3]
 
 
+class MicStream:
+    """XVF3800 의 오디오 입력을 열어 둔다.
+
+    DOA 는 펌웨어의 음성 처리 파이프라인이 만들어내는 값이다. 아무도 오디오를
+    받아가지 않으면 그 파이프라인이 돌지 않아 DOA 가 갱신되지 않을 수 있다.
+    공식 예제는 스트림을 열지 않지만, 그 예제가 맞다는 보장은 없다.
+    열고 재는 것과 안 열고 재는 것을 비교할 수 있게 해 둔다.
+    """
+
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+        self.stream = None
+
+    def __enter__(self):
+        if not self.enabled:
+            return self
+        try:
+            import sounddevice as sd
+            idx = next((i for i, d in enumerate(sd.query_devices())
+                        if d["max_input_channels"] >= 6
+                        and any(k in d["name"].lower()
+                                for k in ("xvf", "respeaker", "xmos"))), None)
+            if idx is None:
+                print("  ! XVF3800 입력 장치를 못 찾아 스트림 없이 진행한다")
+                return self
+            d = sd.query_devices(idx)
+            self.stream = sd.InputStream(
+                device=idx, channels=int(d["max_input_channels"]),
+                samplerate=int(d["default_samplerate"]))
+            self.stream.start()
+            print(f"  오디오 스트림 열림: [{idx}] {d['name']} "
+                  f"{int(d['max_input_channels'])}ch")
+        except Exception as e:
+            print(f"  ! 스트림을 못 열었다({type(e).__name__}). 스트림 없이 진행한다")
+        return self
+
+    def __exit__(self, *a):
+        if self.stream is not None:
+            self.stream.stop()
+            self.stream.close()
+
+
+def stability(vals):
+    """방향값이 쓸 만한지 한 줄로 판정할 수 있게 요약한다.
+
+    최소~최대만 보면 튄 값 하나가 범위를 다 잡아먹어서 아무것도 알 수 없다.
+    중앙값 주변에 얼마나 모여 있는지를 봐야 한다.
+    """
+    if not vals:
+        return None
+    med = circ_mean(vals)
+    near = sum(1 for v in vals if abs(ang_err(v, med)) <= 10) / len(vals)
+    return {"mean": med, "std": circ_std(vals), "near10": near, "n": len(vals)}
+
+
+def print_histogram(vals, width=50):
+    """20° 칸으로 나눈 막대. 한 방향에 모이는지 흩어지는지가 바로 보인다."""
+    bins = [0] * 9          # 0~180 을 20° 씩
+    over = 0
+    for v in vals:
+        if v > 180:
+            over += 1
+        else:
+            bins[min(int(v // 20), 8)] += 1
+    top = max(bins) or 1
+    for i, c in enumerate(bins):
+        bar = "█" * int(width * c / top)
+        print(f"  {i*20:>3}~{i*20+19:<3}° {c:>5}  {bar}")
+    if over:
+        print(f"  180° 초과  {over:>5}  ← 선형 배열에서 나오면 안 되는 값")
+
+
 # ── 절차 ────────────────────────────────────────────────────────────────
 
-def cmd_live(args):
-    """원시 DOA 를 실시간으로 찍는다. 각도 규약을 눈으로 확인하는 용도다.
+SPARK = " ▁▂▃▄▅▆▇█"
 
-    펌웨어가 어느 방향을 0° 로 삼는지는 문서에 없다. 선형 배열이면 축 방향이
-    0° 이고 정면(broadside)이 90° 일 가능성이 크지만, 확인 없이 가정하면
-    오차표가 통째로 틀어진다. 좌·정면·우로 옮겨 다니며 값을 보면 규약이 드러난다.
+
+def render(cur, speech, hist, width=61):
+    """0~180° 눈금 위에 현재 방향과 누적 분포를 그린다.
+
+    숫자만 보면 값이 튀는지 몰린지 판단이 안 된다. 축 위에 찍으면 한눈에 보인다.
     """
-    print("원시 DOA 실시간 (Ctrl+C 로 종료)")
-    print("  좌 → 정면 → 우 로 옮겨 다니며 말해서, 값이 어느 쪽으로 늘어나는지 볼 것")
-    print("  선형이면 0~180 범위에 머물 것으로 예상된다\n")
-    lo, hi, seen = 360.0, 0.0, 0
-    try:
-        while True:
-            v, raw, speech = read_doa()
-            if v is None:
-                print(f"  읽기 실패: {raw}")
-                time.sleep(1.0)
-                continue
-            if speech:
-                seen += 1
-                lo, hi = min(lo, v), max(hi, v)
-            mark = "발화" if speech else "  · "
-            print(f"  {mark}  {v:6.1f}°     (발화 중 범위 {lo:.0f}~{hi:.0f}°, "
-                  f"표본 {seen})   ", end="\r", flush=True)
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        print()
-        if seen:
-            print(f"\n발화 중 관측 범위: {lo:.1f}° ~ {hi:.1f}°  (표본 {seen}개)")
-            print("  → 0~180 범위로 보인다. 선형 배열의 반평면 규약이 맞다."
-                  if hi <= 181 else
-                  "  → 180 을 넘는다. 0~360 규약이거나 후면 값도 나온다.")
-        else:
-            print("발화로 인식된 표본이 없다. 더 크게, 더 길게 말해볼 것")
-    return 0
+    # 현재 위치 표시자
+    axis = ["─"] * width
+    for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
+        axis[min(int(frac * (width - 1)), width - 1)] = "┼"
+    if cur is not None:
+        axis[min(int(cur / 180 * (width - 1)), width - 1)] = "●" if speech else "○"
 
+    # 누적 분포 (칸당 스파크라인 한 글자)
+    top = max(hist) or 1
+    spark = "".join(SPARK[min(int(len(SPARK) * c / top), len(SPARK) - 1)] for c in hist)
+
+    cur_txt = f"{cur:5.1f}°" if cur is not None else "  -  "
+    mark = "\033[32m● 발화\033[0m" if speech else "\033[90m○ 조용\033[0m"
+    return (f"  {mark}   현재 {cur_txt}\n"
+            f"  왼쪽 {''.join(axis)} 오른쪽\n"
+            f"   0°  {spark}  180°\n"
+            f"       ↑정면은 보정 후 결정 (보통 90° 부근)")
+
+
+def cmd_live(args):
+    """방향을 실시간으로 그려 본다. 값이 쓸 만한지 먼저 가리는 단계다.
+
+    한 자리에서 계속 말하면 한 칸에 몰려야 한다. 전 구간에 퍼지면 그 값으로는
+    보정도 오차표도 의미가 없다.
+    """
+    width = 61
+    hist = [0] * width
+    vals = []
+    print("실시간 방향 (Ctrl+C 로 종료)")
+    print("  한 자리에서 계속 말해 보고, 그다음 좌우로 옮겨 보세요")
+    with MicStream(enabled=not args.no_stream):
+        print("\n" * 4, end="")
+        try:
+            while True:
+                v, raw, speech = read_doa()
+                if v is None:
+                    print(f"\033[4F  읽기 실패: {raw}\033[K\n\n\n")
+                    time.sleep(1.0)
+                    continue
+                if speech:
+                    vals.append(v)
+                    hist[min(int(v / 180 * (width - 1)), width - 1)] += 1
+                print("\033[4F" + "\n".join(
+                    line + "\033[K" for line in
+                    render(v, speech, hist, width).split("\n")))
+                time.sleep(0.08)
+        except KeyboardInterrupt:
+            print()
+
+    st = stability(vals)
+    if not st:
+        print("발화로 인식된 표본이 없다. 더 크게, 더 길게 말해볼 것")
+        return 1
+    print(f"\n표본 {st['n']}개   중앙 {st['mean']:.1f}°   산포 {st['std']:.1f}°")
+    print(f"중앙 ±10° 안에 든 비율 {st['near10']*100:.0f}%\n")
+    if st["near10"] >= 0.8:
+        print("  ✔ 한 방향에 모인다. 보정으로 진행할 수 있다.")
+    elif st["near10"] >= 0.5:
+        print("  · 절반쯤만 모인다. 보정은 되겠지만 오차가 클 것이다.")
+    else:
+        print("  ✗ 값이 퍼져 있다. 이 상태의 DOA 로는 방향을 못 쓴다.")
+        print("    --no-stream 을 붙였다 뺐다 하며 비교해 볼 것 — 오디오 스트림이")
+        print("    열려 있어야 펌웨어가 방향을 갱신하는지가 아직 확인되지 않았다.")
+    return 0
 
 
 def cmd_calibrate(args):
@@ -358,6 +470,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--geometry", choices=["linear", "circular"], default="linear",
                     help="마이크 배열 형태. 선형은 후면을 못 재므로 전면 반평면만 돈다")
+    ap.add_argument("--no-stream", action="store_true",
+                    help="오디오 스트림을 열지 않고 읽는다 (펌웨어가 스트림 없이도 "
+                         "방향을 갱신하는지 비교용)")
     ap.add_argument("--angles",
                     help="잴 각도를 직접 지정 (쉼표 구분). --geometry 기본값을 덮는다")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -369,6 +484,8 @@ def main() -> int:
     sub.add_parser("report")
     args = ap.parse_args()
 
+    global _USE_STREAM
+    _USE_STREAM = not args.no_stream
     ANGLES = (ANGLES_CIRCULAR if args.geometry == "circular" else ANGLES_LINEAR)
     if args.angles:
         ANGLES = [float(x) % 360 for x in args.angles.split(",")]
