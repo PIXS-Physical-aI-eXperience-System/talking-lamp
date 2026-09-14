@@ -213,36 +213,74 @@ def cmd_live(args):
 
 
 def cmd_calibrate(args):
-    """보드의 0° 와 램프 정면이 어디서 어긋나는지 잰다.
+    """보드의 각도 규약을 램프 기준으로 옮긴다. 두 가지를 잰다.
 
-    어레이를 어떻게 장착하든 물리적 회전이 생기므로, 이 보정 없이는
-    모든 각도가 일정하게 틀어진 채로 나온다.
+    1) 정면 오프셋 — 어레이를 어떻게 장착하든 물리적 회전이 생긴다. 이 보정
+       없이는 모든 각도가 일정하게 틀어진 채로 나온다. 선형 배열에서는 정면이
+       0° 가 아니라 90° 근처로 나온다(축 방향이 0°, 정면이 broadside).
+
+    2) 회전 방향 — 원시값이 커지는 쪽이 램프의 왼쪽인지 오른쪽인지. 문서에
+       없고 장착 방향에 따라 뒤집힌다. 이걸 틀리면 부호가 반대로 나와서
+       **램프가 소리 반대쪽으로 돈다.** 오차표는 멀쩡해 보이므로 조용히 틀린다.
     """
     os.makedirs(OUT, exist_ok=True)
-    print("정면 기준 보정")
-    print("  램프 '정면'(사용자가 앉는 방향)에서 1 m 떨어져 서세요.")
+    print("각도 보정 — 두 지점에서 잰다\n")
+
+    print("[1/2] 정면")
+    print("  램프 정면(사용자가 앉는 방향)에서 1 m 떨어져 서세요.")
     input("  준비되면 Enter → 3초간 계속 말해주세요 ")
-    vals, raws = sample_doa()
-    if not vals:
+    front, raws = sample_doa()
+    if not front:
         print(f"  ! DOA 를 못 읽었다: {raws[:1]}")
         return 1
-    offset = circ_mean(vals)
-    json.dump({"offset_deg": offset, "n": len(vals), "std": circ_std(vals)},
+    offset = circ_mean(front)
+    print(f"  정면 원시값 {offset:.1f}°  (표본 {len(front)}개, 산포 {circ_std(front):.1f}°)\n")
+
+    print("[2/2] 오른쪽")
+    print("  램프를 마주 본 채로, 램프에서 볼 때 오른쪽 90° 위치로 이동하세요.")
+    print("  (정면에 선 사람이 램프를 축으로 왼쪽으로 걸어간 자리다)")
+    input("  준비되면 Enter → 3초간 계속 말해주세요 ")
+    right, raws = sample_doa()
+    if not right:
+        print(f"  ! DOA 를 못 읽었다: {raws[:1]}")
+        return 1
+    r = circ_mean(right)
+    delta = ang_err(r, offset)        # 정면 대비 원시값이 어느 쪽으로 움직였나
+    sign = 1 if delta > 0 else -1     # +1 이면 원시값 증가 = 램프 오른쪽
+    print(f"  오른쪽 원시값 {r:.1f}°  (정면 대비 {delta:+.1f}°)")
+
+    if abs(delta) < 20:
+        print("  ! 정면과 거의 같다. 위치를 제대로 옮겼는지, 90° 가 맞는지 확인할 것")
+        return 1
+    print(f"  → 원시값이 {'커지는' if sign > 0 else '작아지는'} 쪽이 램프의 오른쪽\n")
+
+    json.dump({"offset_deg": offset, "sign": sign,
+               "n": len(front), "std": circ_std(front),
+               "right_raw": r, "right_delta": delta},
               open(CAL, "w"), ensure_ascii=False, indent=2)
-    print(f"  보정값 {offset:.1f}°  (표본 {len(vals)}개, 산포 {circ_std(vals):.1f}°)")
     print(f"  저장: {CAL}")
     return 0
+
+
+def to_lamp(raw, cal):
+    """원시 각도를 램프 기준(0° = 정면, 반시계 +)으로 옮긴다."""
+    return (cal["sign"] * ang_err(raw, cal["offset_deg"])) % 360
 
 
 def cmd_measure(args):
     if not os.path.exists(CAL):
         print("먼저 calibrate 를 실행할 것")
         return 1
-    offset = json.load(open(CAL))["offset_deg"]
+    cal = json.load(open(CAL))
+    if "sign" not in cal:
+        print("보정 파일이 예전 형식이다(회전 방향 없음). calibrate 를 다시 실행할 것")
+        return 1
+    offset = cal["offset_deg"]
     os.makedirs(OUT, exist_ok=True)
 
     print(f"[{args.label}] {len(ANGLES)}방향 측정 — 각 방향에서 1 m 거리, 3초간 발화")
-    print(f"보정값 {offset:.1f}° 적용. 0° = 램프 정면, 반시계 방향 증가\n")
+    print(f"보정 {offset:.1f}°, 회전 {'정방향' if cal['sign'] > 0 else '역방향'} 적용. "
+          f"0° = 램프 정면, 반시계 방향 증가\n")
 
     rows = []
     for truth in ANGLES:
@@ -251,7 +289,7 @@ def cmd_measure(args):
         if not vals:
             print(f"       DOA 읽기 실패: {raws[:1]}")
             continue
-        meas = (circ_mean(vals) - offset) % 360
+        meas = to_lamp(circ_mean(vals), cal)
         err = ang_err(meas, truth)
         rows.append({"truth": truth, "measured": round(meas, 1),
                      "error": round(err, 1), "spread": round(circ_std(vals), 1),
