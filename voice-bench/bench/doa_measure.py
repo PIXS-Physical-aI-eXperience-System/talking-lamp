@@ -150,7 +150,7 @@ def _isfloat(t):
         return False
 
 
-def sample_doa(seconds=6.0, hz=10):
+def sample_doa(seconds=6.0, hz=10, show=True):
     """말하는 동안 방위각을 반복 측정해 모은다.
 
     펌웨어가 발화 감지 플래그를 같이 주므로, 그게 켜진 표본만 쓴다. 조용할 때의
@@ -158,8 +158,12 @@ def sample_doa(seconds=6.0, hz=10):
     경로(xvf_host 폴백)에서는 전부 쓴다.
     """
     vals, raws, stamped, gated = [], [], [], 0
+    width = 61
+    hist = [0] * width
     stream = MicStream(enabled=_USE_STREAM)
     stream.__enter__()
+    if show:
+        print("\n" * 4, end="")
     t_end = time.time() + seconds
     while time.time() < t_end:
         v, raw, speech = read_doa()
@@ -169,9 +173,19 @@ def sample_doa(seconds=6.0, hz=10):
             else:
                 vals.append(v)
                 stamped.append((time.time(), v))
+                hist[min(int(v / 180 * (width - 1)), width - 1)] += 1
         raws.append(raw)
+        if show:
+            # 6초 동안 화면이 멈춰 있으면 제대로 잡히는지 모른 채 말해야 한다.
+            left = max(0.0, t_end - time.time())
+            print("\033[4F" + "\n".join(
+                ln + "\033[K" for ln in
+                render(v, bool(speech), hist, width,
+                       f"{left:.1f}초 남음   표본 {len(vals)}").split("\n")))
         time.sleep(1.0 / hz)
     stream.__exit__()
+    if show:
+        print()
     if gated:
         raws.append(f"(발화 없음으로 버린 표본 {gated}개)")
     return vals, raws[:3], stamped
@@ -272,7 +286,7 @@ def print_histogram(vals, width=50):
 SPARK = " ▁▂▃▄▅▆▇█"
 
 
-def render(cur, speech, hist, width=61):
+def render(cur, speech, hist, width=61, note=""):
     """0~180° 눈금 위에 현재 방향과 누적 분포를 그린다.
 
     숫자만 보면 값이 튀는지 몰린지 판단이 안 된다. 축 위에 찍으면 한눈에 보인다.
@@ -290,7 +304,7 @@ def render(cur, speech, hist, width=61):
 
     cur_txt = f"{cur:5.1f}°" if cur is not None else "  -  "
     mark = "\033[32m● 발화\033[0m" if speech else "\033[90m○ 조용\033[0m"
-    return (f"  {mark}   현재 {cur_txt}\n"
+    return (f"  {mark}   현재 {cur_txt}   {note}\n"
             f"  왼쪽 {''.join(axis)} 오른쪽\n"
             f"   0°  {spark}  180°\n"
             f"       ↑정면은 보정 후 결정 (보통 90° 부근)")
