@@ -452,8 +452,60 @@ def cmd_calibrate(args):
 
 
 def to_lamp(raw, cal):
-    """원시 각도를 램프 기준(0° = 정면, 반시계 +)으로 옮긴다."""
+    """원시 각도를 램프 기준(0° = 정면, 반시계 +)으로 옮긴다.
+
+    대응표가 있으면 그걸 쓴다. 오프셋 하나로는 못 맞추기 때문이다 — 맥 실측에서
+    실제 180° 를 훑는 동안 원시값은 108° 만 움직였고, 구간 기울기가 0.13~1.20
+    으로 제각각이었다. 다만 순서는 뒤집히지 않아서(단조) 표로 펴면 된다.
+    """
+    t = cal.get("table")
+    if t:
+        xs, ys = t["raw"], t["truth"]
+        # 표 바깥은 잴 수 없는 영역이다. 끝값으로 묶는다.
+        return float(np.interp(raw, xs, ys)) % 360
     return (cal["sign"] * ang_err(raw, cal["offset_deg"])) % 360
+
+
+def cmd_table(args):
+    """measure 결과를 원시->실제 대응표로 만들어 보정에 넣는다.
+
+    측정한 지점들의 (원시각, 실제각) 짝을 원시각 순으로 세워 보간한다.
+    원시각이 실제각에 단조롭게 대응하기 때문에 이게 성립한다 — 순서가
+    뒤집히면 보간은 의미가 없으므로 먼저 확인한다.
+    """
+    src = os.path.join(OUT, f"{args.label}.json")
+    if not os.path.exists(src):
+        print(f"{src} 가 없다. 먼저 measure --label {args.label} 을 실행할 것")
+        return 1
+    d = json.load(open(src))
+    rows = [r for r in d["rows"] if "raw" in r]
+    if len(rows) < 3:
+        print("지점이 3개 미만이라 표를 만들 수 없다")
+        return 1
+
+    pts = sorted(((r["raw"], ang_err(r["truth"], 0)) for r in rows), key=lambda x: x[0])
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    print(f"[{args.label}] 대응표")
+    print(f"{'원시각':>9}{'실제각':>9}")
+    for x, y in pts:
+        print(f"{x:>8.1f}°{y:>+8.0f}°")
+
+    if any(b <= a for a, b in zip(ys, ys[1:])):
+        print("\n  ✗ 원시각 순으로 세웠더니 실제각 순서가 뒤집힌다.")
+        print("    같은 원시값이 서로 다른 방향을 가리킨다는 뜻이라 표로 못 편다.")
+        print("    측정 위치가 잘못됐거나, 이 배치에서는 방향을 분간하지 못한다.")
+        return 1
+
+    cal = json.load(open(CAL)) if os.path.exists(CAL) else {"conv": 2}
+    cal["table"] = {"raw": xs, "truth": ys, "from": args.label}
+    json.dump(cal, open(CAL, "w"), ensure_ascii=False, indent=2)
+    print(f"\n  ✔ 단조롭다 — 표로 펼 수 있다. 보정에 저장했다: {CAL}")
+    print(f"  적용 범위 원시 {xs[0]:.1f}~{xs[-1]:.1f}° (실제 {ys[0]:+.0f}~{ys[-1]:+.0f}°).")
+    print("  이 범위 밖은 끝값으로 묶인다 — 잴 수 없는 영역이다.")
+    print(f"\n  확인하려면 같은 조건으로 다시 재볼 것:")
+    print(f"    doa_measure.py measure --label {args.label}-verify")
+    return 0
 
 
 def cmd_measure(args):
@@ -549,6 +601,9 @@ def main() -> int:
     m = common(sub.add_parser("measure"))
     m.add_argument("--label", required=True,
                    help="조건 이름 (quiet / fan / elevated / servo)")
+    t = common(sub.add_parser("table"))
+    t.add_argument("--label", required=True,
+                   help="대응표로 만들 measure 결과 이름")
     common(sub.add_parser("report"))
     args = ap.parse_args()
 
@@ -560,7 +615,8 @@ def main() -> int:
         ANGLES = [float(x) % 360 for x in args.angles.split(",")]
 
     return {"calibrate": cmd_calibrate, "measure": cmd_measure,
-            "live": cmd_live, "report": cmd_report}[args.cmd](args)
+            "live": cmd_live, "table": cmd_table,
+            "report": cmd_report}[args.cmd](args)
 
 
 if __name__ == "__main__":
