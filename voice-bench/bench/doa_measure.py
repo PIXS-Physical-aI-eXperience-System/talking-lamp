@@ -39,7 +39,9 @@ OUT = os.path.join(ROOT, "out", "doa")
 CAL = os.path.join(OUT, "calibration.json")
 # 잴 각도. 선형은 후면을 펌웨어가 억제하므로 전면 반평면만 돈다.
 ANGLES_CIRCULAR = [0, 45, 90, 135, 180, 225, 270, 315]
-ANGLES_LINEAR = [0, 30, 60, 90, 300, 330]   # 정면 ±90°
+# 정면 ±90° 를 30° 간격으로. 왼쪽 끝에서 오른쪽 끝으로 한 방향으로 훑도록
+# 늘어놓는다 — 측정할 때 사람이 왔다갔다 하지 않아도 된다.
+ANGLES_LINEAR = [270, 300, 330, 0, 30, 60, 90]
 ANGLES = ANGLES_LINEAR
 
 
