@@ -72,7 +72,20 @@ def circ_mean(deg):
 def circ_std(deg):
     r = np.radians(np.asarray(deg, dtype=float))
     R = np.hypot(np.sin(r).mean(), np.cos(r).mean())
-    return float(np.degrees(np.sqrt(-2 * np.log(max(R, 1e-12)))))
+    # 값이 전부 같으면 R 이 부동소수 오차로 1 을 살짝 넘어 sqrt 안이 음수가 된다.
+    # 그대로 두면 nan 과 경고가 나오고 -0.0 같은 산포가 찍힌다.
+    R = min(max(R, 1e-12), 1.0)
+    return float(np.degrees(np.sqrt(-2 * np.log(R))))
+
+
+def is_stuck(vals, min_n=20):
+    """값이 갱신되지 않고 멈췄는지 본다.
+
+    실제 음향 추정값은 표본마다 최소 1° 안팎으로 흔들린다. 수십 개가 소수점까지
+    똑같으면 펌웨어가 값을 갱신하지 않은 것이다. 맥 검증에서 한 지점이 58개
+    표본 전부 48.0° 로 나왔고, 그 한 점이 평균오차를 6.6° 에서 20.3° 로 올렸다.
+    """
+    return len(vals) >= min_n and max(vals) == min(vals)
 
 
 def ang_err(measured, truth):
@@ -535,9 +548,19 @@ def cmd_measure(args):
             f"오른손 쪽 {abs(signed):.0f}°" if signed > 0
             else f"왼손 쪽 {abs(signed):.0f}°")
         input(f"  마이크를 마주 보고 {where:<12} → Enter 후 6초간 말하기 (몸 고정) ")
-        vals, raws, stmp = sample_doa()
+        while True:
+            vals, raws, stmp = sample_doa()
+            if not vals:
+                print(f"       DOA 읽기 실패: {raws[:1]}")
+                break
+            if not is_stuck(vals):
+                break
+            print(f"       ! 표본 {len(vals)}개가 전부 {vals[0]:.1f}° 로 같다 — "
+                  "값이 갱신되지 않았다.")
+            if input("         다시 잴까요? (Enter=다시, s=건너뛰기) ").strip().lower() == "s":
+                vals = []
+                break
         if not vals:
-            print(f"       DOA 읽기 실패: {raws[:1]}")
             continue
         w = best_window(stmp, seconds=3.0)
         raw_mean, spread = ((circ_mean(vals), circ_std(vals)) if w is None
