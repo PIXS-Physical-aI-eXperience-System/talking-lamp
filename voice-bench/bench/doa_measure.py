@@ -520,16 +520,21 @@ def cmd_measure(args):
     offset = cal["offset_deg"]
     os.makedirs(OUT, exist_ok=True)
 
-    print(f"[{args.label}] {len(ANGLES)}방향 측정 — 각 방향에서 1 m 거리, 3초간 발화")
+    print(f"[{args.label}] {len(ANGLES)}방향 측정 — 각 방향에서 1 m 거리, 6초간 발화")
+    print("  위치는 마이크를 마주 본 '본인 손' 기준으로 안내한다.")
     print(f"보정 {offset:.1f}°, 회전 {'정방향' if cal['sign'] > 0 else '역방향'} 적용. "
           f"0° = 램프 정면, 반시계 방향 증가\n")
 
     rows = []
     for truth in ANGLES:
+        # 사람의 손 기준으로 안내한다. "램프 기준 오른쪽" 이라고 하면 마주 선
+        # 사람이 시점을 뒤집어야 하고, 거기서 틀리면 표가 좌우 반전된 채로
+        # 만들어진다. 마주 본 사람의 오른손 쪽이 램프의 왼쪽(+)이다.
         signed = ang_err(truth, 0)
         where = "정면" if signed == 0 else (
-            f"왼쪽 {abs(signed):.0f}°" if signed > 0 else f"오른쪽 {abs(signed):.0f}°")
-        input(f"  {where:<9} ({signed:+.0f}°) 로 이동 → Enter 후 6초간 말하기 (몸 고정) ")
+            f"오른손 쪽 {abs(signed):.0f}°" if signed > 0
+            else f"왼손 쪽 {abs(signed):.0f}°")
+        input(f"  마이크를 마주 보고 {where:<12} → Enter 후 6초간 말하기 (몸 고정) ")
         vals, raws, stmp = sample_doa()
         if not vals:
             print(f"       DOA 읽기 실패: {raws[:1]}")
