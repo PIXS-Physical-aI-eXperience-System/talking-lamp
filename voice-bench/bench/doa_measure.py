@@ -389,10 +389,13 @@ def cmd_calibrate(args):
         print(f"  · 산포 {sd:.1f}° — 다소 흔들린다. 결과 해석에 감안할 것")
     print()
 
-    print("[2/2] 오른쪽")
-    print("  램프를 마주 본 채로, 램프에서 볼 때 오른쪽 90° 위치로 이동하세요.")
-    print("  (정면에 선 사람이 램프를 축으로 왼쪽으로 걸어간 자리다)")
-    input("  준비되면 Enter → 6초간 계속 말해주세요 (몸을 고정할 것) ")
+    print("[2/2] 한쪽 옆")
+    print("  왼쪽이든 오른쪽이든 한쪽으로 확실히 옮기세요 (45° 이상이면 충분).")
+    print("  정확히 90° 일 필요는 없습니다 — 여기서는 '어느 쪽이 +인지'만 정합니다.")
+    side = ""
+    while side not in ("l", "r"):
+        side = input("  어느 쪽으로 가시겠습니까? 램프에서 볼 때 왼쪽=l / 오른쪽=r : ").strip().lower()
+    input("  그 자리에서 Enter → 6초간 계속 말해주세요 (몸을 고정할 것) ")
     right, raws, st_right = sample_doa()
     if not right:
         print(f"  ! DOA 를 못 읽었다: {raws[:1]}")
@@ -400,8 +403,9 @@ def cmd_calibrate(args):
     wr = best_window(st_right, seconds=3.0)
     r, sd_r = (circ_mean(right), circ_std(right)) if wr is None else (wr["mean"], wr["std"])
     delta = ang_err(r, offset)        # 정면 대비 원시값이 어느 쪽으로 움직였나
-    sign = 1 if delta > 0 else -1     # +1 이면 원시값 증가 = 램프 오른쪽
-    print(f"  오른쪽 원시값 {r:.1f}°  (정면 대비 {delta:+.1f}°)")
+    # 오른쪽으로 갔는데 원시값이 커졌으면 +1. 왼쪽으로 갔는데 커졌으면 -1.
+    sign = (1 if delta > 0 else -1) * (1 if side == "r" else -1)
+    print(f"  원시값 {r:.1f}°  (정면 대비 {delta:+.1f}°, 산포 {sd_r:.1f}°)")
 
     if sd_r > 10:
         print(f"  ! 산포 {sd_r:.1f}° 는 너무 크다. 다시 실행할 것")
@@ -409,20 +413,18 @@ def cmd_calibrate(args):
     if abs(delta) < 20:
         print("  ! 정면과 거의 같다. 위치를 제대로 옮겼는지 확인할 것")
         return 1
-    # 90° 를 옮겼으면 원시값도 90° 근처로 움직여야 한다. 크게 어긋나면 실제
-    # 이동각이 90° 가 아니었거나, 원시 각도가 물리 각도에 선형으로 대응하지
-    # 않는 것이다. 어느 쪽이든 단순 오프셋 보정으로는 각도가 맞지 않는다.
-    if abs(abs(delta) - 90) > 25:
-        print(f"  ! 90° 를 옮겼는데 원시값은 {abs(delta):.0f}° 만 변했다.")
-        print("    실제로 90° 를 이동했는지 먼저 확인할 것 (바닥에 표시를 두면 좋다).")
-        print("    위치가 맞는데도 이렇게 나오면 원시 각도가 물리 각도에 비례하지")
-        print("    않는 것이고, 오프셋 보정만으로는 못 맞춘다 — 대응표가 필요하다.")
-        print("    일단 저장은 하되, 이 보정으로 잰 값은 신뢰도가 낮다.")
-    print(f"  → 원시값이 {'커지는' if sign > 0 else '작아지는'} 쪽이 램프의 오른쪽\n")
+    print(f"  → 원시값이 {'커지는' if sign > 0 else '작아지는'} 쪽이 램프의 오른쪽")
+
+    # 참고용. 이동각을 정확히 모르므로 판정하지 않고 알려만 준다.
+    # 원시 각도가 실제 각도에 비례하는지는 measure 결과로 확인한다.
+    print(f"  (참고: {'오른' if side == 'r' else '왼'}쪽으로 옮겼을 때 원시값이 "
+          f"{abs(delta):.0f}° 움직였다. 실제 이동각과 크게 다르면 원시 각도가"
+          f" 실제에 비례하지 않는 것이고, 그건 measure 결과에서 드러난다)\n")
 
     json.dump({"offset_deg": offset, "sign": sign,
                "n": len(front), "std": sd,
-               "right_raw": r, "right_delta": delta, "right_std": sd_r},
+               "side_raw": r, "side_delta": delta, "side_std": sd_r,
+               "side": side},
               open(CAL, "w"), ensure_ascii=False, indent=2)
     print(f"  저장: {CAL}")
     return 0
