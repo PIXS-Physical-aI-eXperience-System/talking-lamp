@@ -234,7 +234,18 @@ def cmd_calibrate(args):
         print(f"  ! DOA 를 못 읽었다: {raws[:1]}")
         return 1
     offset = circ_mean(front)
-    print(f"  정면 원시값 {offset:.1f}°  (표본 {len(front)}개, 산포 {circ_std(front):.1f}°)\n")
+    sd = circ_std(front)
+    print(f"  정면 원시값 {offset:.1f}°  (표본 {len(front)}개, 산포 {sd:.1f}°)")
+    # 한 자리에 서서 3초 말한 값의 산포다. 이게 크면 보정값 자체가 흔들리고,
+    # 그 오차가 이후 모든 각도에 그대로 깔린다. 안정된 조건에서는 1° 안쪽이었다.
+    if sd > 10:
+        print(f"  ! 산포 {sd:.1f}° 는 너무 크다. 보정값을 믿을 수 없다.")
+        print("    보드가 고정돼 있는지, 1 m 거리에서 끊지 않고 말했는지 확인하고")
+        print("    다시 실행할 것. 안정된 조건에서는 1° 안쪽이 나온다.")
+        return 1
+    if sd > 3:
+        print(f"  · 산포 {sd:.1f}° — 다소 흔들린다. 결과 해석에 감안할 것")
+    print()
 
     print("[2/2] 오른쪽")
     print("  램프를 마주 본 채로, 램프에서 볼 때 오른쪽 90° 위치로 이동하세요.")
@@ -249,14 +260,27 @@ def cmd_calibrate(args):
     sign = 1 if delta > 0 else -1     # +1 이면 원시값 증가 = 램프 오른쪽
     print(f"  오른쪽 원시값 {r:.1f}°  (정면 대비 {delta:+.1f}°)")
 
-    if abs(delta) < 20:
-        print("  ! 정면과 거의 같다. 위치를 제대로 옮겼는지, 90° 가 맞는지 확인할 것")
+    sd_r = circ_std(right)
+    if sd_r > 10:
+        print(f"  ! 산포 {sd_r:.1f}° 는 너무 크다. 다시 실행할 것")
         return 1
+    if abs(delta) < 20:
+        print("  ! 정면과 거의 같다. 위치를 제대로 옮겼는지 확인할 것")
+        return 1
+    # 90° 를 옮겼으면 원시값도 90° 근처로 움직여야 한다. 크게 어긋나면 실제
+    # 이동각이 90° 가 아니었거나, 원시 각도가 물리 각도에 선형으로 대응하지
+    # 않는 것이다. 어느 쪽이든 단순 오프셋 보정으로는 각도가 맞지 않는다.
+    if abs(abs(delta) - 90) > 25:
+        print(f"  ! 90° 를 옮겼는데 원시값은 {abs(delta):.0f}° 만 변했다.")
+        print("    실제로 90° 를 이동했는지 먼저 확인할 것 (바닥에 표시를 두면 좋다).")
+        print("    위치가 맞는데도 이렇게 나오면 원시 각도가 물리 각도에 비례하지")
+        print("    않는 것이고, 오프셋 보정만으로는 못 맞춘다 — 대응표가 필요하다.")
+        print("    일단 저장은 하되, 이 보정으로 잰 값은 신뢰도가 낮다.")
     print(f"  → 원시값이 {'커지는' if sign > 0 else '작아지는'} 쪽이 램프의 오른쪽\n")
 
     json.dump({"offset_deg": offset, "sign": sign,
-               "n": len(front), "std": circ_std(front),
-               "right_raw": r, "right_delta": delta},
+               "n": len(front), "std": sd,
+               "right_raw": r, "right_delta": delta, "right_std": sd_r},
               open(CAL, "w"), ensure_ascii=False, indent=2)
     print(f"  저장: {CAL}")
     return 0
