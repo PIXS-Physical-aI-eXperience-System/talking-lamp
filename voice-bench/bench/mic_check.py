@@ -24,7 +24,7 @@ def find_xvf_host():
     두는 구조라 여기서 직접 찾아야 한다.
     """
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local = os.path.join(root, "tools", "xvf3800", "host_control", "jetson", "xvf_host")
+    local = os.path.join(root, "tools", "respeaker-flex", "host_control", "jetson", "xvf_host")
     if os.path.isfile(local) and os.access(local, os.X_OK):
         return local
     return shutil.which("xvf_host") or shutil.which("xvf_host.py")
@@ -68,12 +68,27 @@ def main() -> int:
             print("    XMOS USB-C 포트(3.5mm 잭 쪽)에 연결하고:")
             print("      sudo apt install dfu-util && sudo dfu-util -l")
             print("      sudo dfu-util -R -e -a 1 -D \\")
-            print("        tools/xvf3800/xmos_firmwares/usb/"
-                  "respeaker_xvf3800_usb_dfu_firmware_v2.1.0_16k6ch.bin")
+            print("        tools/respeaker-flex/xmos_firmwares/usb/"
+                  "respeaker_flex_usb_l16k6ch_v1.0.3.bin   # 선형")
+            print("    원형이면 l16k6ch 대신 c16k6ch. 배열 형태가 다른 펌웨어를")
+            print("    넣으면 방향이 엉뚱하게 나온다.")
             print("    (bench/xvf_setup.sh 를 먼저 돌려 펌웨어를 받아둘 것)")
             ok = False
 
-    section("xvf_host (DOA 읽기 도구)")
+    section("DOA 읽기 경로")
+    try:
+        import usb.core
+        devs = list(usb.core.find(find_all=True, idVendor=0x2886) or [])
+        if devs:
+            print(f"  ✔ pyusb 로 장치 {len(devs)}개 보임 (VID 0x2886) — 바이너리 불필요")
+        else:
+            print("  ✗ pyusb 는 있으나 장치가 안 보인다. USB 권한(udev)을 확인할 것")
+            ok = False
+    except ImportError:
+        print("  ✗ pyusb 없음 —  pip install pyusb")
+        print("    (bench/doa_measure.py 가 USB 제어 전송으로 직접 읽는다)")
+        ok = False
+
     exe = find_xvf_host()
     if exe:
         print(f"  ✔ {exe}")
@@ -85,10 +100,7 @@ def main() -> int:
             print(f"  ! 실행 실패: {type(e).__name__} {e}")
             ok = False
     else:
-        print("  ✗ xvf_host 없음 — DOA 를 읽을 수 없다.")
-        print("    빌드할 필요 없다. 미리 빌드된 바이너리를 받으면 된다:")
-        print("      ./bench/xvf_setup.sh")
-        ok = False
+        print("  · xvf_host 없음 — 폴백 경로일 뿐이라 pyusb 가 되면 상관없다.")
 
     section("스피커 출력 경로 (AEC 의 전제)")
     outs = [(i, d["name"]) for i, d in enumerate(sd.query_devices())

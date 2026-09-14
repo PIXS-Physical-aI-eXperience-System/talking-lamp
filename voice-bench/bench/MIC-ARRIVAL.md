@@ -4,22 +4,45 @@ reSpeaker Flex XVF3800 Circular-4 가 도착하면 이 순서로 진행한다.
 E(이수혁)에게 넘겨야 할 값들이 여기서 나온다 — 인수인계 7번(C → E: 소리 방향).
 
 
-## 0. 도착 전에 (지금 해둘 것)
+## 0. 준비
 
 ```bash
 ./bench/xvf_setup.sh
+venvs/vad/bin/pip install pyusb
 ```
 
-`xvf_host` 는 **소스에서 빌드하는 물건이 아니다.** 미리 빌드된 바이너리로
-배포되며 `host_control/jetson/` 에 aarch64 용이 따로 들어 있다. 이 스크립트가
-필요한 폴더만 잘라 `tools/xvf3800/` 에 받아 둔다 (커밋하지 않는다).
+**Flex 는 reSpeaker_XVF3800_USB_4MIC_ARRAY 와 다른 제품이고 저장소도 다르다.**
+4MIC 저장소의 펌웨어를 Flex 에 넣으면 안 된다.
+→ [respeaker/reSpeaker_Flex](https://github.com/respeaker/reSpeaker_Flex)
 
-같이 받는 것:
+### 배열 형태 — 받은 것이 선형(Linear-4)이다
 
-- `host_control/jetson/xvf_host` — DOA 를 읽는 도구. `AEC_AZIMUTH_VALUES`
-- `xmos_firmwares/usb/*6ch*.bin` — 6채널 펌웨어
+| | 원형 Circular-4 | **선형 Linear-4 (실제 수령)** |
+| --- | --- | --- |
+| 마이크 간격 | 44 mm | **33 mm** |
+| 집음 범위 | 360° 전방향 | **전면 약 180°, 후면 억제** |
+| 6채널 펌웨어 | `respeaker_flex_usb_c16k6ch_v1.0.3.bin` | **`..._l16k6ch_v1.0.3.bin`** |
 
-**6채널 펌웨어의 채널 구성** (16 kHz / 32 bit):
+**선형은 뒤를 못 본다.** 직선 배열은 축을 기준으로 대칭인 두 방향이 같은 시간차를
+만들어 앞뒤를 물리적으로 구분할 수 없다. XVF3800 은 그래서 후면을 아예 억제한다.
+
+→ **S6(소리 방향 추종)는 전면 반평면에서만 성립한다. E 에게 알려야 한다.**
+램프가 책상에서 사용자를 향해 있으면 실용상 문제는 없다.
+
+배열 형태와 다른 펌웨어를 넣으면 방향이 엉뚱하게 나온다. `c` 와 `l` 을 확인할 것.
+
+### 펌웨어 굽기
+
+XMOS USB-C 포트(3.5mm 잭 쪽)에 연결한다.
+
+```bash
+sudo apt install dfu-util
+sudo dfu-util -l          # 장치가 보이는지 먼저
+sudo dfu-util -R -e -a 1 -D \
+  tools/respeaker-flex/xmos_firmwares/usb/respeaker_flex_usb_l16k6ch_v1.0.3.bin
+```
+
+**6채널 구성** (16 kHz / 32 bit):
 
 | 채널 | 내용 |
 | --- | --- |
@@ -29,8 +52,14 @@ E(이수혁)에게 넘겨야 할 값들이 여기서 나온다 — 인수인계 
 
 2채널 펌웨어로는 원음에 접근할 수 없어 빔포밍·DOA 를 직접 다룰 수 없다.
 
-> 출처: [respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY](https://github.com/respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY)
-> Flex Circular-4 도 같은 저장소가 커버한다 (같은 XVF3800 코어).
+### DOA 는 바이너리 없이 읽는다
+
+`xvf_host` 를 빌드하거나 받을 필요가 없다. USB 제어 전송으로 직접 읽는다
+(공식 `python_control/respeaker_get_doa.py` 와 같은 방식).
+
+`DOA_VALUE` 는 각도와 함께 **발화 감지 플래그**를 준다. `doa_measure.py` 는
+그 플래그가 켜진 표본만 쓴다 — 조용할 때의 각도는 직전 값이거나 잡음 방향이라
+섞으면 산포가 부풀려진다.
 
 
 ## 0. 환경

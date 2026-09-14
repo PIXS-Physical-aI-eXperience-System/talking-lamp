@@ -10,7 +10,15 @@
     python bench/doa_measure.py report
 
 각도 규약: lamp_base 기준, 0° = 램프 정면(사용자 방향, +x), 반시계 방향 증가.
-XVF3800 은 방위각만 주고 고도는 주지 않는다(평면 원형 어레이의 한계).
+XVF3800 은 방위각만 주고 고도는 주지 않는다(평면 어레이의 한계).
+
+배열 형태에 따라 잴 수 있는 범위가 다르다. --geometry 로 지정한다.
+
+  circular  마이크 4개 원형 44mm. 360° 전방향.
+  linear    마이크 4개 직선 33mm. 전면 약 180°, 후면은 펌웨어가 억제한다.
+            직선 배열은 앞뒤를 물리적으로 구분할 수 없기 때문이다 — 축을 기준으로
+            대칭인 두 방향이 같은 시간차를 만든다. 그래서 뒤쪽 소리는 방향을
+            줄 수 없고, S6(소리 방향 추종)는 전면 반평면에서만 성립한다.
 """
 import argparse
 import json
@@ -29,7 +37,10 @@ sys.path.insert(0, ROOT)
 
 OUT = os.path.join(ROOT, "out", "doa")
 CAL = os.path.join(OUT, "calibration.json")
-ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
+# 잴 각도. 선형은 후면을 펌웨어가 억제하므로 전면 반평면만 돈다.
+ANGLES_CIRCULAR = [0, 45, 90, 135, 180, 225, 270, 315]
+ANGLES_LINEAR = [0, 30, 60, 90, 300, 330]   # 정면 ±90°
+ANGLES = ANGLES_LINEAR
 
 
 # ── 원형 통계 ───────────────────────────────────────────────────────────
@@ -45,7 +56,7 @@ def find_xvf_host():
     두는 구조라 여기서 직접 찾아야 한다.
     """
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local = os.path.join(root, "tools", "xvf3800", "host_control", "jetson", "xvf_host")
+    local = os.path.join(root, "tools", "respeaker-flex", "host_control", "jetson", "xvf_host")
     if os.path.isfile(local) and os.access(local, os.X_OK):
         return local
     return shutil.which("xvf_host") or shutil.which("xvf_host.py")
@@ -68,28 +79,64 @@ def ang_err(measured, truth):
 
 # ── 장치 ────────────────────────────────────────────────────────────────
 
-def read_doa():
-    """xvf_host 로 방위각을 읽는다. 실패하면 None.
+# reSpeaker Flex 는 USB 제어 전송으로 값을 직접 읽을 수 있다. 공식
+# python_control/respeaker_get_doa.py 와 같은 방식이며, xvf_host 바이너리가
+# 없어도 되고 speech_detected 플래그까지 같이 온다.
+#   DOA_VALUE: resid 20, cmdid 18, 4바이트 (+ 상태 1바이트)
+_VID = 0x2886
+_DOA = (20, 18, 4)
+_dev = None
 
-    출력은 집중빔1·집중빔2·자유빔·자동선택빔의 4개 각도이며,
-    문서상 마지막(자동선택빔)이 사용 대상이다.
+
+def usb_device():
+    """장치 핸들을 한 번만 잡아 재사용한다. 없으면 None."""
+    global _dev
+    if _dev is not None:
+        return _dev
+    try:
+        import usb.core
+    except ImportError:
+        return None
+    devs = sorted(usb.core.find(find_all=True, idVendor=_VID) or [],
+                  key=lambda d: getattr(d, "idProduct", 0))
+    _dev = devs[0] if devs else None
+    return _dev
+
+
+def read_doa():
+    """방위각(도)과 speech_detected 를 읽는다. 실패하면 (None, 사유).
+
+    반환: (각도 또는 None, 원문/사유, speech_detected 또는 None)
     """
+    dev = usb_device()
+    if dev is not None:
+        try:
+            import usb.util
+            resid, cmdid, length = _DOA
+            r = dev.ctrl_transfer(
+                usb.util.CTRL_IN | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_DEVICE,
+                0, 0x80 | cmdid, resid, length + 1, 100000).tolist()
+            # r[0] 은 상태. 각도는 리틀엔디언 2바이트, r[3] 이 발화 감지 플래그다.
+            return float(r[1] + r[2] * 256) % 360, f"usb {r}", bool(r[3])
+        except Exception as e:
+            return None, f"USB 읽기 실패: {type(e).__name__}: {e}", None
+
+    # 폴백: xvf_host 바이너리
     exe = find_xvf_host()
     if not exe:
-        return None, "xvf_host 없음"
+        return None, ("장치를 못 찾았다. pyusb 설치(pip install pyusb)와 "
+                      "USB 연결·권한(udev)을 확인할 것"), None
     try:
         r = subprocess.run([exe, "AEC_AZIMUTH_VALUES"], capture_output=True,
                            text=True, timeout=5)
         raw = (r.stdout or r.stderr).strip()
-        nums = [float(t) for t in raw.replace(",", " ").split()
-                if _isfloat(t)]
+        nums = [float(t) for t in raw.replace(",", " ").split() if _isfloat(t)]
         if not nums:
-            return None, raw[:120]
-        # 라디안·도가 섞여 나오므로, 0~360 범위 값들 중 마지막을 자동선택빔으로 본다
+            return None, raw[:120], None
         degs = [n for n in nums if -360.0 <= n <= 360.0 and abs(n) > 6.3] or nums
-        return float(degs[-1]) % 360, raw
+        return float(degs[-1]) % 360, raw, None
     except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
+        return None, f"{type(e).__name__}: {e}", None
 
 
 def _isfloat(t):
@@ -101,15 +148,25 @@ def _isfloat(t):
 
 
 def sample_doa(seconds=3.0, hz=10):
-    """말하는 동안 방위각을 반복 측정해 모은다."""
-    vals, raws = [], []
+    """말하는 동안 방위각을 반복 측정해 모은다.
+
+    펌웨어가 발화 감지 플래그를 같이 주므로, 그게 켜진 표본만 쓴다. 조용할 때의
+    각도는 직전 값이나 잡음 방향이라 섞으면 산포가 부풀려진다. 플래그를 못 읽는
+    경로(xvf_host 폴백)에서는 전부 쓴다.
+    """
+    vals, raws, gated = [], [], 0
     t_end = time.time() + seconds
     while time.time() < t_end:
-        v, raw = read_doa()
+        v, raw, speech = read_doa()
         if v is not None:
-            vals.append(v)
+            if speech is False:
+                gated += 1
+            else:
+                vals.append(v)
         raws.append(raw)
         time.sleep(1.0 / hz)
+    if gated:
+        raws.append(f"(발화 없음으로 버린 표본 {gated}개)")
     return vals, raws[:3]
 
 
@@ -144,7 +201,7 @@ def cmd_measure(args):
     offset = json.load(open(CAL))["offset_deg"]
     os.makedirs(OUT, exist_ok=True)
 
-    print(f"[{args.label}] 8방향 측정 — 각 방향에서 1 m 거리, 3초간 발화")
+    print(f"[{args.label}] {len(ANGLES)}방향 측정 — 각 방향에서 1 m 거리, 3초간 발화")
     print(f"보정값 {offset:.1f}° 적용. 0° = 램프 정면, 반시계 방향 증가\n")
 
     rows = []
@@ -195,7 +252,12 @@ def cmd_report(args):
 
 
 def main() -> int:
+    global ANGLES
     ap = argparse.ArgumentParser()
+    ap.add_argument("--geometry", choices=["linear", "circular"], default="linear",
+                    help="마이크 배열 형태. 선형은 후면을 못 재므로 전면 반평면만 돈다")
+    ap.add_argument("--angles",
+                    help="잴 각도를 직접 지정 (쉼표 구분). --geometry 기본값을 덮는다")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("calibrate")
     m = sub.add_parser("measure")
@@ -203,6 +265,11 @@ def main() -> int:
                    help="조건 이름 (quiet / fan / elevated / servo)")
     sub.add_parser("report")
     args = ap.parse_args()
+
+    ANGLES = (ANGLES_CIRCULAR if args.geometry == "circular" else ANGLES_LINEAR)
+    if args.angles:
+        ANGLES = [float(x) % 360 for x in args.angles.split(",")]
+
     return {"calibrate": cmd_calibrate, "measure": cmd_measure,
             "report": cmd_report}[args.cmd](args)
 
