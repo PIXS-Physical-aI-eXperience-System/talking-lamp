@@ -218,6 +218,24 @@ class MicStream:
             self.stream.close()
 
 
+def best_window(stamped, seconds=5.0):
+    """가장 안정적이었던 구간을 찾는다.
+
+    한 번의 실행 안에 '가만히 말하기' 와 '좌우로 옮기기' 가 섞이면 전체 산포는
+    당연히 크다. 그걸로 장치를 판정하면 멀쩡한 것도 실패로 나온다 —
+    실제로 그렇게 오판했다. 움직이지 않았던 구간만 골라서 본다.
+    """
+    best = None
+    for i, (t0, _) in enumerate(stamped):
+        w = [v for t, v in stamped[i:] if t - t0 <= seconds]
+        if len(w) < 10:
+            continue
+        st = stability(w)
+        if best is None or st["near10"] > best["near10"]:
+            best = st
+    return best
+
+
 def stability(vals):
     """방향값이 쓸 만한지 한 줄로 판정할 수 있게 요약한다.
 
@@ -285,9 +303,10 @@ def cmd_live(args):
     """
     width = 61
     hist = [0] * width
-    vals = []
+    vals, stamped = [], []
     print("실시간 방향 (Ctrl+C 로 종료)")
-    print("  한 자리에서 계속 말해 보고, 그다음 좌우로 옮겨 보세요")
+    print("  먼저 한 자리에서 가만히 말해 안정되는지 보고, 그다음 좌우로 옮겨")
+    print("  막대가 따라오는지 보세요. 판정은 가장 안정적이었던 5초 구간으로 합니다.")
     with MicStream(enabled=not args.no_stream):
         print("\n" * 4, end="")
         try:
@@ -299,6 +318,7 @@ def cmd_live(args):
                     continue
                 if speech:
                     vals.append(v)
+                    stamped.append((time.time(), v))
                     hist[min(int(v / 180 * (width - 1)), width - 1)] += 1
                 print("\033[4F" + "\n".join(
                     line + "\033[K" for line in
@@ -307,20 +327,23 @@ def cmd_live(args):
         except KeyboardInterrupt:
             print()
 
-    st = stability(vals)
-    if not st:
+    if not vals:
         print("발화로 인식된 표본이 없다. 더 크게, 더 길게 말해볼 것")
         return 1
-    print(f"\n표본 {st['n']}개   중앙 {st['mean']:.1f}°   산포 {st['std']:.1f}°")
-    print(f"중앙 ±10° 안에 든 비율 {st['near10']*100:.0f}%\n")
-    if st["near10"] >= 0.8:
-        print("  ✔ 한 방향에 모인다. 보정으로 진행할 수 있다.")
-    elif st["near10"] >= 0.5:
+    whole = stability(vals)
+    best = best_window(stamped) or whole
+    print(f"\n전체   표본 {whole['n']}개   중앙 {whole['mean']:.1f}°   "
+          f"산포 {whole['std']:.1f}°   ±10° 안 {whole['near10']*100:.0f}%")
+    print(f"       (좌우로 옮겨 다녔다면 이 값이 큰 것은 정상이다)")
+    print(f"가장 안정적이었던 5초   중앙 {best['mean']:.1f}°   "
+          f"산포 {best['std']:.1f}°   ±10° 안 {best['near10']*100:.0f}%\n")
+    if best["near10"] >= 0.8:
+        print("  ✔ 가만히 있을 때 한 방향에 모인다. 장치는 정상이다 — 보정으로 진행.")
+    elif best["near10"] >= 0.5:
         print("  · 절반쯤만 모인다. 보정은 되겠지만 오차가 클 것이다.")
     else:
-        print("  ✗ 값이 퍼져 있다. 이 상태의 DOA 로는 방향을 못 쓴다.")
-        print("    --no-stream 을 붙였다 뺐다 하며 비교해 볼 것 — 오디오 스트림이")
-        print("    열려 있어야 펌웨어가 방향을 갱신하는지가 아직 확인되지 않았다.")
+        print("  ✗ 가만히 있어도 값이 퍼진다. 이 상태로는 방향을 못 쓴다.")
+        print("    live --no-stream 과 비교해 볼 것 (스트림이 필요한지 확인)")
     return 0
 
 
@@ -476,15 +499,23 @@ def main() -> int:
     ap.add_argument("--angles",
                     help="잴 각도를 직접 지정 (쉼표 구분). --geometry 기본값을 덮는다")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("calibrate")
-    sub.add_parser("live")
-    m = sub.add_parser("measure")
+    def common(q):
+        # 하위 명령 뒤에 써도 받도록 양쪽에 단다. 앞에만 두면
+        # "live --no-stream" 이 오류가 나는데, 그 순서가 더 자연스럽다.
+        q.add_argument("--no-stream", action="store_true",
+                       dest="no_stream_sub", help=argparse.SUPPRESS)
+        return q
+
+    common(sub.add_parser("calibrate"))
+    common(sub.add_parser("live"))
+    m = common(sub.add_parser("measure"))
     m.add_argument("--label", required=True,
                    help="조건 이름 (quiet / fan / elevated / servo)")
-    sub.add_parser("report")
+    common(sub.add_parser("report"))
     args = ap.parse_args()
 
     global _USE_STREAM
+    args.no_stream = args.no_stream or getattr(args, "no_stream_sub", False)
     _USE_STREAM = not args.no_stream
     ANGLES = (ANGLES_CIRCULAR if args.geometry == "circular" else ANGLES_LINEAR)
     if args.angles:
