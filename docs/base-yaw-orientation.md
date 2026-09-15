@@ -131,7 +131,7 @@ it short to hide an incorrect orchestration order.
 
 ```bash
 { printf '%s\n' \
-  '{"version":1,"id":"10000000-0000-0000-0000-000000000003","type":"orientation.status","ttl_ms":1000,"payload":{} }'; sleep 1; } \
+  '{"version":1,"id":"10000000-0000-0000-0000-000000000003","type":"orientation.status","ttl_ms":1000,"payload":{}}'; sleep 1; } \
   | socat - UNIX-CONNECT:"$SOCKET"
 ```
 
@@ -153,8 +153,11 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         print(json.loads(line))
 ```
 
-This always replies `accepted/accepted` followed by `completed/completed`.
-The terminal event's `data` is the orientation snapshot:
+An unexpired status request claimed by the controller replies `accepted/accepted`
+followed by `completed/completed`. If an otherwise valid request expires before
+that claim, its only terminal reply is `failed/expired`; it does not reach
+runtime command handling or hardware control. The completed event's `data` is
+the orientation snapshot:
 
 | Field | Meaning |
 | --- | --- |
@@ -201,7 +204,10 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         print(json.loads(line))
 ```
 
-The expected events are `accepted/accepted` then `completed/completed`.
+An unexpired heartbeat claimed by the controller returns `accepted/accepted`
+then `completed/completed`. If it expires before claim, it instead returns the
+single terminal `failed/expired` event without runtime command handling or
+hardware control.
 
 ## Settle, primitive, and disconnect behavior
 
@@ -291,6 +297,7 @@ concrete tests:
 | Remote disconnect holds then falls back to centre | `tests/test_orientation.py::test_coordinator_returns_after_exact_disconnected_hold`; `tests/test_motion_controller.py::test_disconnect_starts_center_return_only_after_orientation_hold` |
 | Local path never creates a second hardware owner | `tests/test_motion_middleware.py::test_daemon_binds_both_listeners_before_starting_motion_owner`; `tests/test_motion_middleware.py::test_unix_disconnect_invalidates_unstarted_orientation_request` |
 | Local-only protocol remains separate from authenticated TCP | `tests/test_motion_protocol.py::test_remote_decoder_rejects_local_orientation_acquire_with_stable_code`; `tests/test_motion_protocol.py::test_local_decoder_accepts_exact_orientation_payload_without_token` |
+| A local request expired before controller claim is terminal and does not execute | `tests/test_motion_middleware.py::test_unix_server_forwards_expired_request_to_controller`; `tests/test_motion_controller.py::test_expired_request_never_reaches_runtime` |
 
 Run the complete software check from the repository root:
 
