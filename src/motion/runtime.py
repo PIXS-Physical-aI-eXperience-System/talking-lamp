@@ -26,6 +26,12 @@ from .idle import IdleConfig
 from .hardware_alignment import HardwareAlignment
 from .kinematics import ArmKinematics
 from .layers import IdleLayer, PrimitiveLayer, TaskLightLayer, TrackLayer
+from .orientation import (
+    BaseYawOrientationLayer,
+    OrientationConfig,
+    OrientationCoordinator,
+    OrientationSnapshot,
+)
 from .primitives import PrimitiveLibrary
 from .trajectory import TrajectoryGenerator
 
@@ -70,6 +76,7 @@ class MotionRuntime:
         rest_pose: np.ndarray = REST_POSE,
         initial_pose: np.ndarray | None = None,
         idle_cfg: IdleConfig | None = None,
+        orientation_cfg: OrientationConfig | None = None,
         dt: float = CONTROL_DT,
         primitives: PrimitiveLibrary | None = None,
     ) -> None:
@@ -81,8 +88,13 @@ class MotionRuntime:
         self.track = TrackLayer(self.kin)
         self.primitive = PrimitiveLayer(primitives or PrimitiveLibrary(), dt=self.dt)
         self.task_light = TaskLightLayer(self.kin)
+        position_limits = HardwareAlignment.load().joint_limits
+        orientation_cfg = orientation_cfg or OrientationConfig()
+        self.orientation = BaseYawOrientationLayer(orientation_cfg, position_limits)
+        self.orientation_control = OrientationCoordinator(self.orientation, orientation_cfg)
         self.blender = MotionBlender(
-            [self.idle, self.track, self.primitive, self.task_light], self.rest_pose
+            [self.idle, self.track, self.orientation, self.primitive, self.task_light],
+            self.rest_pose,
         )
 
         self.backend = backend or NullBackend()
@@ -91,7 +103,6 @@ class MotionRuntime:
             raise ValueError("initial_pose must contain five finite radians")
         # Preserve the exact measured range, including valid initial poses
         # at its endpoints; the generated MJCF rounds these same limits.
-        position_limits = HardwareAlignment.load().joint_limits
         self.traj = TrajectoryGenerator(initial, dt=self.dt, position_limits=position_limits)
         self.track.seed_pose(initial)
         self.t = 0.0
@@ -109,6 +120,31 @@ class MotionRuntime:
 
     def clear_tracking(self) -> None:
         self.track.clear()
+
+    def acquire_orientation(self, speech_id: str, target_yaw: float, *, now: float):
+        return self.orientation_control.acquire(
+            speech_id,
+            target_yaw,
+            now=now,
+            current_yaw=float(self.traj.pos[0]),
+            task_light_busy=self.task_light.busy,
+        )
+
+    def return_center(self, *, now: float, motion_busy: bool):
+        return self.orientation_control.return_center(
+            now=now,
+            current_yaw=float(self.traj.pos[0]),
+            motion_busy=motion_busy,
+        )
+
+    def release_orientation(self) -> None:
+        self.orientation.release()
+
+    def orientation_snapshot(self) -> OrientationSnapshot:
+        return self.orientation_control._snapshot()
+
+    def orientation_safe_yaw_limits(self) -> tuple[float, float]:
+        return self.orientation.safe_yaw_limits
 
     def place_task_light(self, desk_point, *, seed_from_current: bool = True):
         seed = self.traj.pos if seed_from_current else None

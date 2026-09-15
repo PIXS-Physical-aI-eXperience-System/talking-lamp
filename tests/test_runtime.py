@@ -103,11 +103,45 @@ def test_reach_puts_head_on_the_point(rt):
     assert np.linalg.norm(rt.kin.head_position(rt.traj.pos) - point) < 0.03
 
 
-def test_reflex_overrides_idle_but_yields_to_task_light(rt):
-    # priorities: idle(0) < track(10) < primitive(20) < task_light(30)
-    prios = [ly.priority for ly in rt.blender.layers]
-    assert prios == sorted(prios)
-    assert rt.blender.layers[-1].name == "task_light"
+def test_orientation_anchor_overrides_tracking_yaw_but_not_other_tracking_joints(rt):
+    """Removing the yaw-only anchor must let tracking control base yaw again."""
+    rt.observe_point([.4, .3, .3])
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+
+    states = rt.run(1.5)
+
+    assert states[-1].trace.per_layer["orientation"][0] == 1.0
+    assert states[-1].trace.per_layer["orientation"][1:].sum() == 0.0
+    assert states[-1].q_cmd[0] == pytest.approx(.5, abs=.06)
+
+
+def test_orientation_layer_order_keeps_task_light_yaw_authority(rt):
+    """Moving TaskLight below orientation would prevent its full pose from winning."""
+    assert [layer.name for layer in rt.blender.layers] == [
+        "idle", "track", "orientation", "primitive", "task_light",
+    ]
+
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+    result = rt.place_task_light([.24, .1, 0.0])
+    assert result.pos_err < .04
+    states = rt.run(.6)
+
+    assert abs(rt.task_light.q_hold[0] - .5) > .1
+    assert states[-1].trace.per_layer["orientation"][0] == 1.0
+    assert states[-1].trace.per_layer["task_light"][0] == 1.0
+    assert states[-1].q_blend[0] == pytest.approx(rt.task_light.q_hold[0])
+
+
+def test_releasing_orientation_restores_tracking_behavior(rt):
+    """Leaving the anchor active after release would continue suppressing tracking yaw."""
+    reference = MotionRuntime()
+    for runtime in (rt, reference):
+        runtime.observe_point([.4, .1, .3])
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+    rt.release_orientation()
+
+    for _ in range(120):
+        np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
 
 
 def test_initial_pose_outside_calibration_is_rejected_without_sending():
