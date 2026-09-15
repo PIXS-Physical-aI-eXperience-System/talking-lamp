@@ -32,6 +32,9 @@ class MotionUnixServer:
         self._server: asyncio.AbstractServer | None = None
         self._connections: set[asyncio.Task] = set()
         self._owns_socket = False
+        # One ticket may be intentionally shared by duplicate IDs from several
+        # local clients. Only the last disconnected holder may invalidate it.
+        self._ticket_holders: dict[int, tuple[CommandTicket, int]] = {}
 
     @property
     def sockets(self):
@@ -93,11 +96,32 @@ class MotionUnixServer:
         if stat.S_ISSOCK(mode):
             os.unlink(self.path)
 
+    def _hold_ticket(self, ticket: CommandTicket) -> int:
+        key = id(ticket)
+        existing = self._ticket_holders.get(key)
+        if existing is None:
+            self._ticket_holders[key] = (ticket, 1)
+        else:
+            self._ticket_holders[key] = (ticket, existing[1] + 1)
+        return key
+
+    def _release_ticket(self, key: int) -> None:
+        existing = self._ticket_holders.get(key)
+        if existing is None:
+            return
+        ticket, holders = existing
+        if holders > 1:
+            self._ticket_holders[key] = (ticket, holders - 1)
+            return
+        del self._ticket_holders[key]
+        self.controller.invalidate_unstarted(ticket)
+
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         connection = asyncio.current_task()
         if connection is not None:
             self._connections.add(connection)
         replies: set[asyncio.Task] = set()
+        held_tickets: list[int] = []
         write_lock = asyncio.Lock()
         errors = 0
 
@@ -149,6 +173,7 @@ class MotionUnixServer:
                     await send({"id": request.id, "state": "failed", "code": "too_many_pending"})
                     return
                 ticket = self.controller.submit(request)
+                held_tickets.append(self._hold_ticket(ticket))
                 reply = asyncio.create_task(forward(ticket))
                 replies.add(reply)
                 reply.add_done_callback(replies.discard)
@@ -158,6 +183,8 @@ class MotionUnixServer:
             for task in replies:
                 task.cancel()
             await asyncio.gather(*replies, return_exceptions=True)
+            for key in held_tickets:
+                self._release_ticket(key)
             writer.close()
             with suppress(ConnectionError, OSError):
                 await writer.wait_closed()

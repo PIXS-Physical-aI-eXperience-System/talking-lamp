@@ -787,3 +787,58 @@ def test_unix_server_close_removes_its_socket(tmp_path):
         await server.close()
         assert not path.exists()
     asyncio.run(scenario())
+
+
+def test_unix_disconnect_invalidates_unstarted_orientation_request(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        server = MotionUnixServer(controller, tmp_path / "motion.sock")
+        await server.start()
+        try:
+            _, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(local_wire("orientation.acquire", target_yaw=.2))
+            await writer.drain()
+            await asyncio.sleep(.02)
+            writer.close()
+            await writer.wait_closed()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            snapshot = controller.runtime.orientation_snapshot()
+            assert snapshot.state == "idle"
+            assert snapshot.speech_id is None
+        finally:
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_unix_disconnect_does_not_invalidate_other_local_client_request(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        server = MotionUnixServer(controller, tmp_path / "motion.sock")
+        await server.start()
+        try:
+            _, disconnected = await asyncio.open_unix_connection(server.path)
+            reader, connected = await asyncio.open_unix_connection(server.path)
+            disconnected.write(local_wire("orientation.acquire", target_yaw=.2))
+            connected.write(local_wire("orientation.status"))
+            await disconnected.drain()
+            await connected.drain()
+            await asyncio.sleep(.02)
+            disconnected.close()
+            await disconnected.wait_closed()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            controller.tick_once(now=time.monotonic())
+            await asyncio.sleep(.01)
+            status = [await receive(reader), await receive(reader)]
+            assert status[-1]["code"] == "completed"
+            assert status[-1]["data"]["state"] == "idle"
+            connected.close()
+            await connected.wait_closed()
+        finally:
+            await server.close()
+    asyncio.run(scenario())

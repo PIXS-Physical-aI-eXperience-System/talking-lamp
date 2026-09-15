@@ -78,6 +78,8 @@ class MotionController:
         self._recent: OrderedDict[str, CommandTicket] = OrderedDict()
         # In-flight IDs must survive churn in the bounded recent-result cache.
         self._pending: dict[str, CommandTicket] = {}
+        self._started: set[str] = set()
+        self._invalidated: set[int] = set()
         self._latest_point: tuple[Request, CommandTicket] | None = None
         self._latest_bearing: tuple[Request, CommandTicket] | None = None
         self._tracking_expires: dict[str, float] = {}
@@ -148,6 +150,7 @@ class MotionController:
                 message: str = "", data: dict[str, object] | None = None) -> None:
         result = CommandResult(ticket.request_id, state, code, message, data or {})
         with self._lock:
+            self._started.discard(ticket.request_id)
             if self._pending.get(ticket.request_id) is ticket:
                 del self._pending[ticket.request_id]
                 self._remember(ticket.request_id, ticket)
@@ -162,6 +165,25 @@ class MotionController:
         """Request safe wait without depending on space in the discrete queue."""
         with self._lock:
             self._disconnect = True
+
+    def invalidate_unstarted(self, ticket: CommandTicket) -> bool:
+        """Cancel one mailbox ticket only while the owner has not begun it."""
+        with self._lock:
+            if (self._pending.get(ticket.request_id) is not ticket
+                    or ticket.request_id in self._started or ticket.accepted.done()):
+                return False
+            self._invalidated.add(id(ticket))
+            self._finish(ticket, "cancelled", "local_disconnected")
+            return True
+
+    def _begin(self, ticket: CommandTicket) -> bool:
+        """Atomically claim a queued ticket before it can mutate the runtime."""
+        with self._lock:
+            if id(ticket) in self._invalidated:
+                self._invalidated.remove(id(ticket))
+                return False
+            self._started.add(ticket.request_id)
+            return True
 
     def stop(self, reason: str) -> None:
         with self._lock:
@@ -208,9 +230,10 @@ class MotionController:
             self._latest_point = self._latest_bearing = None
             while True:
                 try:
-                    self._commands.get_nowait()
+                    _, ticket = self._commands.get_nowait()
                 except queue.Empty:
                     break
+                self._invalidated.discard(id(ticket))
             for ticket in list(self._pending.values()):
                 self._finish(ticket, state, code, message)
 
@@ -285,6 +308,8 @@ class MotionController:
         try:
             request, ticket = self._commands.get_nowait()
         except queue.Empty:
+            return
+        if not self._begin(ticket):
             return
         if now >= request.expires_at:
             self._finish(ticket, "failed", "expired")
