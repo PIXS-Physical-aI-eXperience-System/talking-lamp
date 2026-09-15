@@ -90,6 +90,8 @@ def test_coordinator_settles_only_after_continuous_position_and_velocity_window(
                                     current_yaw=.39, velocity=.01)
         assert state.state == "orienting"
     state = coordinator.observe(now=1.15, current_yaw=.39, velocity=.01)
+    assert state.state == "orienting"
+    state = coordinator.observe(now=1.16, current_yaw=.39, velocity=.01)
     assert state.state == "aligned"
 
 
@@ -111,7 +113,8 @@ def test_coordinator_resets_settle_window_after_fast_tick():
     assert coordinator.observe(now=1.10, current_yaw=.39, velocity=.09).state == "orienting"
     assert coordinator.observe(now=1.11, current_yaw=.39, velocity=.01).state == "orienting"
     assert coordinator.observe(now=1.24, current_yaw=.39, velocity=.01).state == "orienting"
-    assert coordinator.observe(now=1.25, current_yaw=.39, velocity=.01).state == "aligned"
+    assert coordinator.observe(now=1.25, current_yaw=.39, velocity=.01).state == "orienting"
+    assert coordinator.observe(now=1.26, current_yaw=.39, velocity=.01).state == "aligned"
 
 
 def test_coordinator_times_out_after_acquire_timeout():
@@ -133,6 +136,47 @@ def test_coordinator_reports_task_light_conflict_without_acquiring_layer():
     assert state.code == "blocked_by_task_light"
     assert state.speech_id is None
     assert state.target_yaw is None
+
+
+def test_coordinator_reports_task_light_conflict_after_aligned_without_retargeting():
+    coordinator = make_coordinator()
+    coordinator.acquire("speech-1", .4, now=1.0, current_yaw=.4, task_light_busy=False)
+
+    blocked = coordinator.acquire("speech-2", -.4, now=2.0, current_yaw=.3, task_light_busy=True)
+
+    assert blocked.state == "aligned"
+    assert blocked.code == "blocked_by_task_light"
+    assert blocked.speech_id == "speech-1"
+    assert blocked.target_yaw == pytest.approx(.4)
+    assert blocked.current_yaw == pytest.approx(.3)
+    assert coordinator.acquire("speech-1", -.4, now=2.1, current_yaw=.3, task_light_busy=False).target_yaw == pytest.approx(.4)
+
+
+def test_coordinator_reports_task_light_conflict_after_centered_without_retargeting():
+    coordinator = make_coordinator(settle_duration=.1)
+    coordinator.acquire("speech-1", .4, now=1.0, current_yaw=.4, task_light_busy=False)
+    coordinator.return_center(now=2.0, current_yaw=.4, motion_busy=False)
+    coordinator.observe(now=2.01, current_yaw=.0, velocity=.01)
+    assert coordinator.observe(now=2.11, current_yaw=.0, velocity=.01).state == "centered"
+
+    blocked = coordinator.acquire("speech-2", -.4, now=3.0, current_yaw=.1, task_light_busy=True)
+
+    assert blocked.state == "centered"
+    assert blocked.code == "blocked_by_task_light"
+    assert blocked.speech_id == "speech-1"
+    assert blocked.target_yaw == pytest.approx(0.0)
+    assert blocked.current_yaw == pytest.approx(.1)
+
+
+def test_coordinator_rejects_layer_configuration_mismatch():
+    layer_cfg = OrientationConfig(center_yaw=0.0, yaw_margin=.1)
+    layer = BaseYawOrientationLayer(layer_cfg, LIMITS)
+    coordinator_cfg = OrientationConfig(center_yaw=.2, yaw_margin=.1)
+
+    with pytest.raises(OrientationError) as error:
+        OrientationCoordinator(layer, coordinator_cfg)
+
+    assert error.value.code == "config_mismatch"
 
 
 def test_coordinator_returns_existing_snapshot_for_duplicate_speech_id():
@@ -165,6 +209,8 @@ def test_coordinator_centers_after_return_settle_window_and_latches_speech_id():
         state = coordinator.observe(now=2.01 + index * .01, current_yaw=.01, velocity=.01)
         assert state.state == "returning"
     centered = coordinator.observe(now=2.15, current_yaw=.01, velocity=.01)
+    assert centered.state == "returning"
+    centered = coordinator.observe(now=2.16, current_yaw=.01, velocity=.01)
 
     assert centered.state == "centered"
     assert centered.speech_id == "speech-1"

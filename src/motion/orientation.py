@@ -117,6 +117,8 @@ class OrientationCoordinator:
 
     def __init__(self, layer: BaseYawOrientationLayer, cfg: OrientationConfig):
         _validate_config(cfg)
+        if cfg != layer.cfg:
+            raise OrientationError("config_mismatch", "layer and coordinator configurations must match")
         self.layer = layer
         self.cfg = cfg
         self._state = "idle"
@@ -127,17 +129,16 @@ class OrientationCoordinator:
         self._code = "idle"
         self._started_at: float | None = None
         self._settle_since: float | None = None
-        self._last_observed_at: float | None = None
         self._disconnected_at: float | None = None
 
-    def _snapshot(self) -> OrientationSnapshot:
+    def _snapshot(self, *, code: str | None = None) -> OrientationSnapshot:
         return OrientationSnapshot(
             state=self._state,
             speech_id=self._speech_id,
             target_yaw=self._target_yaw,
             current_yaw=self._current_yaw,
             clamped=self._clamped,
-            code=self._code,
+            code=self._code if code is None else code,
         )
 
     @staticmethod
@@ -156,18 +157,15 @@ class OrientationCoordinator:
         now = self._finite(now, "now")
         current_yaw = self._finite(current_yaw, "current yaw")
         target_yaw = self._finite(target_yaw, "target yaw")
+        self._current_yaw = current_yaw
         if task_light_busy:
-            if self._state == "idle":
-                self._code = "blocked_by_task_light"
-            return self._snapshot()
+            return self._snapshot(code="blocked_by_task_light")
 
         self._clamped = self.layer.acquire(target_yaw)
         low, high = self.layer.safe_yaw_limits
         self._target_yaw = float(np.clip(target_yaw, low, high))
         self._speech_id = speech_id
-        self._current_yaw = current_yaw
         self._started_at = now
-        self._last_observed_at = now
         self._settle_since = None
         self._disconnected_at = None
         if abs(current_yaw - self._target_yaw) <= self.cfg.deadband:
@@ -190,7 +188,6 @@ class OrientationCoordinator:
         self._state = "returning"
         self._code = "returning"
         self._started_at = now
-        self._last_observed_at = now
         self._settle_since = None
         self._disconnected_at = None
         return self._snapshot()
@@ -207,7 +204,6 @@ class OrientationCoordinator:
                 return self._snapshot()
 
         if self._state not in {"orienting", "returning"}:
-            self._last_observed_at = now
             return self._snapshot()
 
         assert self._target_yaw is not None
@@ -217,7 +213,7 @@ class OrientationCoordinator:
         )
         if settled:
             if self._settle_since is None:
-                self._settle_since = self._last_observed_at if self._last_observed_at is not None else now
+                self._settle_since = now
             if now - self._settle_since >= self.cfg.settle_duration - 1e-12:
                 self._state = "aligned" if self._state == "orienting" else "centered"
                 self._code = self._state
@@ -228,7 +224,6 @@ class OrientationCoordinator:
             if now - self._started_at >= self.cfg.acquire_timeout:
                 self._state = "timeout"
                 self._code = "timeout"
-        self._last_observed_at = now
         return self._snapshot()
 
     def disconnected(self, *, now: float) -> None:
