@@ -774,6 +774,48 @@ def test_daemon_closes_started_listener_when_other_listener_fails_to_bind():
     assert events == ["tcp bound", "local bind failed", "stopped: daemon shutdown", "tcp closed", "local closed"]
 
 
+def test_daemon_does_not_start_local_listener_or_owner_when_tcp_bind_fails():
+    from motion import middleware_server as daemon
+
+    events = []
+
+    class Controller:
+        def run(self):
+            events.append("owner started")
+
+        def stop(self, reason):
+            events.append(f"stopped: {reason}")
+
+        def snapshot(self):
+            return type("Snapshot", (), {"fault": None})()
+
+    class Tcp:
+        async def start(self):
+            events.append("tcp bind failed")
+            raise OSError("cannot bind TCP listener")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("tcp closed")
+
+    class Local:
+        async def start(self):
+            events.append("local bound")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("local closed")
+
+    with pytest.raises(OSError, match="cannot bind TCP listener"):
+        asyncio.run(daemon._serve(Controller(), Tcp(), Local(), lambda: False))
+
+    assert events == ["tcp bind failed", "stopped: daemon shutdown", "tcp closed", "local closed"]
+
+
 def test_unix_server_returns_accepted_then_aligned(tmp_path):
     async def scenario():
         async with running_local_server(tmp_path) as (server, _):

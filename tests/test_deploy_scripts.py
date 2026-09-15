@@ -146,6 +146,7 @@ def test_installer_dry_run_is_repeatable_without_writes(repository, tmp_path):
     second = install(repository, destination, "--dry-run")
     assert first.returncode == second.returncode == 0, first.stderr
     assert first.stdout == second.stdout
+    assert "Would create or validate system group talking-lamp and add pixs to it" in first.stdout
     assert "disabled" in first.stdout
     assert not destination.exists()
 
