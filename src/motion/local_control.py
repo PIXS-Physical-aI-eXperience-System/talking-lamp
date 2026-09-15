@@ -121,7 +121,8 @@ class MotionUnixServer:
         if connection is not None:
             self._connections.add(connection)
         replies: set[asyncio.Task] = set()
-        held_tickets: list[int] = []
+        held_tickets: dict[int, int] = {}
+        next_hold = 0
         write_lock = asyncio.Lock()
         errors = 0
 
@@ -130,9 +131,18 @@ class MotionUnixServer:
                 writer.write(encode_message(message))
                 await writer.drain()
 
-        async def forward(ticket: CommandTicket) -> None:
+        def release_holder(hold: int) -> None:
+            key = held_tickets.pop(hold, None)
+            if key is not None:
+                self._release_ticket(key)
+
+        async def forward(ticket: CommandTicket, hold: int) -> None:
             try:
                 accepted = await asyncio.shield(asyncio.wrap_future(ticket.accepted))
+                # A terminal result or accepted result means the controller has
+                # either finished this ticket or atomically begun it. EOF can no
+                # longer invalidate it, so do not retain the local holder.
+                release_holder(hold)
                 message = asdict(accepted)
                 message["id"] = message.pop("request_id")
                 await send(message)
@@ -143,6 +153,8 @@ class MotionUnixServer:
                     await send(message)
             except (ConnectionError, OSError, ProtocolError):
                 writer.close()
+            finally:
+                release_holder(hold)
 
         try:
             while True:
@@ -172,9 +184,11 @@ class MotionUnixServer:
                 if len(replies) >= 64:
                     await send({"id": request.id, "state": "failed", "code": "too_many_pending"})
                     return
-                ticket = self.controller.submit(request)
-                held_tickets.append(self._hold_ticket(ticket))
-                reply = asyncio.create_task(forward(ticket))
+                ticket = self.controller.submit(request, origin="local")
+                hold = next_hold
+                next_hold += 1
+                held_tickets[hold] = self._hold_ticket(ticket)
+                reply = asyncio.create_task(forward(ticket, hold))
                 replies.add(reply)
                 reply.add_done_callback(replies.discard)
         except (ConnectionError, OSError):
@@ -183,8 +197,8 @@ class MotionUnixServer:
             for task in replies:
                 task.cancel()
             await asyncio.gather(*replies, return_exceptions=True)
-            for key in held_tickets:
-                self._release_ticket(key)
+            for hold in list(held_tickets):
+                release_holder(hold)
             writer.close()
             with suppress(ConnectionError, OSError):
                 await writer.wait_closed()

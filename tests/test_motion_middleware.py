@@ -842,3 +842,62 @@ def test_unix_disconnect_does_not_invalidate_other_local_client_request(tmp_path
         finally:
             await server.close()
     asyncio.run(scenario())
+
+
+def test_persistent_local_client_releases_completed_ticket_holders(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            try:
+                for _ in range(20):
+                    writer.write(local_wire("orientation.status"))
+                    await writer.drain()
+                    assert (await receive(reader))["state"] == "accepted"
+                    assert (await receive(reader))["code"] == "completed"
+                assert not server._ticket_holders
+            finally:
+                writer.close()
+                await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_local_eof_cannot_cancel_colliding_remote_ticket(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        local = MotionUnixServer(controller, tmp_path / "motion.sock")
+        remote = MotionTcpServer(controller, token=TOKEN, host="127.0.0.1", port=0)
+        await local.start()
+        await remote.start()
+        try:
+            remote_reader, remote_writer = await asyncio.open_connection(
+                "127.0.0.1", remote.sockets[0].getsockname()[1]
+            )
+            _, local_writer = await asyncio.open_unix_connection(local.path)
+            ident = str(uuid4())
+            remote_writer.write(envelope("motion.status", ident=ident))
+            await remote_writer.drain()
+            await eventually(lambda: ident in controller._pending)
+            local_writer.write(local_wire("orientation.acquire", ident=ident, target_yaw=.2))
+            await local_writer.drain()
+            await asyncio.sleep(.02)
+            local_writer.close()
+            await local_writer.wait_closed()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            await asyncio.sleep(.01)
+            accepted = await receive(remote_reader)
+            assert (accepted["state"], accepted["code"], accepted["id"]) == (
+                "accepted", "accepted", ident,
+            )
+            completed = await receive(remote_reader)
+            assert (completed["state"], completed["code"], completed["id"]) == (
+                "completed", "completed", ident,
+            )
+            remote_writer.close()
+            await remote_writer.wait_closed()
+        finally:
+            await local.close()
+            await remote.close()
+    asyncio.run(scenario())

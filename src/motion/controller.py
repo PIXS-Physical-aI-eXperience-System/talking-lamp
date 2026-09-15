@@ -54,6 +54,7 @@ class CommandResult:
 @dataclass
 class CommandTicket:
     request_id: str
+    origin: str = "remote"
     accepted: Future[CommandResult] = field(default_factory=Future)
     completed: Future[CommandResult] = field(default_factory=Future)
 
@@ -101,14 +102,20 @@ class MotionController:
         self._deadline_misses = 0
         self._status = ControllerStatus("idle", None, False, None, 0, 0)
 
-    def submit(self, request: Request) -> CommandTicket:
+    def submit(self, request: Request, *, origin: str = "remote") -> CommandTicket:
+        if origin not in {"local", "remote"}:
+            raise ValueError("command origin must be local or remote")
         with self._lock:
             cached = self._pending.get(request.id) or self._recent.get(request.id)
             if cached is not None:
+                if cached.origin != origin:
+                    ticket = CommandTicket(request.id, origin=origin)
+                    self._finish(ticket, "failed", "request_id_collision")
+                    return ticket
                 if request.id in self._recent:
                     self._recent.move_to_end(request.id)
                 return cached
-            ticket = CommandTicket(request.id)
+            ticket = CommandTicket(request.id, origin=origin)
             self._remember(request.id, ticket)
             self._pending[request.id] = ticket
             if self._fault:
@@ -150,8 +157,8 @@ class MotionController:
                 message: str = "", data: dict[str, object] | None = None) -> None:
         result = CommandResult(ticket.request_id, state, code, message, data or {})
         with self._lock:
-            self._started.discard(ticket.request_id)
             if self._pending.get(ticket.request_id) is ticket:
+                self._started.discard(ticket.request_id)
                 del self._pending[ticket.request_id]
                 self._remember(ticket.request_id, ticket)
             self._resolve(ticket.accepted, result)
@@ -169,7 +176,7 @@ class MotionController:
     def invalidate_unstarted(self, ticket: CommandTicket) -> bool:
         """Cancel one mailbox ticket only while the owner has not begun it."""
         with self._lock:
-            if (self._pending.get(ticket.request_id) is not ticket
+            if (ticket.origin != "local" or self._pending.get(ticket.request_id) is not ticket
                     or ticket.request_id in self._started or ticket.accepted.done()):
                 return False
             self._invalidated.add(id(ticket))
