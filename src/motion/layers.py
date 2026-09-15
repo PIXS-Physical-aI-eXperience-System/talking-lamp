@@ -11,6 +11,8 @@ barge-in just means "tell L2/L3 to release".
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from .blender import BlendContext, LayerOutput
@@ -20,6 +22,12 @@ from .ik import IKResult, IKSolver
 from .kalman import TargetTrack, TrackConfig
 from .kinematics import ArmKinematics
 from .primitives import Primitive, PrimitiveLibrary
+
+
+@dataclass(frozen=True)
+class PrimitivePlayInfo:
+    name: str
+    yaw_scale: float
 
 
 class Envelope:
@@ -162,8 +170,29 @@ class PrimitiveLayer:
         self._weight = np.zeros(NJ)
         self._interrupted = False
 
-    def play(self, name: str, t: float, **load_kw) -> None:
+    def play(
+        self,
+        name: str,
+        t: float,
+        *,
+        yaw_anchor: float | None = None,
+        yaw_limits: tuple[float, float] | None = None,
+        **load_kw,
+    ) -> PrimitivePlayInfo:
+        if (yaw_anchor is None) != (yaw_limits is None):
+            raise ValueError("yaw anchor and yaw limits must be provided together")
         self.clip = self.lib.get(name, **load_kw).resampled(self.dt)
+        yaw_scale = 1.0
+        if yaw_anchor is not None and yaw_limits is not None:
+            lo, hi = yaw_limits
+            negative = float(np.min(self.clip.offsets[:, 0]))
+            positive = float(np.max(self.clip.offsets[:, 0]))
+            if positive > 0:
+                yaw_scale = min(yaw_scale, (hi - yaw_anchor) / positive)
+            if negative < 0:
+                yaw_scale = min(yaw_scale, (lo - yaw_anchor) / negative)
+            yaw_scale = float(np.clip(yaw_scale, 0.0, 1.0))
+            self.clip = self.clip.scaled_joint(0, yaw_scale)
         self.t0 = t
         self._interrupted = False
         # claim only the joints this clip actually moves
@@ -171,6 +200,7 @@ class PrimitiveLayer:
         self._weight = np.clip(span / (np.deg2rad(3.0)), 0.0, 1.0)
         self.env.attack = 0.18
         self.env.open()
+        return PrimitivePlayInfo(name=self.clip.name, yaw_scale=yaw_scale)
 
     def stop(self) -> None:
         self.env.close(release=0.3)

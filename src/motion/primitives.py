@@ -122,6 +122,15 @@ class Primitive:
         off = np.stack([np.interp(tt, self.times, self.offsets[:, i]) for i in range(NJ)], axis=1)
         return Primitive(self.name, tt, off, self.loop)
 
+    def scaled_joint(self, index: int, factor: float) -> "Primitive":
+        if not 0 <= index < NJ:
+            raise ValueError(f"joint index must be in [0, {NJ})")
+        if not np.isfinite(factor) or not 0.0 <= factor <= 1.0:
+            raise ValueError("joint scale factor must be finite and in [0, 1]")
+        offsets = self.offsets.copy()
+        offsets[:, index] *= factor
+        return Primitive(self.name, self.times.copy(), offsets, self.loop)
+
 
 @dataclass
 class PrimitiveLibrary:

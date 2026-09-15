@@ -132,6 +132,39 @@ def test_orientation_layer_order_keeps_task_light_yaw_authority(rt):
     assert states[-1].q_blend[0] == pytest.approx(rt.task_light.q_hold[0])
 
 
+def test_anchored_motion_scales_only_yaw_to_fit_safe_range(rt):
+    """Unscaled positive headshake yaw would cross the speaker-safe upper bound."""
+    rt.acquire_orientation(
+        "speech-1", rt.traj.position_limits[0, 1] - np.deg2rad(6), now=0.0,
+    )
+
+    info = rt.play_primitive("headshake")
+
+    assert 0.0 <= info.yaw_scale < 1.0
+    for state in rt.run(4.0):
+        assert state.q_blend[0] <= rt.traj.position_limits[0, 1] - np.deg2rad(5) + 1e-9
+
+
+def test_unanchored_motion_keeps_existing_commands_and_reports_full_yaw_scale(rt):
+    """Adding anchor support must leave unanchored primitive playback byte-identical."""
+    reference = MotionRuntime(dt=CONTROL_DT)
+
+    info = rt.play_primitive("headshake")
+    reference.play_primitive("headshake")
+
+    assert info.yaw_scale == 1.0
+    for _ in range(400):
+        np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+
+
+def test_primitive_layer_requires_a_complete_yaw_anchor_context(rt):
+    """Supplying only one half of the safety context would make scaling ambiguous."""
+    with pytest.raises(ValueError, match="provided together"):
+        rt.primitive.play("headshake", t=0.0, yaw_anchor=.1)
+    with pytest.raises(ValueError, match="provided together"):
+        rt.primitive.play("headshake", t=0.0, yaw_limits=(-.5, .5))
+
+
 def test_releasing_orientation_restores_tracking_behavior(rt):
     """Leaving the anchor active after release would continue suppressing tracking yaw."""
     reference = MotionRuntime()

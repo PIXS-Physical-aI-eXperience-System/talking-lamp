@@ -25,7 +25,7 @@ from .config import CONTROL_DT, NJ, REST_POSE
 from .idle import IdleConfig
 from .hardware_alignment import HardwareAlignment
 from .kinematics import ArmKinematics
-from .layers import IdleLayer, PrimitiveLayer, TaskLightLayer, TrackLayer
+from .layers import IdleLayer, PrimitiveLayer, PrimitivePlayInfo, TaskLightLayer, TrackLayer
 from .orientation import (
     BaseYawOrientationLayer,
     OrientationConfig,
@@ -108,8 +108,18 @@ class MotionRuntime:
         self.t = 0.0
 
     # -- team-facing controls ----------------------------------------
-    def play_primitive(self, name: str, **load_kw) -> None:
-        self.primitive.play(name, self.t, **load_kw)
+    def play_primitive(self, name: str, **load_kw) -> PrimitivePlayInfo:
+        orientation = self.orientation_snapshot()
+        if orientation.state in {"orienting", "aligned"}:
+            assert orientation.target_yaw is not None
+            return self.primitive.play(
+                name,
+                self.t,
+                yaw_anchor=orientation.target_yaw,
+                yaw_limits=self.orientation.safe_yaw_limits,
+                **load_kw,
+            )
+        return self.primitive.play(name, self.t, **load_kw)
 
     def observe_point(self, point) -> None:
         self.track.observe_point(point)

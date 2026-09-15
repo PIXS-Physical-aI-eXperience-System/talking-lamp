@@ -83,6 +83,30 @@ def test_resample_to_control_rate():
     assert np.allclose(p.sample(0.0), 0.0)
 
 
+def test_scaled_joint_returns_copy_and_changes_only_requested_offsets():
+    """Scaling the yaw clip must not mutate the cached source primitive."""
+    original = Primitive(
+        "p",
+        np.array([0.0, 1.0]),
+        np.array([[0, 0, 0, 0, 0], [.4, .2, .3, .4, .5]]),
+    )
+
+    scaled = original.scaled_joint(0, .25)
+
+    np.testing.assert_allclose(scaled.offsets[:, 0], original.offsets[:, 0] * .25)
+    np.testing.assert_array_equal(scaled.offsets[:, 1:], original.offsets[:, 1:])
+    np.testing.assert_array_equal(original.offsets[-1], [.4, .2, .3, .4, .5])
+
+
+@pytest.mark.parametrize("index, factor", [(-1, .5), (5, .5), (0, -0.1), (0, 1.1), (0, np.nan)])
+def test_scaled_joint_rejects_an_invalid_joint_or_factor(index, factor):
+    """Invalid scaling input must not create a malformed primitive."""
+    primitive = Primitive("p", np.array([0.0, 1.0]), np.zeros((2, NJ)))
+
+    with pytest.raises(ValueError):
+        primitive.scaled_joint(index, factor)
+
+
 def test_library_caches_and_lists():
     lib = PrimitiveLibrary()
     assert lib.get("nod") is lib.get("nod")
