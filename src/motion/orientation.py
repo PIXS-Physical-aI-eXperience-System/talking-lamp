@@ -176,6 +176,19 @@ class OrientationCoordinator:
             self._code = "orienting"
         return self._snapshot()
 
+    def release(self) -> OrientationSnapshot:
+        """Release the anchor and reset its speech-session lifecycle."""
+        self.layer.release()
+        self._state = "idle"
+        self._speech_id = None
+        self._target_yaw = None
+        self._clamped = False
+        self._code = "idle"
+        self._started_at = None
+        self._settle_since = None
+        self._disconnected_at = None
+        return self._snapshot()
+
     def return_center(self, *, now: float, current_yaw: float,
                       motion_busy: bool) -> OrientationSnapshot:
         if motion_busy:

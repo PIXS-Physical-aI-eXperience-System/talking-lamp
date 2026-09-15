@@ -189,6 +189,32 @@ def test_coordinator_returns_existing_snapshot_for_duplicate_speech_id():
     assert duplicate.target_yaw == pytest.approx(.4)
 
 
+def test_coordinator_release_resets_lifecycle_and_allows_same_speech_id_reacquisition():
+    """Leaving the speech ID latched would suppress a legitimate retry after release."""
+    coordinator = make_coordinator()
+    coordinator.acquire("speech-1", .4, now=1.0, current_yaw=0.0, task_light_busy=False)
+
+    released = coordinator.release()
+
+    assert released.state == "idle"
+    assert released.speech_id is None
+    assert released.target_yaw is None
+    assert released.clamped is False
+    assert released.code == "idle"
+    np.testing.assert_array_equal(
+        coordinator.layer.update(BlendContext(np.zeros(5), 1.1, .01)).weight,
+        np.zeros(5),
+    )
+
+    reacquired = coordinator.acquire(
+        "speech-1", -.4, now=1.2, current_yaw=0.0, task_light_busy=False,
+    )
+
+    assert reacquired.state == "orienting"
+    assert reacquired.target_yaw == pytest.approx(-.4)
+    assert coordinator.layer.update(BlendContext(np.zeros(5), 1.2, .01)).weight[0] == 1.0
+
+
 def test_coordinator_rejects_return_while_motion_busy():
     coordinator = make_coordinator()
     coordinator.acquire("speech-1", .4, now=1.0, current_yaw=0.0, task_light_busy=False)

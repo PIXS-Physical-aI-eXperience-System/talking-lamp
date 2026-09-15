@@ -138,7 +138,7 @@ class MotionRuntime:
         )
 
     def release_orientation(self) -> None:
-        self.orientation.release()
+        self.orientation_control.release()
 
     def orientation_snapshot(self) -> OrientationSnapshot:
         return self.orientation_control._snapshot()

@@ -144,6 +144,25 @@ def test_releasing_orientation_restores_tracking_behavior(rt):
         np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
 
 
+def test_releasing_orientation_resets_snapshot_and_reacquires_same_speech_id(rt):
+    """A stale coordinator session would reject this same-ID orientation retry."""
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+
+    rt.release_orientation()
+
+    released = rt.orientation_snapshot()
+    assert released.state == "idle"
+    assert released.speech_id is None
+    assert released.target_yaw is None
+    assert released.clamped is False
+    assert released.code == "idle"
+
+    reacquired = rt.acquire_orientation("speech-1", -.4, now=.1)
+    assert reacquired.state == "orienting"
+    assert reacquired.target_yaw == pytest.approx(-.4)
+    assert rt.step().trace.per_layer["orientation"][0] == 1.0
+
+
 def test_initial_pose_outside_calibration_is_rejected_without_sending():
     initial = REST_POSE.copy()
     initial[0] = HardwareAlignment.load().joint_limits[0, 1] + 0.01
