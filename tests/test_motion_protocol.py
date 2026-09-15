@@ -1,10 +1,18 @@
 import json
+import math
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 
-from motion.protocol import ProtocolError, decode_request, encode_message
+from motion.protocol import (
+    LOCAL_COMMAND_TYPES,
+    REMOTE_COMMAND_TYPES,
+    ProtocolError,
+    decode_local_request,
+    decode_request,
+    encode_message,
+)
 
 
 REQUEST_ID = "0199f3c0-0b5f-7b55-a020-7c8b4012d8ce"
@@ -142,3 +150,72 @@ def test_golden_server_events_round_trip_as_json():
     for message in vectors["events"]:
         UUID(message["id"])
         assert json.loads(encode_message(message)) == message
+
+
+SPEECH_ID = "00000000-0000-0000-0000-000000000001"
+LOCAL_ID = "00000000-0000-0000-0000-000000000002"
+
+
+def local_request_line(kind="orientation.acquire", *, payload=None, **overrides) -> bytes:
+    message = {
+        "version": 1,
+        "id": LOCAL_ID,
+        "type": kind,
+        "ttl_ms": 1_000,
+        "payload": payload if payload is not None else {
+            "speech_id": SPEECH_ID,
+            "target_yaw": .4,
+        },
+    }
+    message.update(overrides)
+    return json.dumps(message, allow_nan=True).encode() + b"\n"
+
+
+def test_remote_decoder_rejects_local_orientation_acquire_with_stable_code():
+    with pytest.raises(ProtocolError, match="local_only"):
+        decode_request(
+            request_line(type="orientation.acquire", payload={
+                "speech_id": SPEECH_ID,
+                "target_yaw": .4,
+            }),
+            token="secret",
+            received_at=1.,
+        )
+
+
+def test_local_decoder_accepts_exact_orientation_payload_without_token():
+    request = decode_local_request(local_request_line(), received_at=1.)
+
+    assert request.payload == {"speech_id": SPEECH_ID, "target_yaw": .4}
+    assert request.expires_at == 2.
+
+
+@pytest.mark.parametrize(
+    ("line", "code"),
+    [
+        (local_request_line(payload={"speech_id": "0199F3C0-0B5F-7B55-A020-7C8B4012D8CE", "target_yaw": .4}), "invalid_id"),
+        (local_request_line(payload={"speech_id": SPEECH_ID, "target_yaw": float("nan")}), "non_finite"),
+        (local_request_line(payload={"speech_id": SPEECH_ID, "target_yaw": math.pi + .001}), "out_of_range"),
+        (local_request_line(token="secret"), "invalid_message"),
+        (local_request_line("motion.status", payload={}), "remote_only"),
+        (local_request_line("orientation.return_center", payload={"extra": True}), "invalid_payload"),
+        (local_request_line("orientation.status", payload={"extra": True}), "invalid_payload"),
+    ],
+)
+def test_local_decoder_rejects_non_local_or_unsafe_requests(line, code):
+    with pytest.raises(ProtocolError, match=code):
+        decode_local_request(line, received_at=1.)
+
+
+@pytest.mark.parametrize("kind", ["orientation.return_center", "orientation.status"])
+def test_local_decoder_requires_empty_payload_for_return_and_status(kind):
+    request = decode_local_request(local_request_line(kind, payload={}), received_at=1.)
+
+    assert request.type == kind
+    assert request.payload == {}
+
+
+def test_command_type_exports_keep_orientation_off_authenticated_remote_surface():
+    assert "orientation.acquire" in LOCAL_COMMAND_TYPES
+    assert "orientation.acquire" not in REMOTE_COMMAND_TYPES
+    assert "system.heartbeat" in LOCAL_COMMAND_TYPES & REMOTE_COMMAND_TYPES

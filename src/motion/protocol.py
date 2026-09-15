@@ -14,7 +14,7 @@ from uuid import UUID
 
 PROTOCOL_VERSION = 1
 MAX_LINE_BYTES = 16 * 1024
-COMMAND_TYPES = frozenset(
+REMOTE_COMMAND_TYPES = frozenset(
     {
         "motion.play",
         "motion.cancel",
@@ -30,8 +30,19 @@ COMMAND_TYPES = frozenset(
         "system.heartbeat",
     }
 )
+LOCAL_COMMAND_TYPES = frozenset(
+    {
+        "orientation.acquire",
+        "orientation.return_center",
+        "orientation.status",
+        "system.heartbeat",
+    }
+)
+# Kept for callers of the original authenticated TCP protocol.
+COMMAND_TYPES = REMOTE_COMMAND_TYPES
 
 _REQUIRED_FIELDS = frozenset({"version", "id", "type", "ttl_ms", "token", "payload"})
+_LOCAL_REQUIRED_FIELDS = frozenset({"version", "id", "type", "ttl_ms", "payload"})
 _MOTION_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _EMPTY_PAYLOAD_TYPES = frozenset(
     {"motion.interrupt", "motion.status", "motion.list", "track.clear", "task_light.clear", "system.heartbeat"}
@@ -57,6 +68,33 @@ class Request:
 
 def decode_request(line: bytes, *, token: str, received_at: float) -> Request:
     """Decode an authenticated command received at Pi monotonic time ``received_at``."""
+    return _decode(
+        line,
+        received_at=received_at,
+        allowed_types=REMOTE_COMMAND_TYPES,
+        token_required=True,
+        expected_token=token,
+    )
+
+
+def decode_local_request(line: bytes, *, received_at: float) -> Request:
+    """Decode a token-free orientation request from the protected Unix socket."""
+    return _decode(
+        line,
+        received_at=received_at,
+        allowed_types=LOCAL_COMMAND_TYPES,
+        token_required=False,
+    )
+
+
+def _decode(
+    line: bytes,
+    *,
+    received_at: float,
+    allowed_types: frozenset[str],
+    token_required: bool,
+    expected_token: str | None = None,
+) -> Request:
     if not isinstance(line, bytes):
         raise ProtocolError("invalid_line", "request line must be bytes")
     if len(line) > MAX_LINE_BYTES:
@@ -78,7 +116,12 @@ def decode_request(line: bytes, *, token: str, received_at: float) -> Request:
     if not isinstance(message, dict):
         raise ProtocolError("invalid_message", "request must be a JSON object")
     _reject_non_finite(message)
-    _validate_envelope(message, token)
+    _validate_envelope(
+        message,
+        allowed_types=allowed_types,
+        token_required=token_required,
+        expected_token=expected_token,
+    )
     request_type = message["type"]
     assert isinstance(request_type, str)
     payload = message["payload"]
@@ -108,12 +151,19 @@ def encode_message(message: Mapping[str, object]) -> bytes:
     return encoded
 
 
-def _validate_envelope(message: dict[str, Any], expected_token: str) -> None:
+def _validate_envelope(
+    message: dict[str, Any],
+    *,
+    allowed_types: frozenset[str],
+    token_required: bool,
+    expected_token: str | None,
+) -> None:
+    required_fields = _REQUIRED_FIELDS if token_required else _LOCAL_REQUIRED_FIELDS
     fields = frozenset(message)
-    missing = _REQUIRED_FIELDS - fields
+    missing = required_fields - fields
     if missing:
         raise ProtocolError("missing_field", f"missing required field: {sorted(missing)[0]}")
-    extras = fields - _REQUIRED_FIELDS
+    extras = fields - required_fields
     if extras:
         raise ProtocolError("invalid_message", f"unexpected field: {sorted(extras)[0]}")
 
@@ -128,22 +178,47 @@ def _validate_envelope(message: dict[str, Any], expected_token: str) -> None:
         raise ProtocolError("invalid_id", "id must be canonical UUID text")
 
     request_type = message["type"]
-    if not isinstance(request_type, str) or request_type not in COMMAND_TYPES:
+    if not isinstance(request_type, str):
+        raise ProtocolError("unknown_type", "type is not an allowed command")
+    if request_type not in allowed_types:
+        if token_required and request_type in LOCAL_COMMAND_TYPES:
+            raise ProtocolError("local_only", "type is only allowed on the local control socket")
+        if not token_required and request_type in REMOTE_COMMAND_TYPES:
+            raise ProtocolError("remote_only", "type is only allowed on the authenticated remote socket")
         raise ProtocolError("unknown_type", "type is not an allowed command")
 
     ttl_ms = message["ttl_ms"]
     if not isinstance(ttl_ms, int) or isinstance(ttl_ms, bool) or not 1 <= ttl_ms <= 10_000:
         raise ProtocolError("invalid_ttl", "ttl_ms must be an integer from 1 to 10000")
 
-    supplied_token = message["token"]
-    if not _tokens_match(supplied_token, expected_token):
-        raise ProtocolError("unauthorized", "token does not match")
+    if token_required:
+        supplied_token = message["token"]
+        if not _tokens_match(supplied_token, expected_token):
+            raise ProtocolError("unauthorized", "token does not match")
 
     if not isinstance(message["payload"], dict):
         raise ProtocolError("invalid_payload", "payload must be a JSON object")
 
 
 def _validate_payload(request_type: str, payload: dict[str, object]) -> None:
+    if request_type == "orientation.acquire":
+        _require_exact_fields(payload, {"speech_id", "target_yaw"})
+        speech_id = payload["speech_id"]
+        if not isinstance(speech_id, str) or not _is_canonical_uuid(speech_id):
+            raise ProtocolError("invalid_id", "speech_id must be canonical UUID text")
+        target_yaw = payload["target_yaw"]
+        if not _is_number(target_yaw):
+            raise ProtocolError("invalid_payload", "target_yaw must be a number")
+        if isinstance(target_yaw, float) and not math.isfinite(target_yaw):
+            raise ProtocolError("non_finite", "target_yaw must be finite")
+        if not -math.pi <= target_yaw <= math.pi:
+            raise ProtocolError("out_of_range", "target_yaw must be from -pi to pi")
+        return
+
+    if request_type in {"orientation.return_center", "orientation.status"}:
+        _require_exact_fields(payload, set())
+        return
+
     if request_type == "motion.play":
         _require_exact_fields(payload, {"name", "replace_current", "intensity", "repeat"})
         name = payload["name"]

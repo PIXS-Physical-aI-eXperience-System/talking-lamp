@@ -2,6 +2,10 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
 import json
+import os
+from pathlib import Path
+import socket
+import stat
 import time
 from uuid import uuid4
 
@@ -11,6 +15,7 @@ from motion.catalog import MotionCatalog
 from motion.config import RECORDINGS_DIR
 from motion.controller import MotionController
 from motion.idle import IdleConfig
+from motion.local_control import MotionUnixServer
 from motion.middleware_server import MotionTcpServer
 from motion.protocol import MAX_LINE_BYTES, encode_message
 from motion.remote_client import MotionClient, build_parser, main
@@ -23,6 +28,18 @@ PLAY = dict(name="nod", replace_current=True, intensity=0., repeat=1)
 def envelope(kind="motion.status", *, ident=None, token=TOKEN, payload=None):
     return encode_message(dict(version=1, id=ident or str(uuid4()), type=kind,
                                ttl_ms=1000, token=token, payload=payload or {}))
+
+
+LOCAL_SPEECH_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def local_wire(kind="orientation.status", *, ident=None, ttl_ms=1000, payload=None,
+               speech_id=LOCAL_SPEECH_ID, target_yaw=.2):
+    if payload is None:
+        payload = ({"speech_id": speech_id, "target_yaw": target_yaw}
+                   if kind == "orientation.acquire" else {})
+    return encode_message(dict(version=1, id=ident or str(uuid4()), type=kind,
+                               ttl_ms=ttl_ms, payload=payload))
 
 
 async def eventually(predicate, timeout=2):
@@ -56,6 +73,29 @@ async def running_server(**options):
     ticker = asyncio.create_task(tick())
     try:
         yield server, server.sockets[0].getsockname()[1], disconnects
+    finally:
+        await server.close()
+        ticker.cancel()
+        with suppress(asyncio.CancelledError):
+            await ticker
+
+
+@asynccontextmanager
+async def running_local_server(tmp_path):
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                  idle_cfg=IdleConfig(enabled=False)), catalog)
+    server = MotionUnixServer(controller, tmp_path / "motion.sock")
+    await server.start()
+
+    async def tick():
+        while True:
+            controller.tick_once(now=time.monotonic())
+            await asyncio.sleep(.001)
+
+    ticker = asyncio.create_task(tick())
+    try:
+        yield server, controller
     finally:
         await server.close()
         ticker.cancel()
@@ -614,3 +654,136 @@ sys.addaudithook(audit)
         if process.poll() is None:
             process.kill()
             process.communicate()
+
+
+def test_unix_server_uses_protected_default_socket_path():
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+
+    assert MotionUnixServer(controller).path == Path("/run/talking-lamp/motion-control.sock")
+
+
+def test_unix_server_returns_accepted_then_aligned(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(local_wire("orientation.acquire", target_yaw=.2))
+            await writer.drain()
+            assert (await receive(reader))["state"] == "accepted"
+            assert (await receive(reader))["code"] == "aligned"
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_socket_mode_is_group_read_write(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            assert stat.S_IMODE(os.stat(server.path).st_mode) == 0o660
+    asyncio.run(scenario())
+
+
+def test_unix_server_replaces_only_a_stale_socket(tmp_path):
+    async def scenario():
+        path = tmp_path / "motion.sock"
+        stale = socket.socket(socket.AF_UNIX)
+        stale.bind(str(path))
+        stale.close()
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+        server = MotionUnixServer(controller, path)
+        await server.start()
+        try:
+            assert stat.S_ISSOCK(os.lstat(path).st_mode)
+        finally:
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_unix_server_refuses_to_replace_regular_file(tmp_path):
+    async def scenario():
+        path = tmp_path / "motion.sock"
+        path.write_text("do not unlink")
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+        with pytest.raises(FileExistsError):
+            await MotionUnixServer(controller, path).start()
+        assert path.read_text() == "do not unlink"
+    asyncio.run(scenario())
+
+
+def test_unix_server_rejects_oversized_line_and_closes(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(b"x" * (MAX_LINE_BYTES + 2) + b"\n")
+            await writer.drain()
+            assert (await receive(reader))["code"] == "line_too_long"
+            assert await reader.read() == b""
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_closes_after_three_schema_errors(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(b"{\n" * 3)
+            await writer.drain()
+            assert [(await receive(reader))["code"] for _ in range(3)] == ["invalid_json"] * 3
+            assert await reader.read() == b""
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_forwards_expired_request_to_controller(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        server = MotionUnixServer(controller, tmp_path / "motion.sock")
+        await server.start()
+        try:
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(local_wire("orientation.status", ttl_ms=1))
+            await writer.drain()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            assert (await receive(reader))["code"] == "expired"
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_unix_server_duplicate_id_reuses_controller_ticket(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            ident = str(uuid4())
+            line = local_wire("orientation.status", ident=ident)
+            writer.write(line)
+            await writer.drain()
+            first = [await receive(reader), await receive(reader)]
+            writer.write(line)
+            await writer.drain()
+            assert [await receive(reader), await receive(reader)] == first
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_close_removes_its_socket(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+        path = tmp_path / "motion.sock"
+        server = MotionUnixServer(controller, path)
+        await server.start()
+        assert path.exists()
+        await server.close()
+        assert not path.exists()
+    asyncio.run(scenario())
