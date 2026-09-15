@@ -571,3 +571,42 @@ def test_disconnect_starts_center_return_only_after_orientation_hold(controller)
     controller.tick_once(now=12.)
 
     assert controller.snapshot().orientation_state == "returning"
+
+
+def test_orientation_acquire_replaces_an_accepted_return_ticket(controller):
+    initial = controller.submit(orient(target_yaw=.27))
+    controller.tick_once(now=1.)
+    assert initial.completed.result().code == "aligned"
+    returned = controller.submit(request("orientation.return_center", "return"))
+    controller.tick_once(now=2.)
+    assert returned.accepted.result().state == "accepted"
+    assert not returned.completed.done()
+
+    acquired = controller.submit(orient("replacement", speech_id="new-speaker", target_yaw=.4))
+    controller.tick_once(now=2.01)
+
+    assert returned.completed.done()
+    assert returned.completed.result().code == "replaced"
+    assert acquired.accepted.result().state == "accepted"
+    assert controller.snapshot().orientation_target_yaw == pytest.approx(.4)
+
+
+def test_duplicate_acquire_keeps_an_accepted_return_ticket(controller):
+    initial = controller.submit(orient(target_yaw=.27))
+    controller.tick_once(now=1.)
+    assert initial.completed.result().code == "aligned"
+    returned = controller.submit(request("orientation.return_center", "return"))
+    controller.tick_once(now=2.)
+    assert returned.accepted.result().state == "accepted"
+
+    duplicate = controller.submit(orient("duplicate", target_yaw=.4))
+    controller.tick_once(now=2.01)
+
+    assert duplicate.completed.done()
+    assert duplicate.completed.result().code == "duplicate"
+    assert not returned.completed.done()
+    for index in range(100):
+        controller.tick_once(now=2.02 + index / 100)
+        if returned.completed.done():
+            break
+    assert returned.completed.result().code == "centered"

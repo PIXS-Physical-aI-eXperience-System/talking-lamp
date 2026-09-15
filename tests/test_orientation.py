@@ -253,3 +253,25 @@ def test_coordinator_returns_after_exact_disconnected_hold():
 
     assert state.state == "returning"
     assert state.code == "returning"
+
+
+def test_coordinator_disconnect_hold_returns_an_orienting_anchor():
+    coordinator = make_coordinator(disconnect_hold=.1, acquire_timeout=2.0)
+    assert coordinator.acquire("speech-1", .4, now=0.0, current_yaw=0.0,
+                               task_light_busy=False).state == "orienting"
+
+    coordinator.disconnected(now=1.0)
+    assert coordinator.observe(now=1.09, current_yaw=0.0, velocity=.2).state == "orienting"
+
+    assert coordinator.observe(now=1.1, current_yaw=0.0, velocity=.2).state == "returning"
+
+
+def test_coordinator_disconnect_hold_returns_a_timed_out_anchor():
+    coordinator = make_coordinator(disconnect_hold=.1, acquire_timeout=.05)
+    coordinator.acquire("speech-1", .4, now=0.0, current_yaw=0.0, task_light_busy=False)
+    assert coordinator.observe(now=.05, current_yaw=0.0, velocity=.2).state == "timeout"
+
+    coordinator.disconnected(now=1.0)
+    assert coordinator.observe(now=1.09, current_yaw=0.0, velocity=.2).state == "timeout"
+
+    assert coordinator.observe(now=1.1, current_yaw=0.0, velocity=.2).state == "returning"

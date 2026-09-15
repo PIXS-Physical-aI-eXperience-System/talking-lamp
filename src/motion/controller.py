@@ -317,6 +317,11 @@ class MotionController:
             if snapshot.code == "blocked_by_task_light":
                 self._finish(ticket, "failed", snapshot.code, data=data)
                 return
+            if self._return_ticket is not None:
+                if snapshot.state == "returning":
+                    self._finish(ticket, "completed", "duplicate", data=data)
+                    return
+                self._cancel_return("replaced")
             if self._orientation_ticket is not None:
                 if snapshot.speech_id == payload["speech_id"]:
                     self._finish(ticket, "completed", "duplicate", data=data)

@@ -211,7 +211,7 @@ class OrientationCoordinator:
         self._current_yaw = self._finite(current_yaw, "current yaw")
         velocity = self._finite(velocity, "velocity")
 
-        if self._state == "aligned" and self._disconnected_at is not None:
+        if self._state in {"orienting", "aligned", "timeout"} and self._disconnected_at is not None:
             if now - self._disconnected_at >= self.cfg.disconnect_hold:
                 self.return_center(now=now, current_yaw=current_yaw, motion_busy=False)
                 return self._snapshot()
