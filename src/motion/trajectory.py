@@ -221,7 +221,14 @@ class _Analytic:
             ah = tg.amax * h
             v_hi = np.sqrt(ah**2 + 2 * tg.amax * np.maximum(hi - tg.pos, 0)) - ah
             v_lo = np.sqrt(ah**2 + 2 * tg.amax * np.maximum(tg.pos - lo, 0)) - ah
-            new_vel = np.clip(new_vel, -v_lo, v_hi)
+            # Tightening bounds may invalidate the old state's braking room.
+            # Intersect all next-velocity constraints before touching state;
+            # clipping only to the braking cap could demand an instant stop.
+            allowed_lo = np.maximum.reduce((tg.vel - ah, -tg.vmax, -v_lo, (lo - tg.pos) / h))
+            allowed_hi = np.minimum.reduce((tg.vel + ah, tg.vmax, v_hi, (hi - tg.pos) / h))
+            if np.any(allowed_lo > allowed_hi):
+                raise RuntimeError("No acceleration-feasible trajectory inside joint position limits")
+            new_vel = np.clip(new_vel, allowed_lo, allowed_hi)
         tg.acc = (new_vel - tg.vel) / h
         tg.vel = new_vel
         tg.pos = tg.pos + tg.vel * h

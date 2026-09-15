@@ -810,3 +810,75 @@ def test_replacement_load_failure_faults_without_falsely_reporting_replaced(cont
     assert controller.snapshot().state == "fault"
     assert outgoing.completed.result().code == "fault"
     assert incoming.completed.result().code == "fault"
+
+
+@pytest.mark.parametrize("endpoint", [0, 1])
+def test_outward_momentum_cannot_violate_acceleration_when_orientation_tightens(endpoint):
+    """An infeasible margin change faults without sending a fabricated instant stop."""
+    from motion.config import REST_POSE
+    from motion.hardware_alignment import HardwareAlignment
+    sign = -1 if endpoint == 0 else 1
+    hard = HardwareAlignment.load().joint_limits
+    initial, rest = REST_POSE.copy(), REST_POSE.copy()
+    initial[0] = hard[0, endpoint] - sign * .185
+    rest[0] = hard[0, endpoint] - sign * .001
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    runtime = MotionRuntime(initial_pose=initial, rest_pose=rest,
+                            primitives=catalog.library(), idle_cfg=IdleConfig(enabled=False))
+    controller = MotionController(runtime, catalog)
+    safe = runtime.orientation_safe_yaw_limits()[endpoint]
+    for index in range(500):
+        controller.tick_once(now=index / 100)
+        assert np.all(np.abs(runtime.traj.acc) <= runtime.traj.amax + 1e-8)
+        if sign * (runtime.traj.pos[0] - safe) > .012:
+            break
+    assert sign * runtime.traj.vel[0] > .1
+    before = runtime.traj.state
+    output = runtime.backend.measured().copy()
+    sent_ticks = controller.snapshot().sent_ticks
+    ticket = controller.submit(orient(target_yaw=runtime.traj.pos[0]), origin="local")
+    controller.tick_once(now=(index + 1) / 100)
+    # Check the physical invariant first so the original bug exposes its
+    # measured acceleration, rather than failing only a status assertion.
+    assert np.all(np.abs(runtime.traj.acc) <= runtime.traj.amax + 1e-8)
+    for actual, expected in zip(runtime.traj.state, before):
+        np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_array_equal(runtime.backend.measured(), output)
+    np.testing.assert_array_equal(runtime.traj.position_limits, hard)
+    assert controller.snapshot().sent_ticks == sent_ticks
+    assert controller.snapshot().state == "fault"
+    assert ticket.accepted.result().state == "accepted"
+    assert ticket.completed.result().code == "fault"
+    assert controller.submit(play("after-fault")).completed.result().code == "fault"
+
+
+@pytest.mark.parametrize("endpoint", [0, 1])
+def test_feasible_orientation_tightening_preserves_outward_motion_limits(endpoint):
+    """A moving state with braking room must still acquire and settle normally."""
+    from motion.config import REST_POSE
+    from motion.hardware_alignment import HardwareAlignment
+    sign = -1 if endpoint == 0 else 1
+    hard = HardwareAlignment.load().joint_limits
+    initial, rest = REST_POSE.copy(), REST_POSE.copy()
+    initial[0] = hard[0, endpoint] - sign * .185
+    rest[0] = hard[0, endpoint] - sign * .001
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    runtime = MotionRuntime(initial_pose=initial, rest_pose=rest,
+                            primitives=catalog.library(), idle_cfg=IdleConfig(enabled=False))
+    controller = MotionController(runtime, catalog)
+    for index in range(2):
+        controller.tick_once(now=index / 100)
+    assert sign * runtime.traj.vel[0] > 0.
+    before = runtime.traj.pos[0]
+    target = runtime.orientation_safe_yaw_limits()[endpoint]
+    ticket = controller.submit(orient(target_yaw=target), origin="local")
+    lo, hi = runtime.orientation_safe_yaw_limits()
+    for index in range(300):
+        controller.tick_once(now=.05 + index / 100)
+        assert controller.snapshot().fault is None
+        assert np.all(np.abs(runtime.traj.acc) <= runtime.traj.amax + 1e-8)
+        assert np.all(np.abs(runtime.traj.vel) <= runtime.traj.vmax + 1e-8)
+        assert lo - 1e-9 <= runtime.backend.measured()[0] <= hi + 1e-9
+    assert sign * (runtime.backend.measured()[0] - before) > .05
+    assert ticket.completed.result().code == "aligned"
+    np.testing.assert_array_equal(runtime.traj.position_limits, hard)
