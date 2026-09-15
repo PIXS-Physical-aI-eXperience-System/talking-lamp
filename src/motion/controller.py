@@ -19,6 +19,7 @@ import numpy as np
 
 from .catalog import MotionCatalog
 from .config import DEADLINE_JITTER_SECONDS
+from .orientation import OrientationError
 from .primitives import DEFAULT_SCALE
 from .protocol import Request
 from .runtime import MotionRuntime, StepState
@@ -33,6 +34,12 @@ class ControllerStatus:
     sent_ticks: int
     deadline_misses: int
     progress: float = 0.0
+    orientation_state: str = "idle"
+    orientation_speech_id: str | None = None
+    orientation_target_yaw: float | None = None
+    orientation_current_yaw: float = 0.0
+    orientation_clamped: bool = False
+    primitive_yaw_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,9 @@ class MotionController:
         self._settled_ticks = 0
         self._task_ticket: CommandTicket | None = None
         self._task_settled_ticks = 0
+        self._orientation_ticket: CommandTicket | None = None
+        self._return_ticket: CommandTicket | None = None
+        self._primitive_yaw_scale = 1.0
         self._safe_wait = False
         self._fault: str | None = None
         self._sent_ticks = 0
@@ -169,7 +179,10 @@ class MotionController:
 
     def _cancel_motion(self, code: str) -> None:
         if self._active is not None:
-            self._finish(self._active[1], "cancelled", code)
+            self._finish(
+                self._active[1], "cancelled", code,
+                data={"yaw_scale": self._primitive_yaw_scale},
+            )
             self._active = None
         self._repeats_left = 0
         self._settled_ticks = 0
@@ -179,6 +192,16 @@ class MotionController:
             self._finish(self._task_ticket, "cancelled", code)
             self._task_ticket = None
         self._task_settled_ticks = 0
+
+    def _cancel_orientation(self, code: str) -> None:
+        if self._orientation_ticket is not None:
+            self._finish(self._orientation_ticket, "cancelled", code)
+            self._orientation_ticket = None
+
+    def _cancel_return(self, code: str) -> None:
+        if self._return_ticket is not None:
+            self._finish(self._return_ticket, "cancelled", code)
+            self._return_ticket = None
 
     def _clear_mailbox(self, state: str, code: str, message: str = "") -> None:
         with self._lock:
@@ -191,7 +214,7 @@ class MotionController:
             for ticket in list(self._pending.values()):
                 self._finish(ticket, state, code, message)
 
-    def _safe_disconnect(self) -> bool:
+    def _safe_disconnect(self, now: float) -> bool:
         with self._lock:
             if not self._disconnect:
                 return False
@@ -202,6 +225,9 @@ class MotionController:
         self._tracking_expires.clear()
         self._cancel_motion("disconnected")
         self._cancel_task("disconnected")
+        self._cancel_orientation("disconnected")
+        self._cancel_return("disconnected")
+        self.runtime.orientation_control.disconnected(now=now)
         self._safe_wait = True
         return True
 
@@ -233,11 +259,27 @@ class MotionController:
             self._finish(ticket, "completed", "completed")
 
     def _start_clip(self, request: Request) -> None:
-        self.runtime.play_primitive(
+        info = self.runtime.play_primitive(
             request.payload["name"],
             scale=DEFAULT_SCALE * request.payload["intensity"],
             loop=False,  # A remote action is finite, including the idle recording.
         )
+        self._primitive_yaw_scale = info.yaw_scale
+
+    def _orientation_data(self) -> dict[str, object]:
+        return asdict(self.runtime.orientation_snapshot())
+
+    def _observe_orientation(self, step: StepState, now: float) -> None:
+        snapshot = self.runtime.orientation_control.observe(
+            now=now, current_yaw=float(step.q_cmd[0]), velocity=float(step.vel[0]),
+        )
+        data = asdict(snapshot)
+        if snapshot.state in {"aligned", "timeout"} and self._orientation_ticket is not None:
+            self._finish(self._orientation_ticket, "completed", snapshot.code, data=data)
+            self._orientation_ticket = None
+        if snapshot.state == "centered" and self._return_ticket is not None:
+            self._finish(self._return_ticket, "completed", snapshot.code, data=data)
+            self._return_ticket = None
 
     def _apply_one_discrete_command(self, now: float) -> None:
         try:
@@ -261,6 +303,51 @@ class MotionController:
             self._repeats_left = payload["repeat"] - 1
             self._safe_wait = False
             self._accept(ticket)
+            return
+        if kind == "orientation.acquire":
+            try:
+                snapshot = self.runtime.acquire_orientation(
+                    payload["speech_id"], payload["target_yaw"], now=now,
+                )
+            except (KeyError, TypeError, OrientationError) as exc:
+                code = exc.code if isinstance(exc, OrientationError) else "invalid_orientation_request"
+                self._finish(ticket, "failed", code, str(exc))
+                return
+            data = asdict(snapshot)
+            if snapshot.code == "blocked_by_task_light":
+                self._finish(ticket, "failed", snapshot.code, data=data)
+                return
+            if self._orientation_ticket is not None:
+                if snapshot.speech_id == payload["speech_id"]:
+                    self._finish(ticket, "completed", "duplicate", data=data)
+                    return
+                self._cancel_orientation("replaced")
+            self._accept(ticket)
+            if snapshot.state == "aligned":
+                self._finish(ticket, "completed", "aligned", data=data)
+            else:
+                self._orientation_ticket = ticket
+            return
+        if kind == "orientation.return_center":
+            primitive_busy = self._active is not None or self.runtime.primitive.busy
+            if primitive_busy or self.runtime.task_light.busy:
+                self._finish(ticket, "failed", "busy")
+                return
+            try:
+                self.runtime.return_center(now=now, motion_busy=primitive_busy)
+            except OrientationError as exc:
+                self._finish(ticket, "failed", exc.code, str(exc))
+                return
+            self._cancel_orientation("replaced")
+            self._cancel_return("replaced")
+            self._return_ticket = ticket
+            self._safe_wait = False
+            self._accept(ticket)
+            return
+        if kind == "orientation.status":
+            data = self._orientation_data()
+            self._accept(ticket)
+            self._finish(ticket, "completed", "completed", data=data)
             return
         if kind == "motion.cancel":
             if self._active is None or self._active[0].id != payload["request_id"]:
@@ -315,7 +402,10 @@ class MotionController:
                     not self.runtime.primitive.busy and slow
                 ) else 0
                 if self._settled_ticks >= 5:
-                    self._finish(self._active[1], "completed", "completed")
+                    self._finish(
+                        self._active[1], "completed", "completed",
+                        data={"yaw_scale": self._primitive_yaw_scale},
+                    )
                     self._active = None
         if self._task_ticket is not None and not self._task_ticket.completed.done():
             self._task_settled_ticks = self._task_settled_ticks + 1 if (
@@ -325,7 +415,11 @@ class MotionController:
                 self._finish(self._task_ticket, "completed", "completed")
 
     def _publish_status(self) -> None:
-        busy = self._active is not None or self.runtime.primitive.busy or self.runtime.task_light.busy
+        orientation = self.runtime.orientation_snapshot()
+        busy = (
+            self._active is not None or self.runtime.primitive.busy or self.runtime.task_light.busy
+            or orientation.state in {"orienting", "returning"}
+        )
         state = "fault" if self._fault else (
             "stopped" if self._stop_event.is_set() else (
                 "safe_wait" if self._safe_wait else ("busy" if busy else "idle")
@@ -341,15 +435,21 @@ class MotionController:
             self._status = ControllerStatus(
                 state, self.runtime.primitive.active_name, busy, self._fault,
                 self._sent_ticks, self._deadline_misses, progress,
+                orientation.state, orientation.speech_id, orientation.target_yaw,
+                orientation.current_yaw, orientation.clamped, self._primitive_yaw_scale,
             )
 
     def _shutdown(self) -> None:
+        code = "fault" if self._fault else "stopped"
         self._clear_mailbox("failed" if self._fault else "cancelled",
-                            "fault" if self._fault else "stopped", self._fault or self._stop_reason)
+                            code, self._fault or self._stop_reason)
         self._active = None
         self._task_ticket = None
+        self._orientation_ticket = None
+        self._return_ticket = None
         self.runtime.clear_tracking()
         self.runtime.barge_in()
+        self.runtime.release_orientation()
         self._publish_status()
 
     def tick_once(self, *, now: float) -> None:
@@ -361,11 +461,12 @@ class MotionController:
             if self._stop_event.is_set():
                 self._shutdown()
                 return
-            if not self._safe_disconnect():
+            if not self._safe_disconnect(now):
                 self._apply_latest_tracking(now)
                 self._apply_one_discrete_command(now)
             step = self.runtime.step()
             self._sent_ticks += 1
+            self._observe_orientation(step, now)
             self._update_active_ticket(step)
             self._publish_status()
         except Exception as exc:

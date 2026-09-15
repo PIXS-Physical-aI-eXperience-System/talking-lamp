@@ -8,6 +8,7 @@ from motion.catalog import MotionCatalog
 from motion.config import RECORDINGS_DIR
 from motion.controller import MotionController
 from motion.idle import IdleConfig
+from motion.orientation import OrientationConfig
 from motion.protocol import Request
 from motion.runtime import MotionRuntime, NullBackend
 
@@ -19,6 +20,10 @@ def request(kind, ident="a", expires_at=1000., **payload):
 def play(ident="a", name="nod", **kw):
     return request("motion.play", ident, **dict(name=name, replace_current=False,
                    intensity=1., repeat=1, **kw))
+
+
+def orient(ident="orientation", speech_id="speech-1", target_yaw=.4):
+    return request("orientation.acquire", ident, speech_id=speech_id, target_yaw=target_yaw)
 
 
 @pytest.fixture
@@ -419,3 +424,150 @@ def test_finishing_old_hold_preserves_new_same_id_ticket_after_cache_eviction(co
     assert new_ticket.completed.done()
     assert new_ticket.completed.result().state == "cancelled"
     assert old_ticket.completed.result().state == "completed"
+
+
+def test_orientation_ticket_completes_only_after_settle(controller):
+    ticket = controller.submit(orient(
+        speech_id="00000000-0000-0000-0000-000000000001", target_yaw=.4,
+    ))
+
+    controller.tick_once(now=1.)
+
+    assert ticket.accepted.result().state == "accepted"
+    assert not ticket.completed.done()
+    for index in range(300):
+        controller.tick_once(now=1.01 + index / 100)
+        if ticket.completed.done():
+            break
+    assert ticket.completed.result().code == "aligned"
+
+
+def test_orientation_deadband_completes_immediately(controller):
+    ticket = controller.submit(orient(target_yaw=.27))
+
+    controller.tick_once(now=1.)
+
+    assert ticket.accepted.result().state == "accepted"
+    assert ticket.completed.done()
+    assert ticket.completed.result().code == "aligned"
+
+
+def test_orientation_acquisition_timeout_completes_ticket():
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    runtime = MotionRuntime(
+        primitives=catalog.library(), idle_cfg=IdleConfig(enabled=False),
+        orientation_cfg=OrientationConfig(acquire_timeout=.02),
+    )
+    controller = MotionController(runtime, catalog)
+    ticket = controller.submit(orient(target_yaw=.8))
+
+    controller.tick_once(now=1.)
+    controller.tick_once(now=1.03)
+
+    assert ticket.completed.result().code == "timeout"
+
+
+def test_duplicate_orientation_speech_id_does_not_retarget_active_request(controller):
+    original = controller.submit(orient("first", speech_id="speaker", target_yaw=.4))
+    duplicate = controller.submit(orient("second", speech_id="speaker", target_yaw=-.4))
+
+    controller.tick_once(now=1.)
+    controller.tick_once(now=1.01)
+
+    assert original.accepted.result().state == "accepted"
+    assert controller.runtime.orientation_snapshot().target_yaw == pytest.approx(.4)
+    assert duplicate.completed.result().code == "duplicate"
+
+
+def test_orientation_acquire_rejects_active_task_light(controller):
+    task = controller.submit(request("task_light.place", point=[.24, 0., 0.]))
+    controller.tick_once(now=1.)
+    ticket = controller.submit(orient())
+
+    controller.tick_once(now=1.01)
+
+    assert task.accepted.result().state == "accepted"
+    assert ticket.completed.result().code == "blocked_by_task_light"
+    assert controller.runtime.orientation_snapshot().state == "idle"
+
+
+def test_orientation_return_center_rejects_busy_primitive(controller):
+    motion = controller.submit(play())
+    controller.tick_once(now=1.)
+    ticket = controller.submit(request("orientation.return_center", "return"))
+
+    controller.tick_once(now=1.01)
+
+    assert motion.accepted.result().state == "accepted"
+    assert ticket.completed.result().code == "busy"
+
+
+def test_orientation_return_center_rejects_busy_task_light(controller):
+    task = controller.submit(request("task_light.place", point=[.24, 0., 0.]))
+    controller.tick_once(now=1.)
+    ticket = controller.submit(request("orientation.return_center", "return"))
+
+    controller.tick_once(now=1.01)
+
+    assert task.accepted.result().state == "accepted"
+    assert ticket.completed.result().code == "busy"
+
+
+def test_orientation_return_center_completes_after_center_settle(controller):
+    acquired = controller.submit(orient(target_yaw=.4))
+    for index in range(300):
+        controller.tick_once(now=1. + index / 100)
+        if acquired.completed.done():
+            break
+    returned = controller.submit(request("orientation.return_center", "return"))
+
+    controller.tick_once(now=4.)
+
+    assert returned.accepted.result().state == "accepted"
+    assert not returned.completed.done()
+    for index in range(300):
+        controller.tick_once(now=4.01 + index / 100)
+        if returned.completed.done():
+            break
+    assert returned.completed.result().code == "centered"
+
+
+def test_orientation_status_and_motion_result_expose_yaw_scale(controller):
+    target_yaw = controller.runtime.orientation_safe_yaw_limits()[1] - .01
+    acquired = controller.submit(orient(target_yaw=target_yaw))
+    controller.tick_once(now=1.)
+    status = controller.submit(request("orientation.status", "status"))
+    controller.tick_once(now=1.01)
+    motion = controller.submit(play("motion", name="headshake"))
+    controller.tick_once(now=1.02)
+
+    assert acquired.accepted.result().state == "accepted"
+    assert status.completed.result().data["state"] == "orienting"
+    snapshot = controller.snapshot()
+    assert snapshot.orientation_state == "orienting"
+    assert snapshot.orientation_speech_id == "speech-1"
+    assert snapshot.orientation_target_yaw == pytest.approx(target_yaw)
+    assert snapshot.orientation_current_yaw == pytest.approx(controller.runtime.traj.pos[0])
+    assert snapshot.orientation_clamped is False
+    assert snapshot.primitive_yaw_scale < 1.0
+    for index in range(3000):
+        controller.tick_once(now=1.03 + index / 100)
+        if motion.completed.done():
+            break
+    assert motion.completed.done()
+    assert snapshot.primitive_yaw_scale == pytest.approx(motion.completed.result().data["yaw_scale"])
+
+
+def test_disconnect_starts_center_return_only_after_orientation_hold(controller):
+    acquired = controller.submit(orient(target_yaw=.27))
+    controller.tick_once(now=1.)
+    assert acquired.completed.done()
+    assert acquired.completed.result().code == "aligned"
+
+    controller.remote_disconnected()
+    controller.tick_once(now=2.)
+    controller.tick_once(now=11.99)
+    assert controller.snapshot().orientation_state == "aligned"
+    controller.tick_once(now=12.)
+
+    assert controller.snapshot().orientation_state == "returning"
