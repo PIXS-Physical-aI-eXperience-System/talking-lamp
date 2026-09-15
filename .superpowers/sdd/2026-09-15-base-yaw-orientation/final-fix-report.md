@@ -104,3 +104,43 @@ All commands ran in `/home/slihump/projects/talking-lamp/.worktrees/jetson-pi-mi
 All four Important findings and the Minor diagnostic finding are addressed. Software verification is complete; later hardware milestones remain outside this task.
 
 DONE
+
+## Fix loop 2
+
+### Root cause and design before implementation
+
+Read the updated final review completely. Its remaining Important finding is reproducible in the analytic backend: the endpoint speed-cap clip runs after the acceleration clip and assumes the old state was feasible under the effective bounds. A newly acquired orientation can shrink those bounds to the current pose while yaw still has outward momentum. The speed cap then sets velocity to zero even when `amax * dt` permits only a small reduction; the subsequent acceleration assignment exposes that illegal jump. Ruckig instead rejects such an infeasible tightened path before state or hardware changes.
+
+The working pattern is the existing intersection of velocity and braking bounds, extended to include the acceleration-reachable interval explicitly. Hypothesis: form a per-joint interval of permissible next velocities by intersecting acceleration reachability, maximum velocity, next-position bounds, and the existing braking reserve. Reject the entire step if any interval is empty, before committing any trajectory position/velocity/acceleration. For a nonempty intersection, clamp the proposed velocity into that interval and keep the existing integration. This leaves hard calibration, runtime recovery intervals, and TaskLight priority unchanged.
+
+### RED and implementation
+
+- New real controller/runtime fixtures start 0.185 rad inside each calibrated hard endpoint, with the rest target 0.001 rad inside that endpoint and idle disabled. Ordinary runtime steps produce outward momentum; no state injection or mocked trajectory is used.
+- Acquiring the current yaw after it enters the margin reproduced **+125.11950365 rad/s² at the lower endpoint and -125.11950365 rad/s² at the upper endpoint**, versus configured `amax[0] = 12 rad/s²`. Both regressions failed their acceleration invariant before the fix.
+- The two nearby feasible fixtures initially used five warmup ticks, which put their requested target inside the intentional deadband and correctly retained current yaw. Corrected the fixture to two warmup ticks before implementation, so the target lies outside the deadband while yaw already moves outward. Both feasible controls passed before the guard change; they ensure the guard cannot simply reject all moving acquisitions.
+- `_Analytic.step` now computes `allowed_lo = max(velocity - amax*dt, -vmax, -braking_speed_low, (position_low - position)/dt)` and the corresponding minimum upper bound. If any lower bound exceeds its upper bound, it raises `RuntimeError` before assigning `pos`, `vel`, or `acc`. Otherwise it constrains the proposed next velocity to the feasible intersection.
+- No velocity reset, command clipping, or extra backend send was added. The controller's existing exception path resolves the accepted orientation ticket as `fault`, publishes fault status, and rejects subsequent work. Temporary step bounds restore the calibrated hard-limit array even on rejection.
+
+### GREEN and verification
+
+- New upper/lower infeasible and nearby-feasible tests: **4 passed, 68 deselected** under the analytic backend (0.85 s) and **4 passed, 68 deselected** under default Ruckig (0.80 s).
+- Infeasible tests assert all trajectory position/velocity/acceleration arrays remain byte-identical, backend output remains unchanged, sent ticks do not advance, calibration limits remain unchanged, acceleration stays within configured limits, and accepted/current/future request fault semantics are coherent.
+- Feasible tests run 300 subsequent ticks, asserting velocity, acceleration, safe commanded yaw, forward progress, preserved hard limits, and eventual `aligned` completion.
+- Broad analytic verification (exit 0):
+
+  ```bash
+  PYTHONDONTWRITEBYTECODE=1 TALKING_LAMP_NO_RUCKIG=1 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest -p no:cacheprovider -o addopts='' -q tests/test_trajectory.py tests/test_runtime.py tests/test_motion_controller.py
+  ```
+
+  **114 passed, 2 skipped in 18.06 s**. The two skips are the existing strict jerk/smoothness tests that require Ruckig. This covers previous recovery, primitive/refit, repeated-playback, TaskLight authority, and position-bound regressions.
+- Full default suite (same full command documented above): **436 passed in 32.96 s**, exit 0.
+- `git diff --check`: exit 0; `python -m compileall -q src` with the documented environment/interpreter: exit 0. Both were repeated immediately before the fix commit.
+
+### Commit and remaining risks
+
+- `5e43c2feed537916b06841396047a6797d71c4f5` — `fix(motion): reject infeasible analytic bound tightening`, changing only `src/motion/trajectory.py` and `tests/test_motion_controller.py`.
+- This appended evidence is committed separately as `docs: record analytic tightening fix verification`.
+- No policy expansion: infeasible tightening faults on either backend; feasible recovery remains permitted. The analytic backend still has its documented lack of a jerk guarantee. Software rejecting a command is not a hardware stopping-distance measurement; Pi commissioning remains outstanding and outside this milestone.
+- No new subagents, hardware actions, pushes, or merges.
+
+DONE
