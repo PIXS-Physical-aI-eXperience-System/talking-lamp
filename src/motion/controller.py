@@ -288,13 +288,13 @@ class MotionController:
             self._accept(ticket)
             self._finish(ticket, "completed", "completed")
 
-    def _start_clip(self, request: Request) -> None:
+    def _start_clip(self, request: Request) -> float:
         info = self.runtime.play_primitive(
             request.payload["name"],
             scale=DEFAULT_SCALE * request.payload["intensity"],
             loop=False,  # A remote action is finite, including the idle recording.
         )
-        self._primitive_yaw_scale = info.yaw_scale
+        return info.yaw_scale
 
     def _orientation_data(self) -> dict[str, object]:
         return asdict(self.runtime.orientation_snapshot())
@@ -329,8 +329,9 @@ class MotionController:
             if (self._active is not None or self.runtime.primitive.busy) and not payload["replace_current"]:
                 self._finish(ticket, "failed", "busy")
                 return
-            self._start_clip(request)
+            yaw_scale = self._start_clip(request)
             self._cancel_motion("replaced")
+            self._primitive_yaw_scale = yaw_scale
             self._active = (request, ticket)
             self._repeats_left = payload["repeat"] - 1
             self._safe_wait = False
@@ -429,7 +430,7 @@ class MotionController:
         slow = np.max(np.abs(step.vel)) < self.settling_tolerance
         if self._active is not None:
             if not self.runtime.primitive.busy and self._repeats_left:
-                self._start_clip(self._active[0])
+                self._primitive_yaw_scale = self._start_clip(self._active[0])
                 self._repeats_left -= 1
                 self._settled_ticks = 0
             else:
@@ -500,6 +501,7 @@ class MotionController:
                 self._apply_latest_tracking(now)
                 self._apply_one_discrete_command(now)
             step = self.runtime.step()
+            self._primitive_yaw_scale = self.runtime.primitive.yaw_scale
             self._sent_ticks += 1
             self._observe_orientation(step, now)
             self._update_active_ticket(step)

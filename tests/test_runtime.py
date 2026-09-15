@@ -285,3 +285,51 @@ def test_runtime_tracking_controls_preserve_layer_behavior(rt):
     rt.clear_tracking()
     reference.track.clear()
     np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+
+
+def test_anchor_refits_release_tail_without_restarting_or_scaling_body(rt):
+    """An interrupted clip still contributes yaw while its envelope releases."""
+    rt.play_primitive("headshake")
+    rt.run(1.5)
+    original_body = rt.primitive.clip.offsets[:, 1:].copy()
+    started = rt.primitive.started_at
+    rt.barge_in()
+    lo, hi = rt.orientation_safe_yaw_limits()
+    rt.acquire_orientation("tail", hi - .001, now=1.)
+    for _ in range(10):
+        state = rt.step()
+        assert lo - 1e-9 <= state.q_blend[0] <= hi + 1e-9
+        assert lo - 1e-9 <= state.q_cmd[0] <= hi + 1e-9
+    assert rt.primitive.started_at == started
+    np.testing.assert_array_equal(rt.primitive.clip.offsets[:, 1:], original_body)
+
+
+def test_anchor_refit_restores_original_yaw_when_room_returns(rt):
+    """Refitting an already scaled source would permanently shrink expression."""
+    rt.play_primitive("headshake")
+    original = rt.primitive.clip.offsets.copy()
+    rt.acquire_orientation("edge", rt.orientation_safe_yaw_limits()[1] - .001, now=0.)
+    rt.step()
+    assert np.max(np.abs(rt.primitive.clip.offsets[:, 0])) < .01
+    rt.acquire_orientation("middle", .5, now=.01)
+    state = rt.step()
+    np.testing.assert_array_equal(rt.primitive.clip.offsets, original)
+    assert state.q_blend[0] < .5
+
+
+def test_autonomous_return_refits_primitive_release_before_next_blend():
+    """The coordinator can change the absolute target after the previous hardware tick."""
+    from motion.orientation import OrientationConfig
+    hi = HardwareAlignment.load().joint_limits[0, 1] - np.deg2rad(5)
+    rt = MotionRuntime(orientation_cfg=OrientationConfig(center_yaw=hi - .001, disconnect_hold=.01))
+    rt.acquire_orientation("old", .5, now=0.)
+    rt.play_primitive("headshake")
+    rt.run(1.5)
+    rt.barge_in()
+    rt.orientation_control.disconnected(now=2.)
+    snapshot = rt.orientation_control.observe(now=2.02, current_yaw=rt.traj.pos[0], velocity=rt.traj.vel[0])
+    assert snapshot.state == "returning"
+    for _ in range(10):
+        state = rt.step()
+        assert state.q_blend[0] <= hi + 1e-9
+        assert state.q_cmd[0] <= hi + 1e-9

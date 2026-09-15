@@ -102,7 +102,8 @@ def test_coordinator_aligns_immediately_inside_deadband():
 
     assert state.state == "aligned"
     assert state.code == "aligned"
-    assert state.target_yaw == pytest.approx(.04)
+    assert state.target_yaw == pytest.approx(0.)
+    assert coordinator.layer.update(BlendContext(np.zeros(5), 1.01, .01)).value[0] == 0.
 
 
 def test_coordinator_resets_settle_window_after_fast_tick():

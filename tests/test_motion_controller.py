@@ -652,3 +652,161 @@ def test_duplicate_acquire_after_autonomous_disconnect_center_is_terminal(contro
     assert duplicate.completed.result().code == "duplicate"
     assert controller.snapshot().orientation_state == "centered"
     assert controller.runtime.orientation_snapshot().target_yaw == target_before
+
+
+@pytest.mark.parametrize("previous_anchor", [None, -.4, "returning"])
+@pytest.mark.parametrize("motion_name", ["headshake", "idle"])
+def test_acquiring_during_primitive_refits_yaw_before_commanding(controller, previous_anchor, motion_name):
+    """A new anchor must not reuse yaw offsets fitted for a previous base pose."""
+    if previous_anchor == "returning":
+        controller.submit(request("orientation.return_center", "return"))
+        controller.tick_once(now=0.)
+    elif previous_anchor is not None:
+        controller.submit(orient("old", speech_id="old", target_yaw=previous_anchor))
+        controller.tick_once(now=0.)
+    motion = controller.submit(play("motion", name=motion_name))
+    controller.tick_once(now=1.)
+    lo, hi = controller.runtime.orientation_safe_yaw_limits()
+    acquired = controller.submit(orient(target_yaw=hi - .001))
+    commands = []
+    for index in range(1500):
+        controller.tick_once(now=1.01 + index / 100)
+        commands.append(controller.runtime.backend.measured()[0])
+    assert acquired.accepted.result().state == "accepted"
+    assert min(commands) >= lo - 1e-9
+    assert max(commands) <= hi + 1e-9
+    if motion.completed.done():
+        assert motion.completed.result().state == "completed"
+        assert motion.completed.result().data["yaw_scale"] < 1.
+    else:
+        assert controller.snapshot().active_motion == motion_name
+        assert controller.snapshot().primitive_yaw_scale < 1.
+
+
+@pytest.mark.parametrize("anchor_state", ["timeout", "returning", "centered"])
+@pytest.mark.parametrize("endpoint", [0, 1])
+def test_retained_anchor_fits_repeated_primitive_commands(anchor_state, endpoint):
+    """Lifecycle states must not disable the margin of an active absolute layer."""
+    from motion.hardware_alignment import HardwareAlignment
+    limits = HardwareAlignment.load().joint_limits[0]
+    target = limits[endpoint] + (1 if endpoint == 0 else -1) * (np.deg2rad(5) + .001)
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    runtime = MotionRuntime(primitives=catalog.library(), idle_cfg=IdleConfig(enabled=False),
+                            orientation_cfg=OrientationConfig(center_yaw=target, acquire_timeout=.02))
+    controller = MotionController(runtime, catalog)
+    if anchor_state == "timeout":
+        acquired = controller.submit(orient(target_yaw=target))
+        controller.tick_once(now=0.)
+        controller.tick_once(now=.03)
+        assert acquired.completed.result().code == "timeout"
+    else:
+        controller.submit(request("orientation.return_center"))
+        controller.tick_once(now=0.)
+        if anchor_state == "centered":
+            for index in range(500):
+                controller.tick_once(now=.01 + index / 100)
+    assert controller.snapshot().orientation_state == anchor_state
+    motion = controller.submit(request("motion.play", "repeat", name="headshake",
+                                       replace_current=False, intensity=1., repeat=2))
+    lo, hi = runtime.orientation_safe_yaw_limits()
+    commands, starts = [], set()
+    for index in range(3000):
+        controller.tick_once(now=6. + index / 100)
+        commands.append(runtime.backend.measured()[0])
+        if runtime.primitive.started_at is not None:
+            starts.add(runtime.primitive.started_at)
+        if motion.completed.done():
+            break
+    assert min(commands) >= lo - 1e-9
+    assert max(commands) <= hi + 1e-9
+    assert len(starts) == 2
+    assert motion.completed.result().data["yaw_scale"] < 1.
+
+
+def test_deadband_requests_never_command_the_requested_displacement(controller):
+    """Immediate aligned must hold actual yaw over later ticks and new speech IDs."""
+    current = controller.runtime.traj.pos[0]
+    for attempt, offset in enumerate([.07, -.07, .05]):
+        ticket = controller.submit(orient(str(attempt), speech_id=str(attempt), target_yaw=current + offset))
+        controller.tick_once(now=attempt * 4.)
+        assert ticket.completed.result().code == "aligned"
+        for index in range(300):
+            controller.tick_once(now=attempt * 4. + .01 + index / 100)
+            assert controller.runtime.backend.measured()[0] == pytest.approx(current, abs=1e-12)
+        assert ticket.completed.result().data["target_yaw"] == pytest.approx(current)
+
+
+@pytest.mark.parametrize("endpoint", [0, 1])
+def test_deadband_outside_margin_moves_to_safe_anchor_before_success(endpoint):
+    """Safety takes priority over no-move when starting inside the mechanical margin."""
+    from motion.hardware_alignment import HardwareAlignment
+    from motion.config import REST_POSE
+    limits = HardwareAlignment.load().joint_limits[0]
+    safe = limits[endpoint] + (1 if endpoint == 0 else -1) * np.deg2rad(5)
+    initial = REST_POSE.copy()
+    initial[0] = safe + (-.02 if endpoint == 0 else .02)
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    runtime = MotionRuntime(initial_pose=initial, primitives=catalog.library(), idle_cfg=IdleConfig(enabled=False))
+    controller = MotionController(runtime, catalog)
+    ticket = controller.submit(orient(target_yaw=initial[0]))
+    controller.tick_once(now=0.)
+    assert not ticket.completed.done()
+    commands = []
+    for index in range(300):
+        controller.tick_once(now=.01 + index / 100)
+        commands.append(runtime.backend.measured()[0])
+    assert ticket.completed.result().code == "aligned"
+    assert ticket.completed.result().data["clamped"] is True
+    assert commands[-1] == pytest.approx(safe, abs=1e-9)
+    assert min(initial[0], safe) - 1e-9 <= min(commands)
+    assert max(commands) <= max(initial[0], safe) + 1e-9
+
+
+def test_deadband_retarget_during_return_waits_for_existing_velocity_to_settle(controller):
+    """A nearby request cannot claim no-move success while yaw is already moving."""
+    controller.submit(orient(target_yaw=.8))
+    for index in range(300):
+        controller.tick_once(now=index / 100)
+    returned = controller.submit(request("orientation.return_center", "return"))
+    for index in range(30):
+        controller.tick_once(now=3. + index / 100)
+    assert abs(controller.runtime.traj.vel[0]) > .08
+    current = controller.runtime.traj.pos[0]
+    acquired = controller.submit(orient("new", speech_id="new", target_yaw=current + .02))
+    controller.tick_once(now=3.3)
+    assert returned.completed.result().code == "replaced"
+    assert not acquired.completed.done()
+    for index in range(300):
+        controller.tick_once(now=3.31 + index / 100)
+    assert acquired.completed.result().code == "aligned"
+    assert controller.runtime.backend.measured()[0] == pytest.approx(current, abs=1e-9)
+
+
+def test_replaced_motion_result_retains_outgoing_yaw_scale(controller):
+    controller.submit(orient(target_yaw=controller.runtime.orientation_safe_yaw_limits()[1] - .01))
+    controller.tick_once(now=0.)
+    outgoing = controller.submit(play("outgoing", name="headshake"))
+    controller.tick_once(now=.01)
+    outgoing_scale = controller.snapshot().primitive_yaw_scale
+    assert 0. < outgoing_scale < .2
+    incoming = controller.submit(request("motion.play", "incoming", name="headshake",
+                                         replace_current=True, intensity=0., repeat=1))
+    controller.tick_once(now=.02)
+    assert incoming.accepted.result().state == "accepted"
+    assert controller.snapshot().primitive_yaw_scale == 1.
+    assert outgoing.completed.result().code == "replaced"
+    assert outgoing.completed.result().data["yaw_scale"] == outgoing_scale
+
+
+def test_replacement_load_failure_faults_without_falsely_reporting_replaced(controller, tmp_path):
+    outgoing = controller.submit(play("outgoing"))
+    controller.tick_once(now=0.)
+    library = controller.runtime.primitive.lib
+    library.recording_paths = dict(library.recording_paths)
+    library.recording_paths["headshake"] = tmp_path / "missing.csv"
+    incoming = controller.submit(request("motion.play", "incoming", name="headshake",
+                                         replace_current=True, intensity=0., repeat=1))
+    controller.tick_once(now=.01)
+    assert controller.snapshot().state == "fault"
+    assert outgoing.completed.result().code == "fault"
+    assert incoming.completed.result().code == "fault"

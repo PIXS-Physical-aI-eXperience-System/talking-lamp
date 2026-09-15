@@ -77,14 +77,28 @@ class TrajectoryGenerator:
         self.acc[:] = 0.0
         self._impl.sync()
 
-    def step(self, target: np.ndarray, dt: float | None = None) -> np.ndarray:
+    def step(self, target: np.ndarray, dt: float | None = None, *,
+             position_limits: np.ndarray | None = None) -> np.ndarray:
         h = self.validate_dt(dt)
         target = np.asarray(target, float)
-        if self.position_limits is not None:
-            # Brake to a feasible setpoint, rather than clip the trajectory's
-            # output and silently invalidate its velocity/acceleration state.
-            target = np.clip(target, *self.position_limits.T)
-        self._impl.step(target, h)
+        hard_limits = self.position_limits
+        if position_limits is not None:
+            limits = np.asarray(position_limits, float).copy()
+            if limits.shape != (NJ, 2) or not np.isfinite(limits).all():
+                raise ValueError("step position limits must be a finite (5, 2) array")
+            if hard_limits is not None:
+                limits[:, 0] = np.maximum(limits[:, 0], hard_limits[:, 0])
+                limits[:, 1] = np.minimum(limits[:, 1], hard_limits[:, 1])
+            if np.any(limits[:, 0] >= limits[:, 1]):
+                raise ValueError("step position limits must have a non-empty interval")
+            self.position_limits = limits
+        try:
+            if self.position_limits is not None:
+                # Constrain the path, not just the setpoint or final output.
+                target = np.clip(target, *self.position_limits.T)
+            self._impl.step(target, h)
+        finally:
+            self.position_limits = hard_limits
         return self.pos.copy()
 
     def validate_dt(self, dt: float | None) -> float:
@@ -115,8 +129,16 @@ class _Ruckig:
         self._trajectory = None
         self._target = None
         self._elapsed = 0.0
+        self._limits = None
 
     def step(self, target: np.ndarray, h: float) -> None:
+        if not np.array_equal(self._limits, self.tg.position_limits):
+            # A cached path is only reusable under the bounds that certified
+            # it. Replan from the current state without resetting momentum.
+            self._trajectory = None
+            self._target = None
+            self._limits = (None if self.tg.position_limits is None
+                            else self.tg.position_limits.copy())
         self.inp.current_position = self.tg.pos.tolist()
         self.inp.current_velocity = self.tg.vel.tolist()
         self.inp.current_acceleration = self.tg.acc.tolist()

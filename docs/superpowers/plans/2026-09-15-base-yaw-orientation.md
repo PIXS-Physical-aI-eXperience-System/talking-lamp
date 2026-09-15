@@ -306,7 +306,7 @@ factor = float(np.clip(factor, 0.0, 1.0))
 
 `PrimitiveLayer.play` accepts keyword-only `yaw_anchor: float | None` and `yaw_limits: tuple[float, float] | None`. Both must be provided together. Load and resample first, scale joint 0 only, then compute claimed joints. Return `PrimitivePlayInfo`.
 
-`MotionRuntime.play_primitive` passes the active orientation target and `orientation.safe_yaw_limits` only while orientation is `orienting` or `aligned`. Preserve every existing load keyword and return the playback info.
+`MotionRuntime.play_primitive` passes the active absolute orientation target and `orientation.safe_yaw_limits` whenever the layer is active, including `timeout`, `returning`, and `centered`. Anchor changes must refit the current primitive (including release tails) from an unscaled source before blending; repeats use the current anchor. Preserve every existing load keyword and return the playback info.
 
 - [ ] **Step 6: Run primitive/runtime tests**
 

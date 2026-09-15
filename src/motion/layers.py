@@ -165,6 +165,9 @@ class PrimitiveLayer:
         self.lib = library or PrimitiveLibrary()
         self.dt = dt
         self.clip: Primitive | None = None
+        self._source_clip: Primitive | None = None
+        self.yaw_scale = 1.0
+        self._yaw_context: tuple | None = None
         self.t0 = 0.0
         self.env = Envelope(attack=0.18, release=0.3)
         self._weight = np.zeros(NJ)
@@ -181,26 +184,42 @@ class PrimitiveLayer:
     ) -> PrimitivePlayInfo:
         if (yaw_anchor is None) != (yaw_limits is None):
             raise ValueError("yaw anchor and yaw limits must be provided together")
-        self.clip = self.lib.get(name, **load_kw).resampled(self.dt)
+        source = self.lib.get(name, **load_kw).resampled(self.dt)
+        self._source_clip = source
+        self.clip = source
+        self._yaw_context = None
+        self.refit_yaw(yaw_anchor=yaw_anchor, yaw_limits=yaw_limits)
+        self.t0 = t
+        self._interrupted = False
+        self.env.attack = 0.18
+        self.env.open()
+        return PrimitivePlayInfo(name=self.clip.name, yaw_scale=self.yaw_scale)
+
+    def refit_yaw(self, *, yaw_anchor: float | None,
+                  yaw_limits: tuple[float, float] | None) -> None:
+        """Refit the current clip, including release, from its unscaled source."""
+        if self.clip is None or self._source_clip is None:
+            return
+        context = (yaw_anchor, yaw_limits)
+        if context == self._yaw_context:
+            return
+        source = self._source_clip
         yaw_scale = 1.0
         if yaw_anchor is not None and yaw_limits is not None:
             lo, hi = yaw_limits
-            negative = float(np.min(self.clip.offsets[:, 0]))
-            positive = float(np.max(self.clip.offsets[:, 0]))
+            negative = float(np.min(source.offsets[:, 0]))
+            positive = float(np.max(source.offsets[:, 0]))
             if positive > 0:
                 yaw_scale = min(yaw_scale, (hi - yaw_anchor) / positive)
             if negative < 0:
                 yaw_scale = min(yaw_scale, (lo - yaw_anchor) / negative)
             yaw_scale = float(np.clip(yaw_scale, 0.0, 1.0))
-            self.clip = self.clip.scaled_joint(0, yaw_scale)
-        self.t0 = t
-        self._interrupted = False
+        self.clip = source.scaled_joint(0, yaw_scale) if yaw_scale != 1.0 else source
+        self.yaw_scale = yaw_scale
+        self._yaw_context = context
         # claim only the joints this clip actually moves
         span = np.ptp(self.clip.offsets, axis=0)
         self._weight = np.clip(span / (np.deg2rad(3.0)), 0.0, 1.0)
-        self.env.attack = 0.18
-        self.env.open()
-        return PrimitivePlayInfo(name=self.clip.name, yaw_scale=yaw_scale)
 
     def stop(self) -> None:
         self.env.close(release=0.3)
@@ -237,6 +256,7 @@ class PrimitiveLayer:
         g = self.env.step(ctx.dt)
         if self.env.closed:
             self.clip = None
+            self._source_clip = None
         return LayerOutput(value=offset, weight=self._weight, gain=g, additive=True)
 
 

@@ -87,6 +87,11 @@ class BaseYawOrientationLayer:
     def safe_yaw_limits(self) -> tuple[float, float]:
         return self._safe_yaw_limits
 
+    @property
+    def target_yaw(self) -> float | None:
+        """An absolute target remains active independently of ticket state."""
+        return self._target_yaw
+
     def acquire(self, target_yaw: float) -> bool:
         if not np.isfinite(target_yaw):
             raise OrientationError("invalid_target", "target yaw must be finite")
@@ -148,7 +153,8 @@ class OrientationCoordinator:
         return float(value)
 
     def acquire(self, speech_id: str, target_yaw: float, *, now: float,
-                current_yaw: float, task_light_busy: bool) -> OrientationSnapshot:
+                current_yaw: float, task_light_busy: bool,
+                current_velocity: float = 0.0) -> OrientationSnapshot:
         if not isinstance(speech_id, str) or not speech_id.strip():
             raise OrientationError("invalid_speech_id", "speech ID must be a non-empty string")
         if speech_id == self._speech_id:
@@ -156,19 +162,28 @@ class OrientationCoordinator:
 
         now = self._finite(now, "now")
         current_yaw = self._finite(current_yaw, "current yaw")
+        current_velocity = self._finite(current_velocity, "current velocity")
         target_yaw = self._finite(target_yaw, "target yaw")
         self._current_yaw = current_yaw
         if task_light_busy:
             return self._snapshot(code="blocked_by_task_light")
 
-        self._clamped = self.layer.acquire(target_yaw)
         low, high = self.layer.safe_yaw_limits
         self._target_yaw = float(np.clip(target_yaw, low, high))
+        self._clamped = self._target_yaw != target_yaw
+        inside_deadband = abs(current_yaw - self._target_yaw) <= self.cfg.deadband
+        current_is_safe = low <= current_yaw <= high
+        if inside_deadband:
+            # Deadband suppresses a target change; it must not merely report
+            # success while the trajectory continues toward the requested yaw.
+            self._target_yaw = float(np.clip(current_yaw, low, high))
+            self._clamped |= not current_is_safe
+        self.layer.acquire(self._target_yaw)
         self._speech_id = speech_id
         self._started_at = now
         self._settle_since = None
         self._disconnected_at = None
-        if abs(current_yaw - self._target_yaw) <= self.cfg.deadband:
+        if inside_deadband and current_is_safe and abs(current_velocity) <= 1e-12:
             self._state = "aligned"
             self._code = "aligned"
         else:

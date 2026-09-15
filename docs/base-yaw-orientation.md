@@ -81,7 +81,12 @@ For an accepted move, the first event is `{"id": ..., "state":"accepted",
 "code":"accepted", ...}`. The terminal event is `state:"completed"` with
 either `code:"aligned"` after the settle rule succeeds, or `code:"timeout"`
 after the two-second acquisition deadline. A target already inside the 5°
-deadband is accepted and then completes immediately as `aligned`. The motion
+deadband retains the actual current yaw as its anchor and completes immediately
+as `aligned` when yaw is stationary and inside the safe interval. It does not
+subsequently turn to the nearby requested angle. If yaw is already moving, it
+settles at that retained anchor first. If the current pose lies inside the
+mechanical margin, safety takes priority: motion clamps the current anchor into
+the safe interval, reports `clamped:true`, and waits for settling. The motion
 target is held after `aligned`; another sample for the same `speech_id` does not
 retarget it. A second request with the same currently latched `speech_id`
 returns terminal `code:"duplicate"` instead.
@@ -150,7 +155,10 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
     client.connect("/run/talking-lamp/motion-control.sock")
     client.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
     for line in client.makefile("rb"):
-        print(json.loads(line))
+        event = json.loads(line)
+        print(event)
+        if event.get("state") != "accepted":
+            break
 ```
 
 An unexpired status request claimed by the controller replies `accepted/accepted`
@@ -201,7 +209,10 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
     client.connect("/run/talking-lamp/motion-control.sock")
     client.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
     for line in client.makefile("rb"):
-        print(json.loads(line))
+        event = json.loads(line)
+        print(event)
+        if event.get("state") != "accepted":
+            break
 ```
 
 An unexpired heartbeat claimed by the controller returns `accepted/accepted`
@@ -218,11 +229,24 @@ safe yaw interval is the calibrated base-yaw joint range inset by the configured
 5° margin. Motion calculates `clamped`; callers must report rather than
 pre-compute it.
 
+While orientation controls yaw, the safe interval also constrains the trajectory
+path on both backends. TaskLight keeps its higher priority and calibrated hard
+limits. A starting pose outside the margin recovers continuously into the safe
+interval; software does not make an instantaneous position jump to clamp it.
+
 The anchor persists while a relative primitive plays. Before primitive playback,
 motion computes a yaw-only scale in `[0, 1]` so `anchor_yaw + primitive_offset`
 remains inside the safe range; it preserves the other joint offsets and requested
-overall intensity. `primitive_yaw_scale` appears in controller status and in a
-primitive terminal result's `data.yaw_scale`.
+overall intensity. This applies whenever the absolute anchor is active,
+including `timeout`, `returning`, and `centered`, and to each repeated clip.
+Acquisition is allowed during primitive playback so idle/body motion can
+continue while a future device service acquires a direction. An anchor change
+refits yaw from the current clip's original resampled offsets before the next
+blend, including an interrupted release tail. It preserves clip time, envelope,
+and all other joint offsets; successive refits do not compound scaling.
+`primitive_yaw_scale` reports the current fitted scale in controller status;
+a primitive terminal result's `data.yaw_scale` reports its last applied scale.
+A replaced motion retains its own scale in its terminal result.
 
 On an **authenticated remote TCP owner disconnect**, controller work is safely
 interrupted, but an existing orientation anchor stays in place for exactly 10
@@ -292,6 +316,11 @@ concrete tests:
 | Orientation claims only absolute base yaw and obeys a safe margin | `tests/test_orientation.py::test_orientation_layer_claims_only_base_yaw_and_clamps_with_margin` |
 | Success waits for the continuous position/velocity settle window | `tests/test_orientation.py::test_coordinator_settles_only_after_continuous_position_and_velocity_window`; `tests/test_motion_controller.py::test_orientation_ticket_completes_only_after_settle` |
 | Relative primitives keep the anchor and reduce yaw safely | `tests/test_runtime.py::test_orientation_anchor_overrides_tracking_yaw_but_not_other_tracking_joints`; `tests/test_runtime.py::test_anchored_motion_scales_only_yaw_to_fit_safe_range` |
+| Anchor changes and release tails preserve safe commands | `tests/test_motion_controller.py::test_acquiring_during_primitive_refits_yaw_before_commanding`; `tests/test_runtime.py::test_anchor_refits_release_tail_without_restarting_or_scaling_body`; `tests/test_runtime.py::test_autonomous_return_refits_primitive_release_before_next_blend` |
+| Timeout, returning, and centered anchors fit repeated playback at both bounds | `tests/test_motion_controller.py::test_retained_anchor_fits_repeated_primitive_commands` |
+| Deadband holds actual yaw; unsafe or moving starts settle first | `tests/test_motion_controller.py::test_deadband_requests_never_command_the_requested_displacement`; `tests/test_motion_controller.py::test_deadband_outside_margin_moves_to_safe_anchor_before_success`; `tests/test_motion_controller.py::test_deadband_retarget_during_return_waits_for_existing_velocity_to_settle` |
+| Replaced motion results keep outgoing playback metadata | `tests/test_motion_controller.py::test_replaced_motion_result_retains_outgoing_yaw_scale` |
+| One-shot diagnostics exit on successful or failed terminal replies | `tests/test_orientation_diagnostics.py::test_one_shot_diagnostic_exits_at_first_terminal_event` |
 | Task-light conflict leaves orientation untouched | `tests/test_orientation.py::test_coordinator_reports_task_light_conflict_without_acquiring_layer`; `tests/test_motion_controller.py::test_orientation_acquire_rejects_active_task_light` |
 | Explicit return finishes only at centre | `tests/test_orientation.py::test_coordinator_centers_after_return_settle_window_and_latches_speech_id`; `tests/test_motion_controller.py::test_orientation_return_center_completes_after_center_settle` |
 | Remote disconnect holds then falls back to centre | `tests/test_orientation.py::test_coordinator_returns_after_exact_disconnected_hold`; `tests/test_motion_controller.py::test_disconnect_starts_center_return_only_after_orientation_hold` |

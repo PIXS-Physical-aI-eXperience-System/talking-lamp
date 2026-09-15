@@ -109,13 +109,11 @@ class MotionRuntime:
 
     # -- team-facing controls ----------------------------------------
     def play_primitive(self, name: str, **load_kw) -> PrimitivePlayInfo:
-        orientation = self.orientation_snapshot()
-        if orientation.state in {"orienting", "aligned"}:
-            assert orientation.target_yaw is not None
+        if self.orientation.target_yaw is not None:
             return self.primitive.play(
                 name,
                 self.t,
-                yaw_anchor=orientation.target_yaw,
+                yaw_anchor=self.orientation.target_yaw,
                 yaw_limits=self.orientation.safe_yaw_limits,
                 **load_kw,
             )
@@ -132,13 +130,19 @@ class MotionRuntime:
         self.track.clear()
 
     def acquire_orientation(self, speech_id: str, target_yaw: float, *, now: float):
-        return self.orientation_control.acquire(
+        snapshot = self.orientation_control.acquire(
             speech_id,
             target_yaw,
             now=now,
             current_yaw=float(self.traj.pos[0]),
             task_light_busy=self.task_light.busy,
+            current_velocity=float(self.traj.vel[0]),
         )
+        if snapshot.target_yaw is not None:
+            self.primitive.refit_yaw(
+                yaw_anchor=snapshot.target_yaw, yaw_limits=self.orientation.safe_yaw_limits,
+            )
+        return snapshot
 
     def return_center(self, *, now: float, motion_busy: bool):
         return self.orientation_control.return_center(
@@ -178,10 +182,22 @@ class MotionRuntime:
     def step(self, dt: float | None = None) -> StepState:
         # Reject an unsupported period before advancing time or any layer.
         h = self.traj.validate_dt(dt)
+        anchor = self.orientation.target_yaw
+        self.primitive.refit_yaw(
+            yaw_anchor=anchor,
+            yaw_limits=self.orientation.safe_yaw_limits if anchor is not None else None,
+        )
         self.t += h
         ctx = BlendContext(q_current=self.traj.pos.copy(), t=self.t, dt=h)
         trace = self.blender.compute(ctx)
-        q_cmd = self.traj.step(trace.q, h)
+        limits = None
+        if anchor is not None and not self.task_light.busy:
+            limits = self.traj.position_limits.copy()
+            lo, hi = self.orientation.safe_yaw_limits
+            # Initial hardware poses can lie within the mechanical margin.
+            # Permit a continuous recovery from that pose into the safe range.
+            limits[0] = min(lo, self.traj.pos[0]), max(hi, self.traj.pos[0])
+        q_cmd = self.traj.step(trace.q, h, position_limits=limits)
         self.backend.send(q_cmd)
         meas = self.backend.measured()
         q_meas = self.traj.pos if meas is None else np.asarray(meas, float)
