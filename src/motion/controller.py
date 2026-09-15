@@ -305,6 +305,10 @@ class MotionController:
             self._accept(ticket)
             return
         if kind == "orientation.acquire":
+            previous = self.runtime.orientation_snapshot()
+            if previous.speech_id is not None and payload.get("speech_id") == previous.speech_id:
+                self._finish(ticket, "completed", "duplicate", data=asdict(previous))
+                return
             try:
                 snapshot = self.runtime.acquire_orientation(
                     payload["speech_id"], payload["target_yaw"], now=now,
@@ -318,14 +322,8 @@ class MotionController:
                 self._finish(ticket, "failed", snapshot.code, data=data)
                 return
             if self._return_ticket is not None:
-                if snapshot.state == "returning":
-                    self._finish(ticket, "completed", "duplicate", data=data)
-                    return
                 self._cancel_return("replaced")
             if self._orientation_ticket is not None:
-                if snapshot.speech_id == payload["speech_id"]:
-                    self._finish(ticket, "completed", "duplicate", data=data)
-                    return
                 self._cancel_orientation("replaced")
             self._accept(ticket)
             if snapshot.state == "aligned":

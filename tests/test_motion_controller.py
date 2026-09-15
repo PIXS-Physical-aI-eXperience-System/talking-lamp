@@ -610,3 +610,45 @@ def test_duplicate_acquire_keeps_an_accepted_return_ticket(controller):
         if returned.completed.done():
             break
     assert returned.completed.result().code == "centered"
+
+
+def test_duplicate_acquire_during_autonomous_disconnect_return_is_terminal(controller):
+    initial = controller.submit(orient(target_yaw=.27))
+    controller.tick_once(now=1.)
+    assert initial.completed.result().code == "aligned"
+    controller.remote_disconnected()
+    controller.tick_once(now=2.)
+    controller.tick_once(now=12.)
+    assert controller.snapshot().orientation_state == "returning"
+    target_before = controller.runtime.orientation_snapshot().target_yaw
+
+    duplicate = controller.submit(orient("reconnect-returning", target_yaw=.4))
+    controller.tick_once(now=12.01)
+
+    assert duplicate.completed.done()
+    assert duplicate.completed.result().code == "duplicate"
+    assert controller.snapshot().orientation_state == "returning"
+    assert controller.runtime.orientation_snapshot().target_yaw == target_before
+
+
+def test_duplicate_acquire_after_autonomous_disconnect_center_is_terminal(controller):
+    initial = controller.submit(orient(target_yaw=.27))
+    controller.tick_once(now=1.)
+    assert initial.completed.result().code == "aligned"
+    controller.remote_disconnected()
+    controller.tick_once(now=2.)
+    controller.tick_once(now=12.)
+    for index in range(100):
+        controller.tick_once(now=12.01 + index / 100)
+        if controller.snapshot().orientation_state == "centered":
+            break
+    assert controller.snapshot().orientation_state == "centered"
+    target_before = controller.runtime.orientation_snapshot().target_yaw
+
+    duplicate = controller.submit(orient("reconnect-centered", target_yaw=.4))
+    controller.tick_once(now=13.01)
+
+    assert duplicate.completed.done()
+    assert duplicate.completed.result().code == "duplicate"
+    assert controller.snapshot().orientation_state == "centered"
+    assert controller.runtime.orientation_snapshot().target_yaw == target_before
