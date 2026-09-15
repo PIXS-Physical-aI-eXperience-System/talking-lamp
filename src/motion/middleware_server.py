@@ -18,6 +18,7 @@ from typing import Callable
 from .catalog import MotionCatalog
 from .config import CONTROL_HZ, RECORDINGS_DIR, REST_POSE
 from .controller import CommandTicket, MotionController
+from .local_control import MotionUnixServer
 from .protocol import MAX_LINE_BYTES, ProtocolError, decode_request, encode_message
 from .runtime import MotionRuntime, NullBackend
 from .trajectory import TrajectoryGenerator
@@ -156,32 +157,49 @@ class MotionTcpServer:
             self._connections.discard(connection)
 
 
-async def _serve(controller: MotionController, server: MotionTcpServer,
+async def _serve(controller: MotionController, tcp_server: MotionTcpServer,
+                 local_server: MotionUnixServer,
                  shutdown_requested: Callable[[], bool]) -> None:
     """Join the sole motion owner before the caller parks the backend."""
     owner = threading.Thread(target=controller.run, name="motion-owner")
-    serving = None
+    tcp_serving = local_serving = None
     try:
         if shutdown_requested():
-            controller.stop("shutdown during startup")
+            return
+        # Bind both transports before the owner can step the runtime. This
+        # makes a listener failure a startup failure instead of leaving moving
+        # hardware without its complete control surface.
+        await tcp_server.start()
+        await local_server.start()
+        if shutdown_requested():
+            return
         owner.start()
-        serving = asyncio.create_task(server.serve_forever())
-        while not shutdown_requested() and owner.is_alive() and not serving.done():
+        tcp_serving = asyncio.create_task(tcp_server.serve_forever())
+        local_serving = asyncio.create_task(local_server.serve_forever())
+        while (not shutdown_requested() and owner.is_alive()
+               and not tcp_serving.done() and not local_serving.done()):
             await asyncio.sleep(.05)
-        if serving.done():
-            await serving  # Surface bind/transport failures to systemd.
+        for serving in (tcp_serving, local_serving):
+            if serving.done():
+                await serving  # Surface transport failures to systemd.
     finally:
         controller.stop("daemon shutdown")
         # No timeout: parking must never race a still-running motor writer.
         if owner.ident is not None:
             owner.join()
         try:
-            if serving is not None:
-                serving.cancel()
-                with suppress(asyncio.CancelledError):
-                    await serving
+            for serving in (tcp_serving, local_serving):
+                if serving is not None:
+                    serving.cancel()
+            for serving in (tcp_serving, local_serving):
+                if serving is not None:
+                    with suppress(asyncio.CancelledError):
+                        await serving
         finally:
-            await server.close()
+            try:
+                await tcp_server.close()
+            finally:
+                await local_server.close()
     fault = controller.snapshot().fault
     if fault:
         raise RuntimeError(f"Motion controller failed: {fault}")
@@ -198,6 +216,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--tcp-port", type=int, default=8765)
     parser.add_argument("--allow-host", action="append", help="Allowed peer IP; repeat for multiple peers")
+    parser.add_argument("--local-socket", type=Path,
+                        default=Path("/run/talking-lamp/motion-control.sock"))
     parser.add_argument("--heartbeat-timeout", type=float, default=2.5)
     parser.add_argument("--feedback-hz", type=float, default=20.)
     return parser
@@ -252,10 +272,11 @@ def main(argv: list[str] | None = None) -> int:
                 runtime = MotionRuntime(backend=backend, initial_pose=backend.measured(),
                                         primitives=library)
                 controller = MotionController(runtime, catalog)
-                server = MotionTcpServer(controller, token=token, host=args.bind,
+                tcp_server = MotionTcpServer(controller, token=token, host=args.bind,
                     port=args.tcp_port, allowed_hosts=None if args.allow_host is None else set(args.allow_host),
                     heartbeat_timeout=args.heartbeat_timeout)
-                asyncio.run(_serve(controller, server, lambda: stopping))
+                local_server = MotionUnixServer(controller, args.local_socket)
+                asyncio.run(_serve(controller, tcp_server, local_server, lambda: stopping))
         finally:
             if controller is not None:
                 controller.stop("daemon shutdown")

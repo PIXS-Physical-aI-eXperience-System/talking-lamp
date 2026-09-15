@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import socket
 import stat
+import threading
 import time
 from uuid import uuid4
 
@@ -448,9 +449,10 @@ def test_daemon_rejects_ambiguous_or_invalid_config(args):
     assert exc.value.code == 2
 
 
-@pytest.mark.parametrize("failure", ["runtime", "bind", "controller", "normal", "park"])
+@pytest.mark.parametrize("failure", ["runtime", "controller", "normal", "park"])
 def test_daemon_closes_backend_after_owner_stops(monkeypatch, failure, capsys):
     from motion import hardware_backend, middleware_server as server
+    from motion.local_control import MotionUnixServer
     from motion.runtime import NullBackend
     events = []
     class Backend(NullBackend):
@@ -476,24 +478,33 @@ def test_daemon_closes_backend_after_owner_stops(monkeypatch, failure, capsys):
         events.append("owner stopped")
     async def serve(tcp):
         await eventually(lambda: "owner started" in events)
-        if failure == "bind":
-            raise OSError("bind failed")
         if failure == "controller":
             await asyncio.Future()
-    async def close(tcp):
+    async def start_tcp(tcp):
+        events.append("tcp bound")
+    async def start_local(local):
+        events.append("local bound")
+    async def close_tcp(tcp):
         events.append("transport closed")
+    async def close_local(local):
+        events.append("local socket removed")
     monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
     monkeypatch.setattr(hardware_backend, "FeetechBackend", Backend)
     monkeypatch.setattr(server, "MotionRuntime", runtime, raising=False)
     monkeypatch.setattr(MotionController, "run", run)
+    monkeypatch.setattr(MotionTcpServer, "start", start_tcp)
     monkeypatch.setattr(MotionTcpServer, "serve_forever", serve)
-    monkeypatch.setattr(MotionTcpServer, "close", close)
+    monkeypatch.setattr(MotionTcpServer, "close", close_tcp)
+    monkeypatch.setattr(MotionUnixServer, "start", start_local)
+    monkeypatch.setattr(MotionUnixServer, "serve_forever", serve)
+    monkeypatch.setattr(MotionUnixServer, "close", close_local)
     assert server.main(["--port", "/dev/ttyACM0", "--lamp-id", "lelamp"]) == (0 if failure == "normal" else 1)
     assert events[-1] == "park"
     assert events.count("park") == 1
     if failure != "runtime":
         assert events.index("owner stopped") < events.index("park")
         assert events.index("transport closed") < events.index("park")
+        assert events.index("local socket removed") < events.index("park")
     if failure != "normal":
         assert "failed" in capsys.readouterr().err
 
@@ -507,6 +518,7 @@ def test_null_backend_close_is_idempotent():
 
 def test_daemon_reports_fault_that_occurs_while_stopping(monkeypatch, capsys):
     from motion import middleware_server as server
+    from motion.local_control import MotionUnixServer
     monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
     def run(controller):
         controller._stop_event.wait(2)
@@ -515,8 +527,13 @@ def test_daemon_reports_fault_that_occurs_while_stopping(monkeypatch, capsys):
         controller.tick_once(now=time.monotonic())
     async def serve(tcp):
         return
+    async def start(listener):
+        return
     monkeypatch.setattr(MotionController, "run", run)
+    monkeypatch.setattr(MotionTcpServer, "start", start)
     monkeypatch.setattr(MotionTcpServer, "serve_forever", serve)
+    monkeypatch.setattr(MotionUnixServer, "start", start)
+    monkeypatch.setattr(MotionUnixServer, "serve_forever", serve)
     assert server.main(["--null-backend"]) == 1
     assert "late motor failed" in capsys.readouterr().err
 
@@ -629,7 +646,8 @@ sys.addaudithook(audit)
     env = {**os.environ, "TALKING_LAMP_TOKEN": TOKEN,
            "PYTHONPATH": f"{tmp_path}:{Path(__file__).resolve().parents[1] / 'src'}"}
     process = subprocess.Popen([sys.executable, "-m", "motion.middleware_server", "--null-backend",
-        "--bind", "127.0.0.1", "--tcp-port", str(port)], env=env,
+        "--bind", "127.0.0.1", "--tcp-port", str(port), "--local-socket",
+        str(tmp_path / "motion.sock")], env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         deadline = time.monotonic() + 10
@@ -661,6 +679,99 @@ def test_unix_server_uses_protected_default_socket_path():
     controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
 
     assert MotionUnixServer(controller).path == Path("/run/talking-lamp/motion-control.sock")
+
+
+def test_daemon_parser_defaults_to_runtime_unix_socket():
+    from motion.middleware_server import build_parser
+
+    assert build_parser().parse_args(["--null-backend"]).local_socket == Path(
+        "/run/talking-lamp/motion-control.sock")
+
+
+def test_daemon_binds_both_listeners_before_starting_motion_owner():
+    from motion import middleware_server as daemon
+
+    events = []
+    owner_started = threading.Event()
+
+    class Controller:
+        def run(self):
+            events.append("owner started")
+            owner_started.set()
+            while not stopped.is_set():
+                time.sleep(.001)
+
+        def stop(self, reason):
+            events.append(f"stopped: {reason}")
+            stopped.set()
+
+        def snapshot(self):
+            return type("Snapshot", (), {"fault": None})()
+
+    class Listener:
+        def __init__(self, name):
+            self.name = name
+
+        async def start(self):
+            events.append(f"{self.name} bound")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append(f"{self.name} closed")
+
+    stopped = threading.Event()
+    controller = Controller()
+    tcp, local = Listener("tcp"), Listener("local")
+
+    asyncio.run(daemon._serve(controller, tcp, local, owner_started.is_set))
+
+    assert events[:3] == ["tcp bound", "local bound", "owner started"]
+    assert events.index("tcp closed") > events.index("owner started")
+    assert events.index("local closed") > events.index("owner started")
+
+
+def test_daemon_closes_started_listener_when_other_listener_fails_to_bind():
+    from motion import middleware_server as daemon
+
+    events = []
+
+    class Controller:
+        def run(self):
+            events.append("owner started")
+
+        def stop(self, reason):
+            events.append(f"stopped: {reason}")
+
+        def snapshot(self):
+            return type("Snapshot", (), {"fault": None})()
+
+    class Tcp:
+        async def start(self):
+            events.append("tcp bound")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("tcp closed")
+
+    class Local:
+        async def start(self):
+            events.append("local bind failed")
+            raise OSError("cannot bind local socket")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("local closed")
+
+    with pytest.raises(OSError, match="cannot bind local socket"):
+        asyncio.run(daemon._serve(Controller(), Tcp(), Local(), lambda: False))
+
+    assert events == ["tcp bound", "local bind failed", "stopped: daemon shutdown", "tcp closed", "local closed"]
 
 
 def test_unix_server_returns_accepted_then_aligned(tmp_path):

@@ -120,13 +120,18 @@ def test_pi_unit_has_safe_runtime_and_shutdown_contract():
     unit = parse_unit(UNIT)
     service = unit["Service"]
     assert service["User"] == "pixs"
+    assert service["Group"] == "talking-lamp"
     assert service["WorkingDirectory"] == "/home/pixs/talking-lamp"
     assert service["EnvironmentFile"] == "/etc/talking-lamp/motion.env"
+    assert service["RuntimeDirectory"] == "talking-lamp"
+    assert service["RuntimeDirectoryMode"] == "0750"
+    assert service["UMask"] == "0007"
     argv = shlex.split(service["ExecStart"])
     assert argv[:3] == ["/home/pixs/talking-lamp/lelamp_runtime/.venv/bin/python", "-m", "motion.middleware_server"]
     assert dict(zip(argv[3::2], argv[4::2])) == {
         "--bind": "192.168.100.2", "--tcp-port": "8765", "--port": "/dev/ttyACM0",
-        "--lamp-id": "lelamp", "--allow-host": "192.168.100.1"}
+        "--lamp-id": "lelamp", "--allow-host": "192.168.100.1",
+        "--local-socket": "/run/talking-lamp/motion-control.sock"}
     assert service["KillSignal"] == "SIGTERM"
     assert int(service["TimeoutStopSec"]) == 20
     assert service["Restart"] == "on-failure"

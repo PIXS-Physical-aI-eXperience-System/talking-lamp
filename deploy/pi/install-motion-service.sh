@@ -35,6 +35,8 @@ if [[ -n "$destdir" ]]; then
 fi
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 unit_name=talking-lamp-motion.service
+service_user=pixs
+service_group=talking-lamp
 unit_source=$script_dir/$unit_name
 [[ -f "$unit_source" ]] || fail "missing unit: $unit_source"
 [[ -f "$repo/src/motion/middleware_server.py" ]] || fail "missing middleware_server.py under $repo"
@@ -42,6 +44,7 @@ unit_source=$script_dir/$unit_name
 [[ -x "$repo/lelamp_runtime/.venv/bin/python" ]] || fail "missing executable python: $repo/lelamp_runtime/.venv/bin/python"
 
 if $dry_run; then
+    echo "Would create or validate system group $service_group and add $service_user to it"
     echo "Would validate/preserve existing token or create mode-0600 $destdir/etc/talking-lamp/motion.env"
     echo "Would install $destdir/etc/systemd/system/$unit_name for $repo"
     if [[ -z "$destdir" ]]; then echo "Would run systemctl daemon-reload"; fi
@@ -51,8 +54,12 @@ fi
 
 if [[ -z "$destdir" ]]; then
     ((EUID == 0)) || fail "run as root for live installation, or use --dry-run/--destdir"
-    getent passwd pixs >/dev/null || fail "required service user pixs does not exist"
+    getent passwd "$service_user" >/dev/null || fail "required service user $service_user does not exist"
     command -v systemctl >/dev/null || fail "systemctl is required for live installation"
+    if ! getent group "$service_group" >/dev/null; then
+        groupadd --system "$service_group"
+    fi
+    usermod -a -G "$service_group" "$service_user"
 fi
 
 python3 - "$repo" "$destdir" "$unit_source" <<'PY'
