@@ -189,21 +189,31 @@ def cmd_echo(args):
     # 0 dB 면 혼자 말할 때와 같고, 크게 음수면 눌린 것이다.
     survive = res["doubletalk_db"] - res["speech_db"]
     res["survive_db"] = survive
+    # barge-in 을 정하는 값은 이것이다. 재생 중에 '말하는 중' 과 '안 하는 중' 을
+    # 구별할 수 있는가 — 즉 ④와 ②의 차이다. ④-③(사용자가 얼마나 눌렸나)은
+    # 원인을 말해줄 뿐 감지 가능 여부를 말해주지 않는다.
+    contrast = res["doubletalk_db"] - res["echo_db"]
+    res["contrast_db"] = contrast
+    res["vad_threshold_db"] = (res["doubletalk_db"] + res["echo_db"]) / 2
 
-    print(f"\n잔향 여유 {margin:+.1f} dB  (사용자 발화 − 램프 잔향)")
-    if res["echo_db"] < res["quiet_db"] - 3:
-        print("  ※ 잔향이 배경소음보다도 낮다. AEC 가 지운 것이 아니라 보드가")
-        print("    마이크를 억제했을 가능성이 크다 — ④ 값으로 판단할 것")
+    print(f"\n잔향 여유 (③−②)      {margin:+.1f} dB")
+    if res["echo_db"] < res["quiet_db"] + 3:
+        print("  ! 잔향이 배경소음과 구별되지 않는다. 스피커에서 소리가 났는지 확인할 것")
+    print(f"사용자 감쇠 (④−③)    {survive:+.1f} dB   재생 중 사용자 목소리가 눌린 정도")
+    print(f"재생 중 대비 (④−②)   {contrast:+.1f} dB   ← barge-in 은 이 값으로 정해진다")
 
-    print(f"동시 발화 생존 {survive:+.1f} dB  (동시 − 혼자 말할 때)")
-    if survive >= -6:
-        print("  ✔ 램프가 말하는 중에도 사용자 목소리가 살아 있다. barge-in 가능")
-    elif survive >= -15:
-        print("  △ 눌리지만 남아 있다. VAD 임계값을 낮춰야 하고, 오작동이 늘 수 있다")
+    print()
+    if contrast >= 12:
+        print("  ✔ barge-in 가능. 여유가 넉넉하다")
+    elif contrast >= 6:
+        print("  ✔ barge-in 가능. 다만 여유가 빠듯해 임계값을 잘 잡아야 한다")
+        print(f"    VAD 임계값 권장 {res['vad_threshold_db']:.0f} dB "
+              f"(발화 {res['doubletalk_db']:.1f} / 무발화 {res['echo_db']:.1f} 사이)")
     else:
-        print("  ✗ 사용자 목소리가 억제된다. 이 경로로는 barge-in 이 안 된다.")
+        print("  ✗ 재생 중에 발화 유무를 구별할 수 없다. 이 경로로는 barge-in 이 안 된다.")
         print("    → 재생 중 XVF 억제를 끄는 설정이 있는지 확인,")
         print("      없으면 '말 끝나고 듣기' 로 설계를 바꿔야 한다")
+    print("\n  ※ 이 종류의 측정은 편차가 크다. 3회 이상 반복해 최악값으로 볼 것")
 
     os.makedirs(OUT, exist_ok=True)
     json.dump(res, open(os.path.join(OUT, "aec_echo.json"), "w"), indent=2)
