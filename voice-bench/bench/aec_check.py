@@ -104,6 +104,35 @@ def pick_devices(sd):
     return ins, outs
 
 
+def settle_and_check(sd, ins, seconds=3.0):
+    """측정 전에 입력이 성한지 본다. 아니면 거기서 멈춘다.
+
+    회차마다 값이 60 dB 씩 어긋났다. 조용할 때가 -20.4 였다가 -83.4 였고,
+    사용자 발화도 -14.9 에서 -47.0 까지 널뛰었다. 공통점은 전부 서비스를
+    내린 직후 곧바로 쟀다는 것이다. 보드가 자리를 잡기 전에 잰 값으로 보인다.
+
+    원인을 확정하지는 못했다. 다만 이상한 상태에서 잰 값이 조용히 결과가 되어
+    판정까지 가는 것은 막을 수 있다.
+    """
+    print(f"입력 안정 대기 {seconds:.0f}초 — 조용히 두세요")
+    x = sd.rec(int(seconds * SR), samplerate=SR, channels=1,
+               device=ins, dtype="float32")
+    sd.wait()
+    x = _finite(x[:, 0] if x.ndim > 1 else x, "안정 확인")
+    floor = db(x)
+    zeros = float(np.count_nonzero(x == 0.0)) / max(len(x), 1)
+    print(f"  바닥 {floor:.1f} dBFS, 정확히 0 인 표본 {zeros*100:.1f}%")
+    if floor < -75:
+        print("  ✗ 실제 방에서 나올 수 없는 값이다. 마이크가 아직 준비되지 않았다.")
+        print("    몇 초 두었다가 다시 실행할 것")
+        return None
+    if zeros > 0.05:
+        print("  ✗ 무음 표본이 너무 많다. 신호가 끊겨 있다.")
+        return None
+    print("  ✔ 정상 범위\n")
+    return floor
+
+
 def cmd_echo(args):
     """TTS 를 재생하면서 마이크를 녹음해, 램프 자기 목소리가 얼마나 남는지 본다.
 
@@ -132,6 +161,9 @@ def cmd_echo(args):
 
     res = {}
     print(f"재생 파일 {os.path.basename(tts)} ({dur:.1f}초)\n")
+
+    if settle_and_check(sd, ins) is None:
+        return 1
 
     print("① 무음 기준 — 아무 소리도 내지 말고 기다리세요")
     input("   Enter → 3초 녹음 ")
