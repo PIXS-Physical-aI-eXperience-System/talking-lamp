@@ -139,3 +139,23 @@ def test_orientation_event_is_immutable_serializable_state():
         with pytest.raises(Exception):
             event.state = "idle"
     asyncio.run(scenario())
+
+
+def test_coordinator_status_reads_motion_without_changing_last_doa_context():
+    async def scenario():
+        motion = FakeMotionClient()
+        coordinator = DirectionCoordinator(motion, DoaCalibration(90.0, 1), clock=lambda: 9.0)
+        aligned = await coordinator.handle_decision(decision(doa=100.0))
+
+        status = await coordinator.status()
+
+        assert status.state == "idle"
+        assert status.speech_id == aligned.speech_id
+        assert status.raw_doa_deg == 100.0
+        assert status.relative_rad == pytest.approx(math.radians(10))
+        assert status.current_yaw == pytest.approx(math.radians(15))
+        assert status.code == "idle"
+        assert status.timestamp == 9.0
+        assert [call[0] for call in motion.calls] == [
+            "orientation.status", "orientation.acquire", "orientation.status"]
+    asyncio.run(scenario())

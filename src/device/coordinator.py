@@ -182,3 +182,38 @@ class DirectionCoordinator:
         )
         self._last_event = event
         return event
+
+    async def status(self) -> OrientationEvent:
+        terminal = self._terminal(await self.motion.request(
+            "orientation.status", {}, ttl_ms=1000))
+        data = terminal["data"]
+        assert isinstance(data, dict)
+        state = data.get("state")
+        code = data.get("code")
+        if not isinstance(state, str) or not isinstance(code, str):
+            raise DirectionError("invalid_response", "motion orientation status is invalid")
+        previous = self._last_event
+        speech_id = data.get("speech_id")
+        if not isinstance(speech_id, str):
+            speech_id = previous.speech_id if previous else None
+        target = data.get("target_yaw")
+        if target is None:
+            target_yaw = previous.target_yaw if previous else None
+        elif isinstance(target, bool) or not isinstance(target, (int, float)) or not math.isfinite(target):
+            raise DirectionError("invalid_response", "motion target_yaw is invalid")
+        else:
+            target_yaw = float(target)
+        event = OrientationEvent(
+            state=state,
+            speech_id=speech_id,
+            raw_doa_deg=previous.raw_doa_deg if previous else None,
+            relative_rad=previous.relative_rad if previous else None,
+            target_yaw=target_yaw,
+            current_yaw=self._finite_data(data, "current_yaw"),
+            clamped=data.get("clamped") is True,
+            code=code,
+            message=terminal.get("message") if isinstance(terminal.get("message"), str) else "",
+            timestamp=float(self.clock()),
+        )
+        self._last_event = event
+        return event

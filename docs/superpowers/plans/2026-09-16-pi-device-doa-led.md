@@ -310,23 +310,23 @@ git commit -m "feat(device): add safe WS2812B matrix control"
 - Consumes: authenticated NDJSON on port 8766 and coordinator/LED methods from Tasks 4-5.
 - Produces: strict request results for `orientation.return_center`, `orientation.status`, `led.frame`, `led.solid`, `led.clear`, `led.status`, `device.status`, and `system.heartbeat`, plus ordered server-pushed orientation/LED status events.
 
-- [ ] **Step 1: Write strict-schema tests**
+- [x] **Step 1: Write strict-schema tests**
 
 Reuse motion protocol envelope rules without importing private validators. Test exact fields, canonical UUID, finite JSON, 1..10000 ms TTL, constant-time token comparison, 16 KiB line cap, exact payload schemas, 192-byte RGB limit, and rejection before coordinator/sink calls.
 
-- [ ] **Step 2: Implement decoder/encoder and verify red-to-green**
+- [x] **Step 2: Implement decoder/encoder and verify red-to-green**
 
 Use distinct `DeviceRequest` and `DeviceProtocolError` types. Do not accept audio commands in this milestone; return `unknown_type` until the RTP/audio plan adds them.
 
-- [ ] **Step 3: Write async server tests**
+- [x] **Step 3: Write async server tests**
 
 Cover Jetson allowlist, one authenticated owner, heartbeat expiry, accepted/terminal correlation, 64 pending-request cap, session UUID, monotonic event sequence, new session reset, disconnect LED clear, and no request replay after reconnect.
 
-- [ ] **Step 4: Implement server lifecycle**
+- [x] **Step 4: Implement server lifecycle**
 
 Bind before starting hardware polling, serialize writes with a lock, cancel forwarders before closing adapters, clear LEDs on every exit path, and leave the independent motion TCP connection untouched.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```bash
 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_device_protocol.py tests/test_device_server.py -q
