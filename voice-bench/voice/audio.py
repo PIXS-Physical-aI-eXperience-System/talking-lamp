@@ -20,7 +20,12 @@ XVF_KEYS = ("xvf", "respeaker", "xmos")
 
 def find_device(kind="input"):
     """XVF3800 의 장치 번호를 찾는다. 없으면 None."""
-    import sounddevice as sd
+    try:
+        import sounddevice as sd
+    except OSError as e:
+        # sounddevice 는 파이썬 패키지일 뿐이고 실제 오디오는 PortAudio 가 한다.
+        # Jetson 에는 기본으로 없다.
+        raise OSError(f"{e}\n  sudo apt install -y libportaudio2") from None
     want = "max_input_channels" if kind == "input" else "max_output_channels"
     for i, d in enumerate(sd.query_devices()):
         if d[want] > 0 and any(k in d["name"].lower() for k in XVF_KEYS):

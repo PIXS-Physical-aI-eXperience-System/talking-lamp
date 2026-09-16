@@ -47,6 +47,8 @@ class VoicePipeline:
         self._wake_threshold = wake_threshold
 
         self.state = IDLE
+        self.ready = threading.Event()
+        self.error = None
         self.player = Player()
         self.stop_speaking = threading.Event()
         self._running = threading.Event()
@@ -72,12 +74,24 @@ class VoicePipeline:
         if self._speak_thread and self._speak_thread.is_alive():
             self._speak_thread.join(timeout=1.0)
 
-    def start(self):
+    def start(self, timeout=30.0):
+        """장치가 열릴 때까지 기다린다. 실패하면 그 예외를 그대로 올린다.
+
+        스레드에서 난 예외를 그냥 두면 호출한 쪽은 멀쩡한 줄 알고 "준비됐다" 를
+        찍는다. 실제로 그랬다 — PortAudio 가 없어 루프가 죽었는데 화면에는
+        준비됐다고 나왔다. 실패는 시작한 자리에서 드러나야 한다.
+        """
         if self._thread and self._thread.is_alive():
             return
+        self.ready.clear()
+        self.error = None
         self._running.set()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
+        if not self.ready.wait(timeout):
+            raise TimeoutError(f"{timeout}초 안에 준비되지 않았다")
+        if self.error:
+            raise self.error
 
     def stop(self):
         self._running.clear()
@@ -99,15 +113,24 @@ class VoicePipeline:
         self._set(SPEAKING)
 
     def _loop(self):
-        self.player.open()
-        wake = load_wake(self._wake_model, self._wake_threshold)
-        vad = load_vad()
+        try:
+            self.player.open()
+            wake = load_wake(self._wake_model, self._wake_threshold)
+            vad = load_vad()
+            mic_cm = Mic()
+            mic = mic_cm.__enter__()
+        except Exception as e:
+            self.error = e
+            self.ready.set()
+            return
+
         print(f"  웨이크워드: {wake.name}")
         print(f"  VAD: {vad.name}")
         if not getattr(wake, "ready", False):
             print(f'  ! "{PHRASE}" 모델이 없다. 지금은 아무 말에나 깨어난다 — 제품이 아니다.')
+        self.ready.set()
 
-        with Mic() as mic:
+        try:
             gate = SpeechGate(vad, frame_s=mic.blocksize / mic.samplerate)
             buf, t_start = [], 0.0
             for frame in mic.frames():
@@ -156,3 +179,5 @@ class VoicePipeline:
                             gate.reset()
                             buf, t_start = [frame], time.time()
                             self._set(LISTENING)
+        finally:
+            mic_cm.__exit__(None, None, None)

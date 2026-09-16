@@ -30,7 +30,21 @@ def main() -> int:
     ap.add_argument("--say", help="시작하자마자 이 문장을 말한다 (TTS 만 확인)")
     args = ap.parse_args()
 
-    print("적재 중…")
+    # 장치를 먼저 확인한다. 몇십 초짜리 모델 적재를 마치고 나서 장치가 없다는
+    # 걸 알면 그 시간이 통째로 낭비다.
+    from voice.audio import find_device
+    for kind, why in (("input", "마이크"), ("output", "스피커(하드웨어 AEC 의 전제)")):
+        try:
+            idx, d = find_device(kind)
+        except OSError as e:
+            print(f"오디오를 쓸 수 없다: {e}")
+            return 1
+        if idx is None:
+            print(f"XVF3800 을 {why}로 찾지 못했다. bench/mic_check.py 를 먼저 실행할 것")
+            return 1
+        print(f"  {why}: [{idx}] {d['name']} @{int(d['default_samplerate'])}Hz")
+
+    print("\n적재 중…")
     t0 = time.time()
     tts = Tts(providers=args.providers)
     stt = Stt(device=args.stt_device)
@@ -49,7 +63,11 @@ def main() -> int:
         on_utterance=think,
         on_state=lambda s: print(f"  [{mark.get(s, ' ')}] {s}"))
 
-    pipe.start()
+    try:
+        pipe.start()
+    except Exception as e:
+        print(f"\n시작하지 못했다: {e}")
+        return 1
     if args.say:
         pipe.say(args.say)
     print('  준비됐다. "픽스야" 라고 부른 뒤 말해 보라. Ctrl+C 로 종료.\n')
