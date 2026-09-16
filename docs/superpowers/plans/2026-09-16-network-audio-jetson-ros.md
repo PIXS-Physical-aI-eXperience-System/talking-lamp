@@ -108,15 +108,15 @@ Commit: `feat(audio): supervise Pi RTP capture and playback`
 - Consumes: Task 1 `AudioSupervisor`, existing XVF adapter and device server.
 - Produces: capture autostart before XVF polling, independent audio status/fault events, bounded shutdown, and exact Pi diagnostic commands.
 
-- [ ] **Step 1: Write failing daemon integration tests**
+- [x] **Step 1: Write failing daemon integration tests**
 
 Assert order `server.start → led.open → audio.start → xvf.open → poll`, and shutdown `server.close → audio.close → led.clear/close → xvf.close`. A capture process crash emits `audio.status/fault` and is restarted with bounded exponential backoff without stopping device TCP. Runtime XVF loss emits a fault and rediscovers USB without restarting motion.
 
-- [ ] **Step 2: Implement audio lifecycle and XVF rediscovery**
+- [x] **Step 2: Implement audio lifecycle and XVF rediscovery**
 
 Add daemon CLI options `--alsa-card`, `--capture-port`, `--playback-port`, `--jitter-ms`. Poll process state every device tick. Backoff sequence is 0.25, 0.5, 1, 2, 4 seconds capped at 5 seconds; a newly discovered XVF must report `(1,0,3)` before DOA resumes. Reset utterance collection on device loss.
 
-- [ ] **Step 3: Add exact deployment and diagnostic contract**
+- [x] **Step 3: Add exact deployment and diagnostic contract**
 
 The unit includes audio arguments but still omits `--enable-led-hardware`. `check-audio.sh` verifies `gst-inspect-1.0` elements, stable ALSA capture/playback names, 6-channel device capability, ports, XVF firmware and GStreamer loopback without writing firmware.
 

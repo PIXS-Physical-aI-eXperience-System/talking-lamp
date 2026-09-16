@@ -16,11 +16,12 @@ import time
 from typing import Any, Awaitable, Callable
 
 from .coordinator import DirectionCoordinator, DirectionError
+from .audio import AudioConfig, AudioError, AudioSupervisor
 from .doa import DoaCalibration, DoaSample, DoaStabilizer
 from .led import LedController, LedMapping, PIXEL_COUNT, Ws281xSink
 from .motion_client import MotionClientError, MotionUnixClient
 from .server import DeviceCommandError, DeviceCommandHandler, DeviceTcpServer
-from .xvf3800 import XVF_PRODUCT_ID, XVF_VENDOR_ID, Xvf3800
+from .xvf3800 import XVF_PRODUCT_ID, XVF_VENDOR_ID, Xvf3800, XvfError
 
 
 LOG = logging.getLogger("talking_lamp.device")
@@ -44,6 +45,10 @@ class DeviceConfig:
     max_brightness: float = 0.10
     xvf_vid: int = XVF_VENDOR_ID
     xvf_pid: int = XVF_PRODUCT_ID
+    alsa_card: str = "L16K6Ch"
+    capture_port: int = 5004
+    playback_port: int = 5006
+    jitter_ms: int = 40
 
     def __post_init__(self) -> None:
         if not isinstance(self.token, str) or not self.token:
@@ -63,6 +68,16 @@ class DeviceConfig:
             raise DeviceDaemonError("sample rate must be finite and positive")
         if self.xvf_vid != XVF_VENDOR_ID or self.xvf_pid != XVF_PRODUCT_ID:
             raise DeviceDaemonError("only the commissioned XVF USB identity 2886:0022 is allowed")
+        try:
+            AudioConfig(
+                alsa_card=self.alsa_card,
+                pi_host=self.bind,
+                capture_port=self.capture_port,
+                playback_port=self.playback_port,
+                jitter_ms=self.jitter_ms,
+            )
+        except Exception as exc:
+            raise DeviceDaemonError(f"invalid audio configuration: {exc}") from exc
 
 
 def load_calibration(path: str | Path) -> DoaCalibration:
@@ -149,10 +164,10 @@ class RuntimeDeviceService:
     def __init__(self) -> None:
         self._handler: DeviceCommandHandler | None = None
 
-    def attach(self, coordinator: Any, led: Any) -> None:
+    def attach(self, coordinator: Any, led: Any, audio: Any) -> None:
         if self._handler is not None:
             raise DeviceDaemonError("runtime service is already attached")
-        self._handler = DeviceCommandHandler(coordinator, led)
+        self._handler = DeviceCommandHandler(coordinator, led, audio)
 
     async def dispatch(self, request):
         if self._handler is None:
@@ -174,6 +189,7 @@ class DeviceDaemon:
         coordinator: DirectionCoordinator,
         stabilizer: DoaStabilizer,
         led_factory: Callable[[], Any],
+        audio_factory: Callable[[], Any],
         xvf_factory: Callable[[], Any],
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -184,12 +200,14 @@ class DeviceDaemon:
         self.coordinator = coordinator
         self.stabilizer = stabilizer
         self.led_factory = led_factory
+        self.audio_factory = audio_factory
         self.xvf_factory = xvf_factory
         self.clock = clock
         self.sleep = sleep
 
     async def run(self, stop: asyncio.Event) -> int:
         led = None
+        audio = None
         xvf = None
         failed = False
         try:
@@ -197,15 +215,67 @@ class DeviceDaemon:
             # must fail before libusb or a GPIO peripheral is touched.
             await self.server.start()
             led = self.led_factory()
+            audio = self.audio_factory()
+            await audio.start()
             xvf = self.xvf_factory()
             version = xvf.read_version()
             if version != (1, 0, 3):
                 raise DeviceDaemonError(
                     f"uncommissioned XVF3800 firmware {version}; expected (1, 0, 3)")
-            self.service.attach(self.coordinator, led)
+            self.service.attach(self.coordinator, led, audio)
             interval = 1.0 / float(self.config.sample_rate_hz)
+            reconnect_delay = 0.25
+            audio_reconnect_delay = 0.25
             while not stop.is_set():
-                reading = xvf.read_doa()
+                if not audio.status.capture_running:
+                    await self.server.publish_event("audio.status", asdict(audio.status))
+                    await self.sleep(audio_reconnect_delay)
+                    if stop.is_set():
+                        continue
+                    try:
+                        status = await audio.start()
+                    except AudioError as exc:
+                        await self.server.publish_event("audio.status", {
+                            "capture_running": False,
+                            "playback_running": audio.status.playback_running,
+                            "stream_id": audio.status.stream_id,
+                            "state": "fault", "code": exc.code, "message": exc.message,
+                        })
+                        audio_reconnect_delay = min(audio_reconnect_delay * 2.0, 5.0)
+                        continue
+                    audio_reconnect_delay = 0.25
+                    await self.server.publish_event("audio.status", asdict(status))
+                try:
+                    reading = xvf.read_doa()
+                except XvfError as exc:
+                    await self.server.publish_event("device.status", {
+                        "xvf": {"connected": False, "code": exc.code, "message": exc.message}})
+                    with suppress(Exception):
+                        xvf.close()
+                    while not stop.is_set():
+                        await self.sleep(reconnect_delay)
+                        if stop.is_set():
+                            break
+                        try:
+                            candidate = self.xvf_factory()
+                            version = candidate.read_version()
+                            if version != (1, 0, 3):
+                                candidate.close()
+                                raise XvfError(
+                                    "firmware_mismatch", f"expected (1, 0, 3), received {version}")
+                        except XvfError as retry_error:
+                            await self.server.publish_event("device.status", {
+                                "xvf": {"connected": False, "code": retry_error.code,
+                                        "message": retry_error.message}})
+                            reconnect_delay = min(reconnect_delay * 2.0, 5.0)
+                            continue
+                        xvf = candidate
+                        self.stabilizer.reset()
+                        reconnect_delay = 0.25
+                        await self.server.publish_event("device.status", {
+                            "xvf": {"connected": True, "code": "connected", "message": ""}})
+                        break
+                    continue
                 decision = self.stabilizer.observe(DoaSample(
                     timestamp=float(self.clock()),
                     doa_deg=reading.doa_deg,
@@ -242,6 +312,9 @@ class DeviceDaemon:
         finally:
             with suppress(Exception):
                 await self.server.close()
+            if audio is not None:
+                with suppress(Exception):
+                    await audio.close()
             if led is not None:
                 with suppress(Exception):
                     led.clear()
@@ -273,6 +346,16 @@ def build_daemon(config: DeviceConfig) -> DeviceDaemon:
         return LedController(
             sink, LedMapping(), max_brightness=config.max_brightness)
 
+    def audio_factory():
+        return AudioSupervisor(AudioConfig(
+            alsa_card=config.alsa_card,
+            pi_host=config.bind,
+            jetson_host="192.168.100.1",
+            capture_port=config.capture_port,
+            playback_port=config.playback_port,
+            jitter_ms=config.jitter_ms,
+        ))
+
     return DeviceDaemon(
         config,
         server=server,
@@ -280,6 +363,7 @@ def build_daemon(config: DeviceConfig) -> DeviceDaemon:
         coordinator=coordinator,
         stabilizer=DoaStabilizer(),
         led_factory=led_factory,
+        audio_factory=audio_factory,
         xvf_factory=Xvf3800.discover,
     )
 
@@ -300,6 +384,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--xvf-vid", type=_integer, default=XVF_VENDOR_ID)
     parser.add_argument("--xvf-pid", type=_integer, default=XVF_PRODUCT_ID)
     parser.add_argument("--max-brightness", type=float, default=0.10)
+    parser.add_argument("--alsa-card", default="L16K6Ch")
+    parser.add_argument("--capture-port", type=int, default=5004)
+    parser.add_argument("--playback-port", type=int, default=5006)
+    parser.add_argument("--jitter-ms", type=int, default=40)
     parser.add_argument("--enable-led-hardware", action="store_true")
     return parser.parse_args(argv)
 
@@ -319,6 +407,10 @@ async def async_main(argv: list[str] | None = None) -> int:
         max_brightness=args.max_brightness,
         xvf_vid=args.xvf_vid,
         xvf_pid=args.xvf_pid,
+        alsa_card=args.alsa_card,
+        capture_port=args.capture_port,
+        playback_port=args.playback_port,
+        jitter_ms=args.jitter_ms,
     )
     daemon = build_daemon(config)
     stop = asyncio.Event()

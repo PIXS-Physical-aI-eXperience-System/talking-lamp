@@ -68,7 +68,18 @@ def test_device_unit_is_independent_safe_and_has_no_led_hardware_flag():
         "--sample-rate": "20", "--gpio-pin": "12",
         "--xvf-vid": "0x2886", "--xvf-pid": "0x0022",
         "--max-brightness": "0.10",
+        "--alsa-card": "L16K6Ch", "--capture-port": "5004",
+        "--playback-port": "5006", "--jitter-ms": "40",
     }
+
+
+def test_audio_diagnostic_is_read_only_and_checks_required_elements():
+    script = (ROOT / "deploy/pi/check-audio.sh").read_text()
+    assert "gst-inspect-1.0" in script
+    assert "L16K6Ch" in script
+    assert "2886:0022" in script
+    assert "dfu-util" not in script
+    assert "flash" not in script.lower()
 
 
 def test_staged_installer_preserves_secret_and_defaults_disabled(repository, tmp_path):

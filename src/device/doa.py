@@ -190,6 +190,14 @@ class DoaStabilizer:
     def speech_id(self) -> str | None:
         return self._speech_id
 
+    def reset(self) -> None:
+        """Discard an in-flight utterance after an input-device discontinuity."""
+        self._speech_detected = False
+        self._speech_id = None
+        self._started_at = None
+        self._samples = []
+        self._terminal = False
+
     @staticmethod
     def _canonical_id(value: UUID | str) -> str:
         try:
@@ -260,4 +268,3 @@ class DoaStabilizer:
             code=code,
             timestamp=timestamp,
         )
-

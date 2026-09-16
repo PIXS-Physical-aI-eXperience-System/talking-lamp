@@ -13,7 +13,7 @@ WorkingDirectory=/home/pixs/talking-lamp
 EnvironmentFile=/etc/talking-lamp/device.env
 Environment=PYTHONPATH=/home/pixs/talking-lamp/src:/home/pixs/talking-lamp/lelamp_runtime
 UMask=0007
-ExecStart=/home/pixs/talking-lamp/lelamp_runtime/.venv/bin/python -m device.daemon --bind 192.168.100.2 --port 8766 --allow-host 192.168.100.1 --motion-socket /run/talking-lamp/motion-control.sock --calibration /home/pixs/talking-lamp/voice-bench/out/doa/calibration.json --sample-rate 20 --gpio-pin 12 --xvf-vid 0x2886 --xvf-pid 0x0022 --max-brightness 0.10
+ExecStart=/home/pixs/talking-lamp/lelamp_runtime/.venv/bin/python -m device.daemon --bind 192.168.100.2 --port 8766 --allow-host 192.168.100.1 --motion-socket /run/talking-lamp/motion-control.sock --calibration /home/pixs/talking-lamp/voice-bench/out/doa/calibration.json --sample-rate 20 --gpio-pin 12 --xvf-vid 0x2886 --xvf-pid 0x0022 --max-brightness 0.10 --alsa-card L16K6Ch --capture-port 5004 --playback-port 5006 --jitter-ms 40
 KillSignal=SIGTERM
 TimeoutStopSec=10
 Restart=on-failure

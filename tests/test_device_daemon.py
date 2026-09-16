@@ -11,7 +11,9 @@ from device.daemon import (
     RuntimeDeviceService,
     load_calibration,
 )
+from device.audio import AudioStatus
 from device.doa import DoaCalibration, DoaStabilizer
+from device.xvf3800 import XvfError
 
 
 class FakeServer:
@@ -63,6 +65,28 @@ class FakeLed:
 
     def close(self):
         self.order.append("led.close")
+
+
+class FakeAudio:
+    def __init__(self, order):
+        self.order = order
+        self._status = AudioStatus(False, False, None, "idle", "idle", "")
+
+    @property
+    def status(self):
+        return self._status
+
+    async def start(self):
+        self.order.append("audio.start")
+        self._status = AudioStatus(True, False, None, "idle", "capture_running", "")
+        return self._status
+
+    async def disconnect(self):
+        self.order.append("audio.disconnect")
+
+    async def close(self):
+        self.order.append("audio.close")
+        self._status = AudioStatus(False, False, None, "closed", "closed", "")
 
 
 class FakeCoordinator:
@@ -163,13 +187,16 @@ def test_daemon_binds_before_usb_or_led_and_shutdown_order_is_safe():
             config(), server=fake_server, service=gate,
             coordinator=FakeCoordinator(), stabilizer=DoaStabilizer(),
             led_factory=led_factory, xvf_factory=xvf_factory,
+            audio_factory=lambda: FakeAudio(order),
             clock=lambda: 0.0, sleep=sleep,
         )
         assert await daemon.run(stop) == 0
         assert order.index("server.start") < order.index("led.open")
         assert order.index("server.start") < order.index("xvf.open")
+        assert order.index("led.open") < order.index("audio.start") < order.index("xvf.open")
         assert order.index("xvf.read") < order.index("poll.sleep")
-        assert order[-4:] == ["server.close", "led.clear", "led.close", "xvf.close"]
+        assert order[-5:] == [
+            "server.close", "audio.close", "led.clear", "led.close", "xvf.close"]
 
     asyncio.run(scenario())
 
@@ -188,10 +215,11 @@ def test_adapter_start_failure_closes_server_and_returns_nonzero():
             config(), server=server, service=gate,
             coordinator=FakeCoordinator(), stabilizer=DoaStabilizer(),
             led_factory=lambda: FakeLed(order), xvf_factory=fail_xvf,
+            audio_factory=lambda: FakeAudio(order),
         )
         assert await daemon.run(asyncio.Event()) == 1
         assert "server.close" in order
-        assert order[-2:] == ["led.clear", "led.close"]
+        assert order[-3:] == ["audio.close", "led.clear", "led.close"]
 
     asyncio.run(scenario())
 
@@ -219,6 +247,7 @@ def test_motion_socket_failure_is_reported_without_stopping_device_service():
             coordinator=FailingCoordinator(), stabilizer=DoaStabilizer(),
             led_factory=lambda: FakeLed(order),
             xvf_factory=lambda: SpeakingXvf(order),
+            audio_factory=lambda: FakeAudio(order),
             clock=lambda: next(ticks), sleep=sleep,
         )
         assert await daemon.run(stop) == 0
@@ -226,5 +255,96 @@ def test_motion_socket_failure_is_reported_without_stopping_device_service():
         assert server.events[-1][0] == "orientation.status"
         assert server.events[-1][1]["state"] == "fault"
         assert server.events[-1][1]["code"] == "connection_failed"
+
+    asyncio.run(scenario())
+
+
+def test_runtime_xvf_loss_emits_fault_and_rediscovers_without_stopping_tcp():
+    async def scenario():
+        order = []
+        gate = RuntimeDeviceService()
+        server = FakeServer(gate, order)
+        stop = asyncio.Event()
+        devices = []
+
+        class DisconnectingXvf(FakeXvf):
+            def read_doa(self):
+                self.order.append("xvf.read.fail")
+                raise XvfError("usb_io", "device disconnected")
+
+        class ReconnectedXvf(FakeXvf):
+            def read_doa(self):
+                self.order.append("xvf.read.reconnected")
+                stop.set()
+                return type("Doa", (), {"doa_deg": 90, "speech_detected": False})()
+
+        def xvf_factory():
+            device = DisconnectingXvf(order) if not devices else ReconnectedXvf(order)
+            devices.append(device)
+            order.append("xvf.open")
+            return device
+
+        daemon = DeviceDaemon(
+            config(), server=server, service=gate,
+            coordinator=FakeCoordinator(), stabilizer=DoaStabilizer(),
+            led_factory=lambda: FakeLed(order),
+            audio_factory=lambda: FakeAudio(order), xvf_factory=xvf_factory,
+            sleep=lambda _delay: asyncio.sleep(0),
+        )
+        assert await daemon.run(stop) == 0
+        assert len(devices) == 2
+        assert "xvf.close" in order
+        faults = [data for name, data in server.events if name == "device.status"]
+        assert faults[0]["xvf"]["connected"] is False
+        assert faults[-1]["xvf"]["connected"] is True
+
+    asyncio.run(scenario())
+
+
+def test_capture_process_exit_emits_fault_and_restarts_without_stopping_device():
+    async def scenario():
+        order = []
+        gate = RuntimeDeviceService()
+        server = FakeServer(gate, order)
+        stop = asyncio.Event()
+
+        class RestartingAudio(FakeAudio):
+            def __init__(self, order):
+                super().__init__(order)
+                self.running = False
+                self.starts = 0
+
+            @property
+            def status(self):
+                return AudioStatus(
+                    self.running, False, None,
+                    "idle" if self.running else "fault",
+                    "capture_running" if self.running else "capture_exited", "")
+
+            async def start(self):
+                self.starts += 1
+                self.running = True
+                self.order.append("audio.start")
+                return self.status
+
+        audio = RestartingAudio(order)
+
+        async def sleep(_delay):
+            if order.count("xvf.read") == 1 and audio.starts == 1:
+                audio.running = False
+            elif audio.starts == 2:
+                stop.set()
+
+        daemon = DeviceDaemon(
+            config(), server=server, service=gate,
+            coordinator=FakeCoordinator(), stabilizer=DoaStabilizer(),
+            led_factory=lambda: FakeLed(order), audio_factory=lambda: audio,
+            xvf_factory=lambda: FakeXvf(order), sleep=sleep,
+        )
+        assert await daemon.run(stop) == 0
+        assert audio.starts == 2
+        faults = [data for name, data in server.events if name == "audio.status"]
+        assert faults[0]["code"] == "capture_exited"
+        assert faults[-1]["code"] == "capture_running"
 
     asyncio.run(scenario())
