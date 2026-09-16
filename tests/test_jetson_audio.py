@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+import lamp_device_bridge.audio as audio_module
 
 from lamp_device_bridge.audio import (
     AudioFrameError,
@@ -70,3 +71,18 @@ def test_jetson_gstreamer_pipelines_use_appsink_appsrc_opus_and_wired_addresses(
     assert "opusenc frame-size=20" in playback
     assert "rtpopuspay pt=96" in playback
     assert "udpsink host=192.168.100.2 port=5006 bind-address=192.168.100.1" in playback
+
+
+def test_playback_session_preserves_frame_failure_until_action_consumes_it():
+    session = audio_module.PlaybackSession()
+    failure = AudioFrameError("out_of_order", "missing frame")
+
+    session.reset()
+    session.fail(failure)
+    session.finish()
+
+    assert session.wait(0)
+    assert session.error is failure
+    session.reset()
+    assert session.error is None
+    assert not session.wait(0)

@@ -19,7 +19,7 @@ from std_srvs.srv import Trigger
 from lamp_interfaces.action import PlayAudio, ReturnCenter
 from lamp_interfaces.msg import AudioFrame, AudioStatus, LedStatus, OrientationStatus
 from lamp_interfaces.srv import SetLedSolid
-from .audio import AudioFrameError, CaptureReceiver, PlaybackSender
+from .audio import AudioFrameError, CaptureReceiver, PlaybackSender, PlaybackSession
 from .runner import AsyncRunner
 from .transport import DeviceTransport, TransportError
 
@@ -82,7 +82,7 @@ class DeviceBridgeNode(Node):
         self._playback_lock = threading.Lock()
         self._playback_sender = None
         self._playback_stream = None
-        self._playback_eos = threading.Event()
+        self._playback_session = PlaybackSession()
         self.capture = CaptureReceiver(
             self._capture_pcm,
             bind_host="192.168.100.1",
@@ -178,10 +178,10 @@ class DeviceBridgeNode(Node):
                 frame = sender.push(self._frame_dict(message))
             except AudioFrameError as exc:
                 self.get_logger().error(str(exc))
-                self._playback_eos.set()
+                self._playback_session.fail(exc)
                 return
             if frame.end_of_stream:
-                self._playback_eos.set()
+                self._playback_session.finish()
 
     def _play_audio(self, goal_handle):
         goal = goal_handle.request
@@ -191,10 +191,14 @@ class DeviceBridgeNode(Node):
             "channels": int(goal.channels), "encoding": goal.encoding,
         }
         sender = None
+        remote_started = False
+        remote_stopped = False
+        cancelled = False
         try:
             terminal = self._request("audio.play.start", metadata)
             if terminal.get("state") != "completed":
                 raise RuntimeError(str(terminal.get("code", "start_failed")))
+            remote_started = True
             sender = PlaybackSender(
                 goal.stream_id, bind_host="192.168.100.1",
                 pi_host=self.get_parameter("pi_host").value,
@@ -203,14 +207,22 @@ class DeviceBridgeNode(Node):
             with self._playback_lock:
                 self._playback_sender = sender
                 self._playback_stream = goal.stream_id
-                self._playback_eos.clear()
-            while not self._playback_eos.wait(0.05):
+                self._playback_session.reset()
+            while not self._playback_session.wait(0.05):
                 if goal_handle.is_cancel_requested:
-                    goal_handle.canceled()
-                    result.code = "cancelled"
-                    return result
+                    cancelled = True
+                    break
             terminal = self._request(
                 "audio.play.stop", {"stream_id": goal.stream_id}, timeout=10)
+            remote_stopped = True
+            frame_error = self._playback_session.error
+            if frame_error is not None:
+                raise frame_error
+            if cancelled:
+                result.success = False
+                result.code = "cancelled"
+                goal_handle.canceled()
+                return result
             result.success = terminal.get("state") == "completed" and (
                 terminal.get("data", {}).get("code") == "drained")
             result.code = str(terminal.get("data", {}).get(
@@ -221,6 +233,12 @@ class DeviceBridgeNode(Node):
             result.code = getattr(exc, "code", "playback_failed")
             result.message = str(exc)
         finally:
+            if remote_started and not remote_stopped:
+                try:
+                    self._request(
+                        "audio.play.stop", {"stream_id": goal.stream_id}, timeout=10)
+                except (TransportError, RuntimeError, TimeoutError):
+                    pass
             with self._playback_lock:
                 self._playback_sender = None
                 self._playback_stream = None

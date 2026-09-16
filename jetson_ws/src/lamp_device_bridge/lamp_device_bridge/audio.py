@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import threading
 from typing import Mapping
 from uuid import UUID
 
@@ -16,6 +17,37 @@ class AudioFrameError(ValueError):
         self.code = code
         self.message = message
         super().__init__(f"{code}: {message}")
+
+
+class PlaybackSession:
+    """Thread-safe terminal signal that retains the first frame failure."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._error: AudioFrameError | None = None
+
+    @property
+    def error(self) -> AudioFrameError | None:
+        with self._lock:
+            return self._error
+
+    def reset(self) -> None:
+        with self._lock:
+            self._error = None
+            self._event.clear()
+
+    def fail(self, error: AudioFrameError) -> None:
+        with self._lock:
+            if self._error is None:
+                self._error = error
+            self._event.set()
+
+    def finish(self) -> None:
+        self._event.set()
+
+    def wait(self, timeout: float) -> bool:
+        return self._event.wait(timeout)
 
 
 @dataclass(frozen=True)
