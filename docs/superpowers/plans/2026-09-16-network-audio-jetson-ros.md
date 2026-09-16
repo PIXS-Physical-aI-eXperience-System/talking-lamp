@@ -205,23 +205,23 @@ Commit: `feat(jetson): add pure motion device and audio transports`.
 - Consumes: Task 3 generated interfaces and Task 4 pure transports.
 - Produces: every ROS name in spec sections 9.1-9.2.
 
-- [ ] **Step 1: Write failing static node/launch contract tests**
+- [x] **Step 1: Write failing static node/launch contract tests**
 
 Assert launch parameters, exact topic/action/service names, `KEEP_LAST(1)` for tracking/LED latest-value paths, bounded capture queue, reliable Actions/Services, and absence of Pi implementation imports.
 
-- [ ] **Step 2: Implement motion node**
+- [x] **Step 2: Implement motion node**
 
 Map `/lamp/play_motion`, `/lamp/place_task_light`, `/lamp/interrupt_motion`, `/lamp/list_motions`, tracking topics and `/lamp/motion_status` to one persistent motion transport. Action cancellation sends the correlated cancel command and waits for terminal cancellation.
 
-- [ ] **Step 3: Implement device node**
+- [x] **Step 3: Implement device node**
 
 Publish capture frames, audio/orientation/LED status, accept LED Image/solid/clear calls, and implement PlayAudio/ReturnCenter Actions. PlayAudio validates the goal, starts Pi receiver, streams appsrc frames, sends stop at EOS, and succeeds only on Pi `drained`. ReturnCenter succeeds only for terminal `centered`.
 
-- [ ] **Step 4: Add packaging and launch files**
+- [x] **Step 4: Add packaging and launch files**
 
 Install console scripts `lamp_motion_bridge` and `lamp_device_bridge`. Launch defaults match fixed wired addresses/ports but read tokens from environment, never source.
 
-- [ ] **Step 5: Run static/pure tests and commit**
+- [x] **Step 5: Run static/pure tests and commit**
 
 Commit: `feat(ros): bridge lamp motion audio orientation and LED`.
 
