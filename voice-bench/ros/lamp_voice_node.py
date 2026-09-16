@@ -34,7 +34,11 @@ from lamp_interfaces.action import PlayAudio
 from lamp_interfaces.msg import AudioFrame, OrientationStatus
 
 FRAME_BYTES = 640          # 20ms @ 16kHz 모노 s16le. 이 크기가 아니면 거부된다
-MAX_AHEAD_S = 2.0          # 재생 시각보다 이만큼 이상 앞서가지 않는다
+# 재생 시각보다 이만큼 이상 앞서 보내지 않는다.
+# 2.0 으로 뒀다가 2초 분량(108프레임)이 0.3초 만에 쏟아져 나갔고, 파이의
+# 재생 파이프라인이 죽었다(playback exited with 1, 또는 -2). 지터 버퍼가
+# 감당할 만큼만 앞서가게 좁힌다.
+MAX_AHEAD_S = 0.5
 RATE = 16000
 HDR_LEN = 8
 
@@ -247,6 +251,10 @@ class LampVoiceNode(Node):
 
     def _goal_result(self, fut):
         r = fut.result().result
+        sent_s = self.sequence * 0.02
+        took = time.time() - self.play_t0
+        self.get_logger().info(
+            f"프레임 {self.sequence}개({sent_s:.1f}초 분량)를 {took:.1f}초에 보냈다")
         lvl = self.get_logger().info if r.success else self.get_logger().error
         lvl(f"재생 결과 success={r.success} code={r.code} {r.message}")
         self.goal_handle = None
@@ -320,8 +328,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--agent", default="127.0.0.1:5150",
                     help="판단부 주소 (bench/voice_agent.py 가 띄운다)")
+    ap.add_argument("--max-ahead", type=float, default=MAX_AHEAD_S,
+                    help="재생 시각보다 몇 초까지 앞서 보낼지. 파이 버퍼가 "
+                         "넘치면 줄일 것")
     args, ros_args = ap.parse_known_args()
     host, _, port = args.agent.partition(":")
+
+    global MAX_AHEAD_S
+    MAX_AHEAD_S = args.max_ahead
 
     rclpy.init(args=ros_args)
     node = LampVoiceNode(host, int(port or 5150))
