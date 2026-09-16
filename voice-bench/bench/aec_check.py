@@ -68,6 +68,23 @@ def to_sr(x, src, dst=SR):
                      np.arange(len(x)), x).astype(np.float32)
 
 
+def _finite(x, what):
+    """값이 성한지 본다. 계산 전에 막는다.
+
+    채워지지 않은 녹음 버퍼는 초기화되지 않은 메모리를 그대로 들고 있어서
+    dBFS 가 +710 같은 불가능한 값으로 나온다. 실제로 그렇게 나왔고 판정까지
+    그대로 통과했다. 물리적으로 불가능한 값은 결과가 아니라 고장이다.
+    """
+    x = np.asarray(x, dtype=np.float32)
+    if not np.all(np.isfinite(x)):
+        raise RuntimeError(f"{what}: NaN/무한대가 섞였다 — 장치를 확인할 것")
+    peak = float(np.max(np.abs(x)))
+    if peak > 4.0:
+        raise RuntimeError(f"{what}: 표본 최대값이 {peak:.3g} 다. 정상 범위(-1~1)를 "
+                           "크게 벗어났다 — 녹음 버퍼가 채워지지 않았다")
+    return x
+
+
 def db(x):
     """RMS 를 dBFS 로."""
     r = float(np.sqrt(np.mean(np.asarray(x, dtype=float) ** 2) + 1e-12))
