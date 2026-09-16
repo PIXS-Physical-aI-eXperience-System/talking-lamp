@@ -118,7 +118,7 @@ class DeviceTransport:
 
     async def request(
         self, kind: str, payload: dict[str, object], ttl_ms: int = 1000,
-        *, response_timeout: float | None = None,
+        *, response_timeout: float | None = None, request_id: str | None = None,
     ) -> dict[str, object]:
         if not self.connected:
             raise TransportError("not_connected", "device transport is not connected")
@@ -136,7 +136,10 @@ class DeviceTransport:
                 "invalid_request", "response_timeout must be finite and positive")
         else:
             terminal_timeout = float(response_timeout)
-        ident = str(uuid4())
+        ident = str(uuid4()) if request_id is None else request_id
+        if not _uuid(ident) or ident in self._pending:
+            raise TransportError(
+                "invalid_request", "request_id must be a unique canonical UUID")
         line = _encode({
             "version": 1, "id": ident, "type": kind, "ttl_ms": ttl_ms,
             "token": self.token, "payload": payload,

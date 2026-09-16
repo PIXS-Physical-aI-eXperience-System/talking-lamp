@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse
@@ -15,6 +16,7 @@ from geometry_msgs.msg import PointStamped, Vector3Stamped
 from lamp_interfaces.action import PlaceTaskLight, PlayMotion
 from lamp_interfaces.msg import MotionStatus
 from lamp_interfaces.srv import InterruptMotion, ListMotions
+from lamp_device_bridge.action_wait import wait_cancelable
 from lamp_device_bridge.runner import AsyncRunner
 from .transport import MotionTransport, TransportError
 
@@ -70,30 +72,53 @@ class MotionBridgeNode(Node):
             self.transport.request(
                 kind, payload, response_timeout=timeout)).result(timeout=timeout + 1)
 
+    def _cancelable_request(
+        self, goal_handle, kind, payload, cancel_kind, *, timeout,
+    ):
+        request_id = str(uuid4())
+        future = self.runner.submit(self.transport.request(
+            kind, payload, response_timeout=timeout, request_id=request_id))
+        return wait_cancelable(
+            future,
+            cancel_requested=lambda: goal_handle.is_cancel_requested,
+            cancel=lambda: self._request(
+                cancel_kind, {"request_id": request_id}, timeout=3),
+            timeout=timeout + 1,
+        )
+
     def _play(self, goal_handle):
         request = goal_handle.request
-        response = self._request("motion.play", {
+        outcome = self._cancelable_request(goal_handle, "motion.play", {
             "name": request.name,
             "replace_current": request.replace_current,
             "intensity": float(request.intensity),
             "repeat": int(request.repeat),
-        }, timeout=MOTION_ACTION_TIMEOUT_SECONDS)
+        }, "motion.cancel", timeout=MOTION_ACTION_TIMEOUT_SECONDS)
+        response = outcome.terminal
         result = PlayMotion.Result()
         result.success = response.get("state") == "completed"
         result.code = str(response.get("code", "invalid_response"))
         result.message = str(response.get("message", ""))
-        (goal_handle.succeed if result.success else goal_handle.abort)()
+        if outcome.cancelled:
+            goal_handle.canceled()
+        else:
+            (goal_handle.succeed if result.success else goal_handle.abort)()
         return result
 
     def _task(self, goal_handle):
         point = goal_handle.request.target.point
-        response = self._request(
-            "task_light.place", {"point": [point.x, point.y, point.z]}, timeout=15)
+        outcome = self._cancelable_request(
+            goal_handle, "task_light.place", {"point": [point.x, point.y, point.z]},
+            "task_light.cancel", timeout=15)
+        response = outcome.terminal
         result = PlaceTaskLight.Result()
         result.success = response.get("state") == "completed"
         result.code = str(response.get("code", "invalid_response"))
         result.message = str(response.get("message", ""))
-        (goal_handle.succeed if result.success else goal_handle.abort)()
+        if outcome.cancelled:
+            goal_handle.canceled()
+        else:
+            (goal_handle.succeed if result.success else goal_handle.abort)()
         return result
 
     def _list(self, _request, response):

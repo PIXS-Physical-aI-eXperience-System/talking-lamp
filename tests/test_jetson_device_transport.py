@@ -196,3 +196,35 @@ def test_terminal_response_timeout_is_independent_from_receive_ttl():
             await server.wait_closed()
 
     asyncio.run(scenario())
+
+
+def test_transport_uses_caller_request_id_for_correlated_cancellation():
+    async def scenario():
+        request_id = str(uuid4())
+
+        async def handler(reader, writer):
+            request = json.loads(await reader.readline())
+            assert request["id"] == request_id
+            await send(writer, {
+                "id": request_id, "state": "completed",
+                "code": "completed", "data": {},
+            })
+            await reader.read()
+            writer.close()
+            await writer.wait_closed()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        transport = DeviceTransport(
+            "127.0.0.1", server.sockets[0].getsockname()[1], TOKEN,
+            heartbeat_interval=60)
+        try:
+            await transport.connect()
+            result = await transport.request(
+                "motion.play", {}, request_id=request_id)
+            assert result["state"] == "completed"
+        finally:
+            await transport.close()
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
