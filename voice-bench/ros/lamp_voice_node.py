@@ -57,7 +57,7 @@ MAX_AHEAD_S = 0.5
 # next_sequence 를 올리므로, 첫 프레임(순번 0)이 버려지면 그 뒤로 오는
 # 1, 2, 3 이 전부 out_of_order 로 거부되고 스트림이 통째로 죽는다.
 # 그래서 넉넉하게 잡는다. 늦게 말하는 것이 아예 말 못 하는 것보다 낫다.
-SENDER_READY_S = 2.0
+SENDER_READY_S = 5.0
 RATE = 16000
 HDR_LEN = 8
 
@@ -81,10 +81,45 @@ def pack_id(speech_id):
     return (speech_id or "").strip().ljust(SPEECH_ID_LEN).encode("ascii")
 
 
+def sender_socket_open(pi_host="192.168.100.2", port=5006):
+    """브리지의 송신기가 실제로 열렸는지 본다.
+
+    브리지는 준비됐다는 신호를 주지 않는다. PlayAudio 에 received_sequence
+    피드백이 정의돼 있지만 발행하지 않는다. 그래서 시간으로 맞추는 수밖에
+    없었는데, 한 프레임만 일찍 보내면 스트림 전체가 죽는다 — 검사기가 통과한
+    프레임에서만 순번을 올리기 때문이다.
+
+    그런데 저쪽 송신기 파이프라인 끝이 udpsink 다.
+
+        udpsink host=192.168.100.2 port=5006 bind-address=192.168.100.1
+
+    이것이 PLAYING 으로 가는 순간 젯슨에 상대 포트 5006 인 UDP 소켓이 생긴다.
+    /proc/net/udp 로 그것을 직접 볼 수 있다. 시간을 재는 대신 이걸 본다.
+    """
+    want = f"{port:04X}"
+    try:
+        octets = [f"{int(o):02X}" for o in reversed(pi_host.split("."))]
+    except ValueError:
+        return False
+    rem = "".join(octets) + ":" + want
+    for path in ("/proc/net/udp", "/proc/net/udp6"):
+        try:
+            with open(path) as fh:
+                next(fh, None)
+                for line in fh:
+                    parts = line.split()
+                    if len(parts) > 2 and parts[2].upper().endswith(rem):
+                        return True
+        except OSError:
+            continue
+    return False
+
+
 class LampVoiceNode(Node):
-    def __init__(self, host, port):
+    def __init__(self, host, port, pi_host="192.168.100.2"):
         super().__init__("lamp_voice")
         self.host, self.port = host, port
+        self.pi_host = pi_host
         self.sock = None
         self.send_lock = threading.Lock()
 
@@ -293,7 +328,21 @@ class LampVoiceNode(Node):
         # 수락돼도 브리지는 아직 송신기를 안 만들었을 수 있다. 실행 단계에서
         # 파이에 audio.play.start 를 보내고 나서야 대입하므로, 그 전에 보낸
         # 것은 sender is None 으로 조용히 버려진다.
-        time.sleep(SENDER_READY_S)
+        #
+        # 송신기가 열리면 udpsink 소켓이 생긴다. 그것을 보고 출발한다.
+        deadline = time.time() + SENDER_READY_S
+        seen = False
+        while time.time() < deadline:
+            if sender_socket_open(self.pi_host):
+                seen = True
+                break
+            time.sleep(0.02)
+        if seen:
+            # 소켓이 생긴 직후에도 파이프라인이 자리를 잡는 짧은 틈이 있다.
+            time.sleep(0.1)
+        else:
+            self.get_logger().warn(
+                f"{SENDER_READY_S}초 안에 송신 소켓을 못 봤다 — 그대로 보낸다")
         t0 = time.time()
         seq = 0
         while True:
@@ -350,7 +399,9 @@ def main() -> int:
     ap.add_argument("--agent", default="127.0.0.1:5150",
                     help="판단부 주소 (bench/voice_agent.py 가 띄운다)")
     ap.add_argument("--ready-wait", type=float, default=SENDER_READY_S,
-                    help="목표 수락 후 브리지 송신기가 준비될 때까지 기다리는 초")
+                    help="브리지 송신 소켓이 열릴 때까지 기다리는 최대 초")
+    ap.add_argument("--pi-host", default="192.168.100.2",
+                    help="송신 소켓을 찾을 때 쓰는 파이 주소")
     ap.add_argument("--max-ahead", type=float, default=MAX_AHEAD_S,
                     help="재생 시각보다 몇 초까지 앞서 보낼지. 파이 버퍼가 "
                          "넘치면 줄일 것")
@@ -361,7 +412,7 @@ def main() -> int:
     SENDER_READY_S = args.ready_wait
 
     rclpy.init(args=ros_args)
-    node = LampVoiceNode(host, int(port or 5150))
+    node = LampVoiceNode(host, int(port or 5150), args.pi_host)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
