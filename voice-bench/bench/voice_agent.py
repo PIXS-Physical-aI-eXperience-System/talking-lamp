@@ -29,6 +29,27 @@ from voice.tts import Tts                 # noqa: E402
 from voice.wake import PHRASE, load_wake  # noqa: E402
 
 
+class ToneTts:
+    """TTS 자리에 끼우는 440Hz 순음.
+
+    파이가 success=True code=drained 를 돌려주는데도 소리가 안 났다. 문서에
+    적힌 대로 drained 는 파이프라인이 정상 종료했다는 뜻일 뿐, 스피커에서
+    소리가 났다는 보증이 아니다. 우리가 보낸 오디오 내용이 문제인지 전송
+    경로가 문제인지 가르려면 확실히 들리는 것을 보내 봐야 한다.
+    """
+
+    samplerate = 16000
+    providers = ["tone"]
+    load_s = 0.0
+
+    def synth(self, text):
+        import numpy as np
+        n = int(1.0 * self.samplerate)
+        t = np.arange(n) / self.samplerate
+        # -6 dBFS. 작아서 안 들리는 경우를 배제한다.
+        return (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+
+
 def serve(agent_factory, host, port):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -77,6 +98,10 @@ def main() -> int:
     ap.add_argument("--wake-model", default="models/wake/pixs-ya.onnx")
     ap.add_argument("--stt-device", default="cuda", choices=["cuda", "cpu"])
     ap.add_argument("--providers", default="CUDAExecutionProvider,CPUExecutionProvider")
+    ap.add_argument("--tone", action="store_true",
+                    help="TTS 대신 440Hz 순음을 보낸다. 소리가 안 날 때 "
+                         "오디오 내용 문제인지 전송 경로 문제인지 가른다 — "
+                         "저쪽 검수에서 440Hz 톤은 들렸다고 기록돼 있다")
     ap.add_argument("--rise-db", type=float, default=12.0,
                     help="재생 중 바닥 대비 몇 dB 오르면 끼어든 것으로 볼지. "
                          "실측에서 끼어들면 최악 28 dB 튀었다")
@@ -84,11 +109,12 @@ def main() -> int:
 
     print("적재 중…")
     t0 = time.time()
-    tts = Tts(providers=args.providers)
+    tts = ToneTts() if args.tone else Tts(providers=args.providers)
     stt = Stt(device=args.stt_device)
     wake_path = os.path.join(ROOT, args.wake_model)
     wake = load_wake(wake_path if os.path.exists(wake_path) else None)
-    print(f"  TTS {tts.providers}  {tts.load_s}s")
+    print(f"  TTS {tts.providers}  {tts.load_s}s"
+          + ("   ← 순음 시험 모드" if args.tone else ""))
     print(f"  STT {stt.name}")
     print(f"  웨이크워드 {wake.name}")
     if not getattr(wake, "ready", False):
