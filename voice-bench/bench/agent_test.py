@@ -84,8 +84,10 @@ def main() -> int:
         fails.append("웨이크워드 없이 깨어났다")
 
     # ③ 부름 → 듣기 → 발화 끝 → 말하기 ───────────────────────────────
+    #    발화 1초(50프레임), 그다음 무음 0.7초(35프레임). 표시가 연속으로
+    #    30프레임 없어야 끝으로 본다.
     a, sent, states = run("정상", AlwaysWake(),
-                          [(SID, -20, 5), ("", -60, 2)])
+                          [(SID, -20, 50), ("", -60, 35)])
     for _ in range(60):          # 생각·합성은 다른 스레드에서 돈다
         if any(k == link.SPEAK_END for k, _ in sent):
             break
@@ -101,6 +103,28 @@ def main() -> int:
         fails.append(f"상태 흐름이 다르다: {states}")
     if any(len(p) != FRAME_SAMPLES * 2 for p in audio):
         fails.append("오디오 프레임 크기가 640바이트가 아니다")
+
+    # ③-b 숨 쉬는 자리에서 자르지 않는다 ─────────────────────────────
+    #    파이 표시는 들쭉날쭉하다. 한 프레임 끊겼다고 자르면 문장이 토막난다.
+    a, sent, states = run("숨", AlwaysWake(),
+                          [(SID, -20, 30), ("", -30, 10),      # 숨 쉬는 자리
+                           (SID, -20, 30), ("", -60, 35)])
+    for _ in range(60):
+        if any(k == link.SPEAK_END for k, _ in sent):
+            break
+        time.sleep(0.05)
+    n_turns = sum(1 for k, _ in sent if k == link.SPEAK_BEGIN)
+    print(f"  ③-b 중간에 끊긴 발화   턴 {n_turns}개 (1개여야 한다)")
+    if n_turns != 1:
+        fails.append(f"한 문장을 {n_turns}턴으로 쪼갰다")
+
+    # ③-c 짧은 소음은 턴을 소모하지 않는다 ───────────────────────────
+    a, sent, states = run("소음", AlwaysWake(),
+                          [(SID, -20, 5), ("", -60, 35)])
+    time.sleep(0.3)
+    print(f"  ③-c 짧은 소음         상태 {a.state}   보낸 것 {len(sent)}개")
+    if sent:
+        fails.append("0.1초짜리 소음으로 한 턴을 돌렸다")
 
     # ④ 말하는 중에 끼어들기 ─────────────────────────────────────────
     sent2, states2 = [], []

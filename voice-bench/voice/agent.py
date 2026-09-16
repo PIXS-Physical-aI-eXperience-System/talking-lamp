@@ -20,6 +20,7 @@ barge-in 감지가 가능하다는 것은 실측으로 확인했다. 램프가 �
 다만 절대 dB 임계값은 쓰지 않는다 — 회차마다 크게 움직였다. 재생 중 관측된
 바닥 대비 얼마나 올랐는지로 판정한다.
 """
+import collections
 import threading
 import time
 import uuid
@@ -34,6 +35,12 @@ IDLE, LISTENING, THINKING, SPEAKING = "대기", "듣기", "생각", "말하기"
 FRAME_SAMPLES = 320          # 20 ms @ 16 kHz
 MAX_UTTERANCE_S = 15.0
 END_SILENCE_FRAMES = 25      # 0.5초. 끼어든 직후 우리가 발화 끝을 볼 때 쓴다
+# 파이 VAD 표시가 한 번 끊겼다고 바로 자르면 안 된다. 사람은 말하다 숨을 쉬고,
+# 방에 사람이 있으면 표시가 들쭉날쭉하다. 실기기에서 250프레임 중 150~250개에
+# 표시가 붙었고, 그 사이 끊김마다 잘려 문장 조각이 STT 로 갔다.
+PI_END_FRAMES = 30           # 0.6초 연속으로 표시가 없어야 발화 끝으로 본다
+MIN_UTTERANCE_FRAMES = 20    # 0.4초보다 짧으면 발화로 치지 않는다
+PREROLL_FRAMES = 15          # 0.3초. 깨어나기 직전 소리도 함께 넘긴다
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
 
 
@@ -96,6 +103,11 @@ class VoiceAgent:
 
         self.state = IDLE
         self.speech_id = ""
+        # 깨어난 프레임부터 모으면 말 앞부분이 잘린다. 항상 최근 몇 프레임을
+        # 들고 있다가 깨어날 때 앞에 붙인다.
+        self._preroll = collections.deque(maxlen=PREROLL_FRAMES)
+        self._pi_quiet = 0
+        self._voiced = 0          # 실제로 소리가 난 프레임 수
         self._buf = []
         self._t0 = 0.0
         # 끼어든 직후에는 파이 VAD 를 믿을 수 없다. self-playback guard 로
@@ -133,18 +145,24 @@ class VoiceAgent:
     def _while_listening(self, speech_id, pcm):
         active = bool(speech_id)
         if self.state == IDLE:
+            self._preroll.append(pcm)
             # 파이가 말하는 중이라고 표시한 프레임만 웨이크워드에 넣는다.
             # 조용한 프레임까지 넣으면 헛일이고 오작동만 늘어난다.
             if active and self.wake.detect(pcm):
                 self.wake.reset()
                 self.speech_id = speech_id
-                self._buf = [pcm]
+                self._buf = list(self._preroll)
+                self._preroll.clear()
+                self._pi_quiet = 0
+                self._voiced = 1
                 self._t0 = time.time()
                 self._set(LISTENING)
             return
 
         # LISTENING
         self._buf.append(pcm)
+        if active:
+            self._voiced += 1
         too_long = time.time() - self._t0 > MAX_UTTERANCE_S
 
         if time.time() < self._grace_until:
@@ -153,8 +171,20 @@ class VoiceAgent:
             self._quiet_run = 0 if loud else self._quiet_run + 1
             ended = self._quiet_run >= END_SILENCE_FRAMES
         else:
-            # speech_id 가 비면 파이 VAD 가 발화 끝으로 본 것이다.
-            ended = not active
+            # 표시가 연속으로 없어야 발화 끝으로 본다. 한 프레임 끊겼다고
+            # 자르면 숨 쉬는 자리마다 문장이 토막난다.
+            self._pi_quiet = 0 if active else self._pi_quiet + 1
+            ended = self._pi_quiet >= PI_END_FRAMES
+
+        # 너무 짧은 것은 발화가 아니다. 기침이나 문 닫는 소리로 STT 를 돌리면
+        # 빈 문자열이 나오고 그때마다 한 턴이 헛돈다.
+        # 버퍼 길이로 세면 안 된다 — 뒤에 붙는 무음까지 세어 통과해 버린다.
+        if ended and self._voiced < MIN_UTTERANCE_FRAMES:
+            self._buf = []
+            self._pi_quiet = 0
+            self._voiced = 0
+            self._set(IDLE)
+            return
 
         if ended or too_long:
             audio = np.concatenate(self._buf) if self._buf else np.zeros(1, np.float32)
