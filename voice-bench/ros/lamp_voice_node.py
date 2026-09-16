@@ -35,11 +35,17 @@ from lamp_interfaces.action import PlayAudio
 from lamp_interfaces.msg import AudioFrame, OrientationStatus
 
 FRAME_BYTES = 640          # 20ms @ 16kHz 모노 s16le. 이 크기가 아니면 거부된다
-# 재생 시각보다 이만큼 이상 앞서 보내지 않는다.
-# 2.0 으로 뒀다가 2초 분량(108프레임)이 0.3초 만에 쏟아져 나갔고, 파이의
-# 재생 파이프라인이 죽었다(playback exited with 1, 또는 -2). 지터 버퍼가
-# 감당할 만큼만 앞서가게 좁힌다.
-MAX_AHEAD_S = 0.5
+# 프레임은 반드시 20 ms 간격으로 내보낸다. 몰아서 보내면 안 된다.
+#
+# 브리지는 ReentrantCallbackGroup 과 다중 스레드 실행기를 쓴다. 구독 콜백이
+# 병렬로 돌기 때문에, 프레임이 한꺼번에 도착하면 서로 다른 스레드가 순서를
+# 뒤집어 처리하고 검사기가 out_of_order 로 거부한다. 한 번 거부되면 검사기가
+# 순번을 못 올려 그 스트림이 통째로 죽는다.
+#
+# 최소 재현 스크립트(ros/playback_probe.py)가 이것을 갈랐다. 20 ms 간격으로
+# 보내면 소리가 나고, 몰아서 보내면 out_of_order 가 난다. 앞서 보내는 것은
+# 이득도 없다 — 어차피 실시간으로 재생된다.
+FRAME_INTERVAL_S = 0.02
 
 # 목표가 수락된 뒤에도 브리지가 곧바로 프레임을 받을 수 있는 것은 아니다.
 # 브리지는 실행 단계에서 파이에 audio.play.start 를 보내고 GStreamer 송신기를
@@ -57,7 +63,7 @@ MAX_AHEAD_S = 0.5
 # next_sequence 를 올리므로, 첫 프레임(순번 0)이 버려지면 그 뒤로 오는
 # 1, 2, 3 이 전부 out_of_order 로 거부되고 스트림이 통째로 죽는다.
 # 그래서 넉넉하게 잡는다. 늦게 말하는 것이 아예 말 못 하는 것보다 낫다.
-SENDER_READY_S = 5.0
+SENDER_READY_S = 1.5
 RATE = 16000
 HDR_LEN = 8
 
@@ -79,40 +85,6 @@ def pack(kind, payload=b""):
 
 def pack_id(speech_id):
     return (speech_id or "").strip().ljust(SPEECH_ID_LEN).encode("ascii")
-
-
-def sender_socket_open(pi_host="192.168.100.2", port=5006):
-    """브리지의 송신기가 실제로 열렸는지 본다.
-
-    브리지는 준비됐다는 신호를 주지 않는다. PlayAudio 에 received_sequence
-    피드백이 정의돼 있지만 발행하지 않는다. 그래서 시간으로 맞추는 수밖에
-    없었는데, 한 프레임만 일찍 보내면 스트림 전체가 죽는다 — 검사기가 통과한
-    프레임에서만 순번을 올리기 때문이다.
-
-    그런데 저쪽 송신기 파이프라인 끝이 udpsink 다.
-
-        udpsink host=192.168.100.2 port=5006 bind-address=192.168.100.1
-
-    이것이 PLAYING 으로 가는 순간 젯슨에 상대 포트 5006 인 UDP 소켓이 생긴다.
-    /proc/net/udp 로 그것을 직접 볼 수 있다. 시간을 재는 대신 이걸 본다.
-    """
-    want = f"{port:04X}"
-    try:
-        octets = [f"{int(o):02X}" for o in reversed(pi_host.split("."))]
-    except ValueError:
-        return False
-    rem = "".join(octets) + ":" + want
-    for path in ("/proc/net/udp", "/proc/net/udp6"):
-        try:
-            with open(path) as fh:
-                next(fh, None)
-                for line in fh:
-                    parts = line.split()
-                    if len(parts) > 2 and parts[2].upper().endswith(rem):
-                        return True
-        except OSError:
-            continue
-    return False
 
 
 class LampVoiceNode(Node):
@@ -328,22 +300,14 @@ class LampVoiceNode(Node):
             return                      # 그사이 다음 스트림이 시작됐다
         # 수락돼도 브리지는 아직 송신기를 안 만들었을 수 있다. 실행 단계에서
         # 파이에 audio.play.start 를 보내고 나서야 대입하므로, 그 전에 보낸
-        # 것은 sender is None 으로 조용히 버려진다.
+        # 것은 sender is None 으로 조용히 버려진다. 준비됐다는 신호가 없어
+        # 기다리는 수밖에 없다 — PlayAudio 에 received_sequence 피드백이
+        # 정의돼 있으나 브리지는 발행하지 않는다.
         #
-        # 송신기가 열리면 udpsink 소켓이 생긴다. 그것을 보고 출발한다.
-        deadline = time.time() + SENDER_READY_S
-        seen = False
-        while time.time() < deadline:
-            if sender_socket_open(self.pi_host):
-                seen = True
-                break
-            time.sleep(0.02)
-        if seen:
-            # 소켓이 생긴 직후에도 파이프라인이 자리를 잡는 짧은 틈이 있다.
-            time.sleep(0.1)
-        else:
-            self.get_logger().warn(
-                f"{SENDER_READY_S}초 안에 송신 소켓을 못 봤다 — 그대로 보낸다")
+        # udpsink 소켓을 찾아보려 했으나 안 된다. udpsink 는 소켓을 connect
+        # 하지 않고 sendto 로 보내므로 /proc/net/udp 에 상대 주소가 안 남는다.
+        time.sleep(SENDER_READY_S)
+
         t0 = time.time()
         seq = 0
         while True:
@@ -355,10 +319,12 @@ class LampVoiceNode(Node):
                 self.playback.publish(self._frame(b"", True, stream_id, seq))
                 self.sent = seq + 1
                 return
-            # 합성이 재생보다 빠르다. 파이 버퍼가 넘치지 않게 늦춘다.
-            ahead = seq * 0.02 - (time.time() - t0)
-            if ahead > MAX_AHEAD_S:
-                time.sleep(ahead - MAX_AHEAD_S)
+            # 다음 프레임 시각까지 기다린다. 절대 시각으로 잡아야 오차가
+            # 쌓이지 않는다.
+            due = t0 + seq * FRAME_INTERVAL_S
+            delay = due - time.time()
+            if delay > 0:
+                time.sleep(delay)
             # 무엇을 보내는지 눈으로 확인한다. 검사기는 0 부터 1씩을 기대하는데
             # out_of_order 가 나므로, 우리가 정말 0 부터 보내는지부터 봐야 한다.
             if seq < 3:
@@ -401,7 +367,7 @@ class LampVoiceNode(Node):
 
 
 def main() -> int:
-    global MAX_AHEAD_S, SENDER_READY_S   # 이 이름들을 쓰기 전에 선언해야 한다
+    global SENDER_READY_S   # 이 이름을 쓰기 전에 선언해야 한다
     ap = argparse.ArgumentParser()
     ap.add_argument("--agent", default="127.0.0.1:5150",
                     help="판단부 주소 (bench/voice_agent.py 가 띄운다)")
@@ -409,13 +375,10 @@ def main() -> int:
                     help="브리지 송신 소켓이 열릴 때까지 기다리는 최대 초")
     ap.add_argument("--pi-host", default="192.168.100.2",
                     help="송신 소켓을 찾을 때 쓰는 파이 주소")
-    ap.add_argument("--max-ahead", type=float, default=MAX_AHEAD_S,
-                    help="재생 시각보다 몇 초까지 앞서 보낼지. 파이 버퍼가 "
-                         "넘치면 줄일 것")
+
     args, ros_args = ap.parse_known_args()
     host, _, port = args.agent.partition(":")
 
-    MAX_AHEAD_S = args.max_ahead
     SENDER_READY_S = args.ready_wait
 
     rclpy.init(args=ros_args)
