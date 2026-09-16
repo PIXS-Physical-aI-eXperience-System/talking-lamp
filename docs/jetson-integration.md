@@ -80,9 +80,9 @@ Device bridge:
 - `/lamp/audio/capture` — 20 ms `AudioFrame`, 16 kHz mono `pcm_s16le`
 - `/lamp/audio/playback_frames` — TTS producer frames for one accepted stream
 - `/lamp/play_audio` — owns playback start, EOS and Pi drain completion
-- `/lamp/audio_status` — event-driven Pi capture/playback transitions and faults.
-  It is not latched at healthy startup; sequence/buffer fields are reserved in
-  this release.
+- `/lamp/audio_status` — event-driven Pi capture-pipeline faults and supervised
+  restarts. It is not latched at healthy startup and does not report playback
+  transitions; sequence/buffer fields are reserved in this release.
 - `/lamp/orientation_status` — Pi DOA/alignment status with `speech_id`
 - `/lamp/return_center` — completes only at Pi `centered`
 - `/lamp/led/frame` — `sensor_msgs/Image`, exactly 8×8 `rgb8`
@@ -134,7 +134,10 @@ an assumed "latest" utterance.
   long-silence/RTP-gap alarm.
 - XVF removal: Pi keeps device TCP/LED alive, marks XVF fault and rediscovers
   with exponential backoff. A reconnect begins a new capture stream.
-- Playback loss: PlayAudio fails, so automatic center/idle does not run.
+- Playback control or frame validation failure: PlayAudio fails, so automatic
+  center/idle does not run. A successful `drained` result means the Pi playback
+  pipeline accepted EOS and terminated; UDP packet delivery and audible speaker
+  output remain best-effort and are not acknowledged in this release.
 - Device-session change: event sequence restarts at one; the bridge discards
   events from older session IDs.
 - LED remains software-only until the physical mapping and shared-5 V power

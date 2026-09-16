@@ -69,7 +69,44 @@ class AudioStatus:
     message: str
 
 
-def capture_pipeline(config: AudioConfig) -> tuple[str, ...]:
+def _rtp_timestamp(packet: bytes) -> int:
+    if len(packet) < 12 or packet[0] >> 6 != 2:
+        raise AudioError("invalid_rtp", "capture probe received an invalid RTP header")
+    return int.from_bytes(packet[4:8], "big")
+
+
+class CaptureRtpClock:
+    def __init__(self) -> None:
+        self._anchor: tuple[float, int] | None = None
+
+    def reset(self) -> None:
+        self._anchor = None
+
+    def observe(self, packet: bytes, received_at: float) -> None:
+        if not math.isfinite(received_at):
+            raise AudioError("invalid_timestamp", "RTP observation time must be finite")
+        self._anchor = (received_at, _rtp_timestamp(packet))
+
+    def at(self, now: float) -> int:
+        if self._anchor is None:
+            raise AudioError("capture_not_running", "capture RTP clock has no packet anchor")
+        received_at, timestamp = self._anchor
+        if not math.isfinite(now) or now < received_at:
+            raise AudioError("invalid_timestamp", "capture timestamp precedes RTP observation")
+        return (timestamp + int((now - received_at) * 48_000)) & 0xFFFFFFFF
+
+
+class _CaptureProbe(asyncio.DatagramProtocol):
+    def __init__(self, callback: Callable[[bytes], None]) -> None:
+        self.callback = callback
+
+    def datagram_received(self, data: bytes, _address) -> None:
+        self.callback(data)
+
+
+def capture_pipeline(config: AudioConfig, *, probe_port: int) -> tuple[str, ...]:
+    if isinstance(probe_port, bool) or not isinstance(probe_port, int) or not 1 <= probe_port <= 65535:
+        raise AudioError("invalid_config", "probe_port must be in 1..65535")
     device = f"plughw:CARD={config.alsa_card},DEV=0"
     return (
         "gst-launch-1.0", "-q", "-e",
@@ -79,8 +116,12 @@ def capture_pipeline(config: AudioConfig) -> tuple[str, ...]:
         "!", "audio/x-raw,format=S16LE,rate=16000,channels=1",
         "!", "opusenc", "frame-size=20", "bitrate=32000", "inband-fec=true",
         "!", "rtpopuspay", "pt=96", "timestamp-offset=0",
-        "!", "udpsink", f"host={config.jetson_host}", f"port={config.capture_port}",
+        "!", "tee", "name=capture_rtp",
+        "capture_rtp.", "!", "queue", "!", "udpsink",
+        f"host={config.jetson_host}", f"port={config.capture_port}",
         f"bind-address={config.pi_host}", "sync=false", "async=false",
+        "capture_rtp.", "!", "queue", "!", "udpsink",
+        "host=127.0.0.1", f"port={probe_port}", "sync=false", "async=false",
     )
 
 
@@ -158,7 +199,8 @@ class AudioSupervisor:
         self._playback = None
         self._stream_id: str | None = None
         self._closed = False
-        self._capture_epoch: float | None = None
+        self._rtp_clock = CaptureRtpClock()
+        self._probe_transport = None
         self._last = AudioStatus(False, False, None, "idle", "idle", "")
 
     @property
@@ -176,24 +218,36 @@ class AudioSupervisor:
         if self._capture is not None and self._capture.returncode is None:
             return self.status
         try:
-            self._capture_epoch = float(self.clock())
-            self._capture = await self.process_factory(capture_pipeline(self.config))
+            if self._probe_transport is None:
+                loop = asyncio.get_running_loop()
+                self._probe_transport, _ = await loop.create_datagram_endpoint(
+                    lambda: _CaptureProbe(lambda packet: self.observe_capture_rtp(packet)),
+                    local_addr=("127.0.0.1", 0),
+                )
+            address = self._probe_transport.get_extra_info("sockname")
+            if not isinstance(address, tuple) or not isinstance(address[1], int):
+                raise AudioError("capture_start_failed", "capture probe has no UDP port")
+            self._rtp_clock.reset()
+            self._capture = await self.process_factory(capture_pipeline(
+                self.config, probe_port=address[1]))
         except (OSError, RuntimeError) as exc:
-            self._capture_epoch = None
             raise AudioError("capture_start_failed", str(exc)) from exc
         if self._capture.returncode is not None:
-            self._capture_epoch = None
             raise AudioError("capture_start_failed", "capture pipeline exited during startup")
         self._last = AudioStatus(True, False, None, "idle", "capture_running", "")
         return self.status
 
+    def observe_capture_rtp(
+        self, packet: bytes, *, received_at: float | None = None,
+    ) -> None:
+        self._rtp_clock.observe(
+            packet, float(self.clock()) if received_at is None else float(received_at))
+
     def capture_rtp_timestamp(self, now: float | None = None) -> int:
-        if self._capture_epoch is None or not self.status.capture_running:
+        if not self.status.capture_running:
             raise AudioError("capture_not_running", "capture RTP clock is unavailable")
         current = float(self.clock()) if now is None else float(now)
-        if not math.isfinite(current) or current < self._capture_epoch:
-            raise AudioError("invalid_timestamp", "capture timestamp precedes its RTP epoch")
-        return int((current - self._capture_epoch) * 48_000) & 0xFFFFFFFF
+        return self._rtp_clock.at(current)
 
     async def play_start(self, metadata: object) -> AudioStatus:
         if self._closed:
@@ -265,6 +319,9 @@ class AudioSupervisor:
                 self._capture.kill()
                 await self._capture.wait()
         self._capture = None
-        self._capture_epoch = None
+        self._rtp_clock.reset()
+        if self._probe_transport is not None:
+            self._probe_transport.close()
+            self._probe_transport = None
         self._closed = True
         self._last = AudioStatus(False, False, None, "closed", "closed", "")

@@ -282,9 +282,10 @@ ros2 topic hz /lamp/audio/capture
 ```
 
 정상 기준은 브리지 노드 2개, `motion_status.connected: true`, fault 없음,
-마이크 약 50 Hz다. `/lamp/audio_status`는 Pi의 재생 전환이나 capture fault가
-발생할 때만 발행되는 event-driven topic이므로 정상 시작 확인에 `--once`로
-사용하지 않는다. 이 릴리스에서 sequence와 buffer 필드는 예약값이다.
+마이크 약 50 Hz다. `/lamp/audio_status`는 Pi capture pipeline의 fault와 감독
+재시작 때만 발행되는 event-driven topic이다. 정상 시작과 재생 전환은 발행하지
+않으므로 확인에 `--once`로 사용하지 않는다. 이 릴리스에서 sequence와 buffer
+필드는 예약값이다.
 
 ## 4. 운영 방법
 
@@ -425,7 +426,7 @@ ROS 인터페이스는 준비되어 있다.
 | Jetson에서 Pi 접속 불가 | 양쪽 고정 IP, 케이블/link, `ping`, Pi 방화벽, 허용 호스트 `192.168.100.1` |
 | bridge가 연결되지 않음 | Pi 서비스 active 여부, 8765/8766 listen, 양쪽 토큰 값과 키 이름 |
 | 마이크 topic이 없음 | `lsusb -d 2886:0022`, udev 권한, `deploy/pi/check-audio.sh`, device journal |
-| 스피커 소리가 없음 | XVF가 playback device인지, UDP 5006, 재생 시점의 event-driven `audio_status`, GStreamer `not-negotiated` 로그 |
+| 스피커 소리가 없음 | XVF가 playback device인지, UDP 5006, Jetson/Pi의 GStreamer `not-negotiated` 로그. `PlayAudio code=drained`는 Pi pipeline의 EOS 처리·종료만 뜻하며 UDP 전달·실제 가청 여부는 보장하지 않음 |
 | 램프가 자기 소리에 회전 | speaker가 XVF 출력인지, playback active/drain 상태, self-playback guard 로그 |
 | 방향이 반대로 움직임 | 다른 장착물의 calibration을 복사했는지, `doa_direction_sign`, Linear-4 정면 방향 |
 | 모션 명령 실패 | 서보 전원, `/dev/ttyACM0`, motion fault, 모터 캘리브레이션, 헤드 기계 간섭 |

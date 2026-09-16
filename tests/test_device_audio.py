@@ -18,7 +18,7 @@ def joined(argv):
 
 
 def test_capture_pipeline_uses_stable_card_processed_mono_opus_and_wired_bind():
-    command = joined(capture_pipeline(AudioConfig()))
+    command = joined(capture_pipeline(AudioConfig(), probe_port=5010))
     assert command.startswith("gst-launch-1.0 -q -e ")
     assert "alsasrc device=plughw:CARD=L16K6Ch,DEV=0" in command
     assert "audio/x-raw,format=S32LE,rate=16000,channels=6" in command
@@ -26,6 +26,7 @@ def test_capture_pipeline_uses_stable_card_processed_mono_opus_and_wired_bind():
     assert "opusenc frame-size=20" in command
     assert "rtpopuspay pt=96 timestamp-offset=0" in command
     assert "udpsink host=192.168.100.1 port=5004 bind-address=192.168.100.2" in command
+    assert "udpsink host=127.0.0.1 port=5010 sync=false async=false" in command
 
 
 def test_playback_pipeline_has_exact_opus_caps_jitter_and_stable_alsa_sink():
@@ -108,7 +109,7 @@ def test_supervisor_starts_continuous_capture_and_drains_one_playback_stream():
     asyncio.run(scenario())
 
 
-def test_supervisor_maps_vad_clock_to_capture_rtp_timestamp_domain():
+def test_supervisor_maps_vad_clock_from_observed_wire_rtp_after_delayed_start():
     async def scenario():
         now = [10.0]
         factory = ProcessFactory()
@@ -116,10 +117,39 @@ def test_supervisor_maps_vad_clock_to_capture_rtp_timestamp_domain():
             AudioConfig(), process_factory=factory, clock=lambda: now[0])
 
         await audio.start()
-        now[0] = 10.5
+        packet = bytearray(12)
+        packet[0] = 0x80
+        packet[4:8] = (1_000).to_bytes(4, "big")
+        audio.observe_capture_rtp(bytes(packet), received_at=10.5)
+        now[0] = 10.75
 
-        assert audio.capture_rtp_timestamp() == 24_000
-        assert audio.capture_rtp_timestamp(10.75) == 36_000
+        assert audio.capture_rtp_timestamp() == 13_000
+        assert audio.capture_rtp_timestamp(11.0) == 25_000
+        await audio.close()
+
+    asyncio.run(scenario())
+
+
+def test_supervisor_discards_old_rtp_anchor_when_capture_restarts():
+    async def scenario():
+        factory = ProcessFactory()
+        audio = AudioSupervisor(AudioConfig(), process_factory=factory, clock=lambda: 20.0)
+
+        await audio.start()
+        packet = bytearray(12)
+        packet[0] = 0x80
+        packet[4:8] = (2_000).to_bytes(4, "big")
+        audio.observe_capture_rtp(bytes(packet), received_at=19.5)
+        assert audio.capture_rtp_timestamp() == 26_000
+
+        factory.processes[0].returncode = 1
+        await audio.start()
+        with pytest.raises(AudioError, match="capture_not_running"):
+            audio.capture_rtp_timestamp()
+
+        packet[4:8] = (7_000).to_bytes(4, "big")
+        audio.observe_capture_rtp(bytes(packet), received_at=20.0)
+        assert audio.capture_rtp_timestamp() == 7_000
         await audio.close()
 
     asyncio.run(scenario())
