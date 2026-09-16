@@ -94,9 +94,26 @@ class LampVoiceNode(Node):
                        history=HistoryPolicy.KEEP_LAST, depth=200))
         self.play_audio = ActionClient(self, PlayAudio, "/lamp/play_audio")
 
+        # 아무 일도 안 일어날 때 어디서 멈췄는지 알 수 없었다. 5초마다
+        # 받은 프레임 수와 발화 표시 여부를 찍는다.
+        self.n_frames = 0
+        self.n_speech = 0
+        self.n_bad = 0
+        self.create_timer(5.0, self._heartbeat)
+
         self.connect()
         threading.Thread(target=self.read_loop, daemon=True).start()
         self.get_logger().info("lamp_voice 시작")
+
+    def _heartbeat(self):
+        if self.n_frames == 0:
+            self.get_logger().warn(
+                "마이크 프레임이 하나도 안 온다 — /lamp/audio/capture 를 확인할 것")
+            return
+        self.get_logger().info(
+            f"프레임 {self.n_frames}개 (발화 표시 {self.n_speech}개"
+            f"{f', 형식 불일치 {self.n_bad}개' if self.n_bad else ''})")
+        self.n_frames = self.n_speech = self.n_bad = 0
 
     # ── 판단부와의 연결 ─────────────────────────────────────────────────
     def connect(self):
@@ -153,7 +170,11 @@ class LampVoiceNode(Node):
     def on_capture(self, msg: AudioFrame):
         if msg.end_of_stream:
             return
+        self.n_frames += 1
+        if msg.speech_id:
+            self.n_speech += 1
         if msg.sample_rate != RATE or msg.channels != 1 or len(msg.data) != FRAME_BYTES:
+            self.n_bad += 1
             # 계약상 이 형식만 온다. 다른 것이 오면 형식이 바뀐 것이므로
             # 조용히 넘기지 말고 남긴다.
             self.get_logger().warn(
