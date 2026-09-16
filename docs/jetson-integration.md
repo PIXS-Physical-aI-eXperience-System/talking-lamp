@@ -29,11 +29,13 @@ The commissioned Jetson reports Ubuntu 24.04.4, L4T 39.2, aarch64 and Python
 variant, using the official ROS apt instructions:
 <https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html>.
 
-The repository workspace is `jetson_ws`. After installation:
+The deployed integration checkout is `/home/asdf/talking-lamp-integration` and
+its ROS workspace is `jetson_ws`. The original `/home/asdf/talking-lamp`
+checkout remains untouched. After installation:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-cd ~/talking-lamp/jetson_ws
+cd /home/asdf/talking-lamp-integration/jetson_ws
 rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
 colcon build --symlink-install
 source install/setup.bash
@@ -44,13 +46,23 @@ source install/setup.bash
 Use two root/operator-provisioned mode-0600 files on Jetson:
 
 ```text
-/etc/talking-lamp/motion.env  TALKING_LAMP_MOTION_TOKEN=...
-/etc/talking-lamp/device.env  TALKING_LAMP_DEVICE_TOKEN=...
+/etc/talking-lamp/motion-bridge.env  TALKING_LAMP_MOTION_TOKEN=...
+/etc/talking-lamp/device-bridge.env  TALKING_LAMP_DEVICE_TOKEN=...
 ```
 
 Their values must equal the corresponding Pi files. Never commit, print or
 place a token in a ROS launch file. A reconnect creates a new TCP session and
 does not replay the prior request, motion, TTS stream or LED frame.
+
+The system service loads both files and starts both bridge nodes:
+
+```bash
+sudo systemctl start talking-lamp-bridges.service
+systemctl status talking-lamp-bridges.service
+```
+
+Keep it disabled during commissioning. Enable it at boot only after the live
+audio, motion, return-center and idle-ordering checks pass.
 
 ## ROS API
 
