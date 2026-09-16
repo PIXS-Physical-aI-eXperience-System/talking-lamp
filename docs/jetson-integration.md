@@ -135,3 +135,25 @@ an assumed "latest" utterance.
   events from older session IDs.
 - LED remains software-only until the physical mapping and shared-5 V power
   tests in `docs/pi-device-commissioning.md` are completed.
+
+## Commissioning record (2026-09-16)
+
+- ROS 2 Jazzy workspace: four packages built successfully; `rosdep check`
+  reported all system dependencies satisfied.
+- Pi microphone to Jetson: 16 kHz mono `pcm_s16le`, 20 ms frames at
+  49.989-50.003 Hz.
+- Jetson playback to Pi: bounded 440 Hz tone was audible; `PlayAudio` returned
+  `success=true`, `code=drained`.
+- Direction alignment: live XVF3800 event produced a canonical `speech_id` and
+  terminal `aligned` state; the base reached the reported target yaw.
+- Response ordering: audio and low-intensity `nod` were accepted together and
+  both completed (`drained` / `completed`) before `ReturnCenter` completed at
+  yaw `0.261799` rad; only then was `idle` accepted.
+- Looping idle responsiveness: while `active_motion=idle`, motion status and
+  list services remained responsive, interrupt succeeded, and idle could be
+  started again.
+- Self-playback guard: Pi ignores XVF VAD/DOA while playback is active and for
+  0.3 seconds after drain, preventing the speaker response from becoming a new
+  orientation request.
+- Services remain disabled at boot during commissioning. Physical WS2812B
+  mapping/power acceptance is still pending because the module is disconnected.
