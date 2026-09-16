@@ -1,5 +1,6 @@
 import ast
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,3 +56,17 @@ def test_bridge_packages_install_nodes_launch_files_and_dependencies():
         package_xml = (base / "package.xml").read_text()
         assert "rclpy" in package_xml
         assert "lamp_interfaces" in package_xml
+
+
+def test_python_package_manifests_export_ament_python_without_rosdep_key():
+    for package in (
+        "lamp_motion_bridge", "lamp_device_bridge", "lamp_interaction"):
+        manifest = ET.parse(
+            ROOT / "jetson_ws/src" / package / "package.xml").getroot()
+        assert manifest.findtext("export/build_type") == "ament_python"
+        dependency_names = {
+            element.text
+            for tag in ("buildtool_depend", "depend", "exec_depend")
+            for element in manifest.findall(tag)
+        }
+        assert "ament_python" not in dependency_names

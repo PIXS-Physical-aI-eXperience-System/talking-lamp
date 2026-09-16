@@ -4,7 +4,6 @@
   <description>ROS bridge for Talking Lamp motion control.</description>
   <maintainer email="maintainers@example.com">Talking Lamp maintainers</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>rclpy</exec_depend><exec_depend>geometry_msgs</exec_depend>
   <exec_depend>lamp_interfaces</exec_depend><exec_depend>lamp_device_bridge</exec_depend>
   <export><build_type>ament_python</build_type></export>
