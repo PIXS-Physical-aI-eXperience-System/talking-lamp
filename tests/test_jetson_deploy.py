@@ -67,14 +67,14 @@ def test_staged_installer_preserves_tokens_and_defaults_disabled(tmp_path):
     assert not (destination / "etc/systemd/system/multi-user.target.wants").exists()
 
 
-def test_apt_source_normalizer_uses_https_for_ubuntu_and_ros(tmp_path):
+def test_apt_source_normalizer_uses_tls_valid_ubuntu_and_ros_mirrors(tmp_path):
     ubuntu = tmp_path / "sources.list"
     ubuntu.write_text(
         "deb http://ports.ubuntu.com/ubuntu-ports/ noble main\n")
     ros = tmp_path / "ros2.sources"
     ros.write_text(
         "Types: deb\n"
-        "URIs: http://packages.ros.org/ros2/ubuntu\n"
+        "URIs: https://packages.ros.org/ros2/ubuntu\n"
         "Suites: noble\n")
 
     result = subprocess.run(
@@ -86,5 +86,5 @@ def test_apt_source_normalizer_uses_https_for_ubuntu_and_ros(tmp_path):
         "deb https://ports.ubuntu.com/ubuntu-ports/ noble main\n")
     assert ros.read_text() == (
         "Types: deb\n"
-        "URIs: https://packages.ros.org/ros2/ubuntu\n"
+        "URIs: https://ftp.osuosl.org/pub/ros2/\n"
         "Suites: noble\n")

@@ -10,6 +10,7 @@ for source_file in "$@"; do
     [[ -f "$source_file" ]] || continue
     sed -i \
         -e 's|http://ports\.ubuntu\.com/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g' \
-        -e 's|http://packages\.ros\.org/ros2/ubuntu|https://packages.ros.org/ros2/ubuntu|g' \
+        -e 's|http://packages\.ros\.org/ros2/ubuntu|https://ftp.osuosl.org/pub/ros2/|g' \
+        -e 's|https://packages\.ros\.org/ros2/ubuntu|https://ftp.osuosl.org/pub/ros2/|g' \
         "$source_file"
 done
