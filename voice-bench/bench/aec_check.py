@@ -26,6 +26,48 @@ OUT = os.path.join(ROOT, "out", "doa")
 SR = 16000
 
 
+def read_wav(path):
+    """wav 를 float32 모노로 읽는다. soundfile 없이 표준 라이브러리만 쓴다.
+
+    이 도구는 라즈베리파이에서 돌려야 하는데, 파이에는 인터넷이 없어서
+    패키지를 하나 더 얹는 것이 곧 휠을 손으로 옮기는 일이 된다.
+    """
+    import wave
+    with wave.open(path, "rb") as w:
+        n, ch, width, sr = (w.getnframes(), w.getnchannels(),
+                            w.getsampwidth(), w.getframerate())
+        raw = w.readframes(n)
+    if width != 2:
+        raise ValueError(f"16비트 wav 만 읽는다 (이 파일은 {width*8}비트)")
+    x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    if ch > 1:
+        x = x.reshape(-1, ch).mean(axis=1)
+    return x, sr
+
+
+def write_wav(path, x, sr):
+    import wave
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
+
+
+def to_sr(x, src, dst=SR):
+    """표본율을 맞춘다. 보드 출력이 16 kHz 라 44.1 kHz TTS 를 그대로 못 넣는다.
+
+    scipy 없이 선형 보간으로 한다 — 파이에 패키지를 더 얹지 않기 위해서다.
+    측정 대상은 '자기 목소리가 얼마나 지워지는가' 이므로 이 정도로 충분하다.
+    """
+    if src == dst:
+        return x
+    n = int(round(len(x) * dst / src))
+    return np.interp(np.linspace(0, len(x) - 1, n),
+                     np.arange(len(x)), x).astype(np.float32)
+
+
 def db(x):
     """RMS 를 dBFS 로."""
     r = float(np.sqrt(np.mean(np.asarray(x, dtype=float) ** 2) + 1e-12))
@@ -52,7 +94,6 @@ def cmd_echo(args):
     barge-in 이 자기 말에 오작동한다. 그 여유가 몇 dB 인지가 핵심이다.
     """
     import sounddevice as sd
-    import soundfile as sf
 
     ins, outs = pick_devices(sd)
     if ins is None:
@@ -66,7 +107,10 @@ def cmd_echo(args):
     if not os.path.exists(tts):
         print(f"재생할 TTS 파일이 없다: {tts}")
         return 1
-    audio, sr = sf.read(tts, dtype="float32")
+    audio, sr = read_wav(tts)
+    if sr != SR:
+        print(f"  ({sr} Hz → {SR} Hz 로 맞춘다. 보드 출력이 {SR} Hz 다)")
+        audio, sr = to_sr(audio, sr), SR
     dur = len(audio) / sr
 
     res = {}
@@ -108,7 +152,7 @@ def cmd_echo(args):
     os.makedirs(OUT, exist_ok=True)
     json.dump(res, open(os.path.join(OUT, "aec_echo.json"), "w"), indent=2)
     for name, a in (("quiet", quiet), ("echo", rec), ("speech", speech)):
-        sf.write(os.path.join(OUT, f"aec_{name}.wav"), a, SR)
+        write_wav(os.path.join(OUT, f"aec_{name}.wav"), a, SR)
     print(f"저장: {OUT}/aec_echo.json + wav 3개")
     return 0
 
@@ -120,7 +164,6 @@ def cmd_bargein(args):
     그 차이가 '램프가 말하는 중이라서 늦어진 몫' 이고, 그게 우리가 알고 싶은 값이다.
     """
     import sounddevice as sd
-    import soundfile as sf
     from ten_vad import TenVad
 
     ins, outs = pick_devices(sd)
@@ -128,7 +171,9 @@ def cmd_bargein(args):
         print("XVF3800 입력 장치를 못 찾았다")
         return 1
     tts = args.tts or os.path.join(ROOT, "out", "tts", "melo-onnx-int8", "04.wav")
-    audio, sr = sf.read(tts, dtype="float32") if os.path.exists(tts) else (None, SR)
+    audio, sr = read_wav(tts) if os.path.exists(tts) else (None, SR)
+    if audio is not None and sr != SR:
+        audio, sr = to_sr(audio, sr), SR
 
     HOP = 256
     def trial(play):
