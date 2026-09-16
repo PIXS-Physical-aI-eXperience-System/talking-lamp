@@ -18,6 +18,7 @@
 검증할 수 없어 문법과 계약만 맞춰 둔 상태다.
 """
 import argparse
+import queue
 import socket
 import sys
 import threading
@@ -86,13 +87,14 @@ class LampVoiceNode(Node):
         self.sequence = 0
         self.goal_handle = None
         self.play_done = threading.Event()
-        # 목표가 수락되기 전에 발행한 프레임은 파이가 거부한다. 수락될 때까지
-        # 들고 있다가 한꺼번에 내보낸다.
+        # 발행은 반드시 한 곳에서만 한다. 모아둔 것을 한 스레드가 내보내는
+        # 동안 새로 온 것을 다른 스레드가 내보내면 순서가 뒤집히고 순번도
+        # 겹친다. 브리지가 out_of_order 로 전부 거부했다.
         self.cancelled = False
         self.play_done.set()          # 처음에는 기다릴 재생이 없다
         self.accepted = threading.Event()
-        self.pending = []
-        self.frame_lock = threading.Lock()
+        self.outq = queue.Queue()
+        self.pub_thread = None
         self.play_t0 = 0.0
 
         sensor = QoSPresetProfiles.SENSOR_DATA.value
@@ -224,7 +226,7 @@ class LampVoiceNode(Node):
 
     def start_playback(self):
         # 앞 재생이 아직 끝나지 않았으면 기다린다. 겹쳐서 시작하면 파이가
-        # audio_busy 로 거부한다 — 취소 직후 새로 말할 때 실제로 그랬다.
+        # audio_busy 로 거부한다.
         if self.goal_handle is not None or not self.play_done.is_set():
             if not self.play_done.wait(3.0):
                 self.get_logger().warn("앞 재생이 안 끝난다 — 그대로 진행한다")
@@ -233,9 +235,11 @@ class LampVoiceNode(Node):
         self.play_done.clear()
         self.accepted.clear()
         self.cancelled = False
-        with self.frame_lock:
-            self.pending = []
+        self.outq = queue.Queue()
         self.play_t0 = time.time()
+        self.pub_thread = threading.Thread(target=self._publisher, daemon=True)
+        self.pub_thread.start()
+
         if not self.play_audio.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("/lamp/play_audio 가 없다")
             return
@@ -248,25 +252,12 @@ class LampVoiceNode(Node):
         handle = fut.result()
         if not handle.accepted:
             self.get_logger().error("PlayAudio 거부됨 — 프레임을 버린다")
-            with self.frame_lock:
-                self.pending = []
+            self.cancelled = True
+            self.outq.put(None)
             return
         self.goal_handle = handle
         handle.get_result_async().add_done_callback(self._goal_result)
-        # 수락됐다고 바로 보내면 안 된다. 브리지가 송신기를 만들 때까지 기다린다.
-        threading.Thread(target=self._flush_when_ready, daemon=True).start()
-
-    def _flush_when_ready(self):
-        time.sleep(SENDER_READY_S)
-        self.play_t0 = time.time()      # 페이싱 기준도 실제로 보내기 시작한 시점으로
-        with self.frame_lock:
-            held, self.pending = self.pending, []
         self.accepted.set()
-        for data in held:
-            self._publish(data)
-        if held:
-            self.get_logger().info(
-                f"{SENDER_READY_S}초 대기 후 프레임 {len(held)}개를 내보냈다")
 
     def _goal_result(self, fut):
         r = fut.result().result
@@ -279,44 +270,37 @@ class LampVoiceNode(Node):
         self.goal_handle = None
         self.play_done.set()
 
+    def _publisher(self):
+        """이 스레드만 발행한다. 순서와 순번을 지키는 유일한 방법이다."""
+        # 수락돼도 브리지는 아직 송신기를 안 만들었을 수 있다. 실행 단계에서
+        # 파이에 audio.play.start 를 보내고 나서야 대입하므로, 그 전에 보낸
+        # 것은 sender is None 으로 조용히 버려진다.
+        if not self.accepted.wait(5.0):
+            self.get_logger().error("수락되지 않았다 — 발행하지 않는다")
+            return
+        time.sleep(SENDER_READY_S)
+        self.play_t0 = time.time()
+        while True:
+            data = self.outq.get()
+            if self.cancelled:
+                return
+            if data is None:            # 끝 신호
+                self.playback.publish(self._frame(b"", eos=True))
+                return
+            # 합성이 재생보다 빠르다. 파이 버퍼가 넘치지 않게 늦춘다.
+            ahead = self.sequence * 0.02 - (time.time() - self.play_t0)
+            if ahead > MAX_AHEAD_S:
+                time.sleep(ahead - MAX_AHEAD_S)
+            self.playback.publish(self._frame(data, eos=False))
+
     def publish_frame(self, data):
         if len(data) != FRAME_BYTES:
             self.get_logger().error(f"보낼 프레임이 {len(data)}바이트다 — 버린다")
             return
-        if not self.accepted.is_set():
-            with self.frame_lock:
-                self.pending.append(data)
-            return
-        self._publish(data)
-
-    def _publish(self, data):
-        # 합성은 재생보다 훨씬 빠르다(RTF 0.17). 만드는 대로 쏟아부으면 파이의
-        # 버퍼가 넘칠 수 있으므로, 재생 시각보다 너무 앞서가지 않게 늦춘다.
-        ahead = self.sequence * 0.02 - (time.time() - self.play_t0)
-        if ahead > MAX_AHEAD_S:
-            time.sleep(ahead - MAX_AHEAD_S)
-        self.playback.publish(self._frame(data, eos=False))
+        self.outq.put(data)
 
     def finish_playback(self):
-        if self.cancelled:
-            # 취소된 스트림에 EOS 를 보내면 안 된다. 파이는 이미 그 스트림을
-            # 접었고, 늦게 온 프레임은 거부 대상이다.
-            with self.frame_lock:
-                self.pending = []
-            return
-        # 수락은 비동기다. 합성이 빠르면(순음 시험처럼) 프레임과 끝 신호가
-        # 수락보다 먼저 도착한다. 실제 TTS 는 문장당 0.6초쯤 걸려 우연히
-        # 시간이 맞았을 뿐이고, 빨라지면 그대로 깨진다. 기다렸다가 보낸다.
-        if not self.accepted.is_set():
-            if not self.accepted.wait(3.0 + SENDER_READY_S):
-                with self.frame_lock:
-                    n, self.pending = len(self.pending), []
-                self.get_logger().error(
-                    f"3초 안에 수락되지 않았다 — 프레임 {n}개를 버린다")
-                return
-        # 계약상 EOS 는 데이터가 빈 프레임 하나다. 이걸 빠뜨리면 파이가
-        # 드레인을 끝내지 못해 PlayAudio 가 완료되지 않는다.
-        self.playback.publish(self._frame(b"", eos=True))
+        self.outq.put(None)
 
     def _frame(self, data, eos):
         msg = AudioFrame()
@@ -334,8 +318,7 @@ class LampVoiceNode(Node):
 
     def cancel_playback(self):
         self.cancelled = True
-        with self.frame_lock:
-            self.pending = []
+        self.outq.put(None)        # 발행 스레드를 깨워 끝낸다
         if self.goal_handle is not None:
             self.get_logger().info("barge-in — 재생 취소")
             self.goal_handle.cancel_goal_async()
