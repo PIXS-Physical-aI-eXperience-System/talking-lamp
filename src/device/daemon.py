@@ -226,6 +226,7 @@ class DeviceDaemon:
             interval = 1.0 / float(self.config.sample_rate_hz)
             reconnect_delay = 0.25
             audio_reconnect_delay = 0.25
+            vad_active = False
             while not stop.is_set():
                 if not audio.status.capture_running:
                     await self.server.publish_event("audio.status", asdict(audio.status))
@@ -271,16 +272,26 @@ class DeviceDaemon:
                             continue
                         xvf = candidate
                         self.stabilizer.reset()
+                        vad_active = False
                         reconnect_delay = 0.25
                         await self.server.publish_event("device.status", {
                             "xvf": {"connected": True, "code": "connected", "message": ""}})
                         break
                     continue
+                timestamp = float(self.clock())
+                previous_vad = vad_active
                 decision = self.stabilizer.observe(DoaSample(
-                    timestamp=float(self.clock()),
+                    timestamp=timestamp,
                     doa_deg=reading.doa_deg,
                     speech_detected=reading.speech_detected,
                 ))
+                vad_active = reading.speech_detected
+                if vad_active != previous_vad:
+                    await self.server.publish_event("audio.activity", {
+                        "active": vad_active,
+                        "speech_id": self.stabilizer.speech_id or "",
+                        "rtp_timestamp": int(timestamp * 48_000) & 0xFFFFFFFF,
+                    })
                 if decision is not None:
                     try:
                         event = await self.coordinator.handle_decision(decision)

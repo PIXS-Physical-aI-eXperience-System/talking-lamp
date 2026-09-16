@@ -348,3 +348,36 @@ def test_capture_process_exit_emits_fault_and_restarts_without_stopping_device()
         assert faults[-1]["code"] == "capture_running"
 
     asyncio.run(scenario())
+
+
+def test_vad_edges_publish_one_audio_activity_event_with_shared_speech_id():
+    async def scenario():
+        order = []
+        gate = RuntimeDeviceService()
+        server = FakeServer(gate, order)
+        stop = asyncio.Event()
+        states = iter((False, True, True, False))
+        ticks = iter((0.0, 0.05, 0.10, 0.15))
+
+        class VadXvf(FakeXvf):
+            def read_doa(self):
+                state = next(states)
+                self.order.append("xvf.read")
+                if len([item for item in self.order if item == "xvf.read"]) == 4:
+                    stop.set()
+                return type("Doa", (), {"doa_deg": 90, "speech_detected": state})()
+
+        daemon = DeviceDaemon(
+            config(), server=server, service=gate,
+            coordinator=FakeCoordinator(), stabilizer=DoaStabilizer(),
+            led_factory=lambda: FakeLed(order), audio_factory=lambda: FakeAudio(order),
+            xvf_factory=lambda: VadXvf(order), clock=lambda: next(ticks),
+            sleep=lambda _delay: asyncio.sleep(0),
+        )
+        assert await daemon.run(stop) == 0
+        events = [data for name, data in server.events if name == "audio.activity"]
+        assert [event["active"] for event in events] == [True, False]
+        assert events[0]["speech_id"] == events[1]["speech_id"]
+        assert events[0]["rtp_timestamp"] < events[1]["rtp_timestamp"]
+
+    asyncio.run(scenario())
