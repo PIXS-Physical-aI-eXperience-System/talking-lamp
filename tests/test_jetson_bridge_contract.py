@@ -42,6 +42,14 @@ def test_device_bridge_exposes_exact_ros_names_parameters_and_bounded_qos():
     assert "from device" not in text
 
 
+def test_device_bridge_streaming_action_uses_reentrant_multithreaded_callbacks():
+    text = source("jetson_ws/src/lamp_device_bridge/lamp_device_bridge/node.py")
+    assert "ReentrantCallbackGroup()" in text
+    assert text.count("callback_group=self.command_group") == 6
+    assert "MultiThreadedExecutor(num_threads=4)" in text
+    assert "if rclpy.ok():" in text
+
+
 def test_bridge_packages_install_nodes_launch_files_and_dependencies():
     for package, executable in (
         ("lamp_motion_bridge", "lamp_motion_bridge"),

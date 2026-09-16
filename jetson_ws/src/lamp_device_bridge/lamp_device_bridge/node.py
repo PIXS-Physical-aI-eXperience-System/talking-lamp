@@ -9,6 +9,8 @@ from uuid import uuid4
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from sensor_msgs.msg import Image
@@ -38,6 +40,7 @@ class DeviceBridgeNode(Node):
             raise RuntimeError(f"required token environment variable is empty: {token_name}")
 
         self.runner = AsyncRunner()
+        self.command_group = ReentrantCallbackGroup()
         self.transport = DeviceTransport(
             self.get_parameter("pi_host").value,
             int(self.get_parameter("device_port").value), token)
@@ -53,16 +56,25 @@ class DeviceBridgeNode(Node):
         self.led_status_pub = self.create_publisher(
             LedStatus, "/lamp/led/status", latest)
         self.create_subscription(
-            AudioFrame, "/lamp/audio/playback_frames", self._playback_frame, stream)
-        self.create_subscription(Image, "/lamp/led/frame", self._led_frame, latest)
-        self.create_service(SetLedSolid, "/lamp/led/set_solid", self._led_solid)
-        self.create_service(Trigger, "/lamp/led/clear", self._led_clear)
+            AudioFrame, "/lamp/audio/playback_frames", self._playback_frame, stream,
+            callback_group=self.command_group)
+        self.create_subscription(
+            Image, "/lamp/led/frame", self._led_frame, latest,
+            callback_group=self.command_group)
+        self.create_service(
+            SetLedSolid, "/lamp/led/set_solid", self._led_solid,
+            callback_group=self.command_group)
+        self.create_service(
+            Trigger, "/lamp/led/clear", self._led_clear,
+            callback_group=self.command_group)
         self.play_action = ActionServer(
             self, PlayAudio, "/lamp/play_audio", execute_callback=self._play_audio,
-            cancel_callback=lambda _: CancelResponse.ACCEPT)
+            cancel_callback=lambda _: CancelResponse.ACCEPT,
+            callback_group=self.command_group)
         self.center_action = ActionServer(
             self, ReturnCenter, "/lamp/return_center", execute_callback=self._return_center,
-            cancel_callback=lambda _: CancelResponse.REJECT)
+            cancel_callback=lambda _: CancelResponse.REJECT,
+            callback_group=self.command_group)
 
         self._capture_stream = str(uuid4())
         self._capture_sequence = 0
@@ -264,8 +276,14 @@ class DeviceBridgeNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = DeviceBridgeNode()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
+        executor.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
