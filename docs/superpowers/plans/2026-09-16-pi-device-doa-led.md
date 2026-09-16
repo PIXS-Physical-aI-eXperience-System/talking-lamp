@@ -274,23 +274,23 @@ git commit -m "feat(device): connect stable DOA to local orientation"
 - Consumes: exactly 192 RGB bytes or 64 RGB tuples, `LedMapping`, and an injected `PixelSink`.
 - Produces: mapped physical pixels, clamped brightness status, `solid`, `frame`, `clear`, and idempotent `close`.
 
-- [ ] **Step 1: Write failing coordinate-mapping tests**
+- [x] **Step 1: Write failing coordinate-mapping tests**
 
 Cover row-major and serpentine layout, four origins, four rotations, and RGB/GRB color order using uniquely numbered 8x8 fixtures.
 
-- [ ] **Step 2: Implement pure `map_frame`**
+- [x] **Step 2: Implement pure `map_frame`**
 
 Reject any size other than 8x8x3, booleans, non-integer channels, and channels outside 0..255 before touching the sink. Mapping returns a new 64-element tuple and never mutates the caller's frame.
 
-- [ ] **Step 3: Write power-policy and lifecycle tests**
+- [x] **Step 3: Write power-policy and lifecycle tests**
 
 Assert default `max_brightness=0.10`, request clamping, finite range validation, clear before first frame, clear on normal close, clear after sink exception, and no hardware adapter construction without explicit enable.
 
-- [ ] **Step 4: Implement `LedController` and lazy `Ws281xSink`**
+- [x] **Step 4: Implement `LedController` and lazy `Ws281xSink`**
 
 The concrete adapter imports `rpi_ws281x` only inside its constructor, defaults to GPIO 12 and 64 pixels, and requires `enable_hardware=True`. The controller reports requested and applied brightness separately.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```bash
 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_device_led.py -q
