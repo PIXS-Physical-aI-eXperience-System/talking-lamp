@@ -174,19 +174,19 @@ Commit: `feat(ros): define lamp audio orientation and LED interfaces`.
 - Consumes: authenticated NDJSON TCP and GStreamer GI appsink/appsrc.
 - Produces: reconnecting `MotionTransport`, `DeviceTransport`, ordered event callbacks, `CaptureReceiver`, and `PlaybackSender`; none imports `rclpy`.
 
-- [ ] **Step 1: Write failing transport tests**
+- [x] **Step 1: Write failing transport tests**
 
 Test canonical IDs, receive-time independent TTL, accepted/terminal correlation, 16 KiB cap, heartbeat every 1 second, one reconnect loop, pending-request failure on disconnect, no replay, new device session resets event sequence, old session events are discarded, and callbacks never run on the socket reader while holding its write lock.
 
-- [ ] **Step 2: Implement shared Python-3.12 asyncio behavior**
+- [x] **Step 2: Implement shared Python-3.12 asyncio behavior**
 
 Each transport has `connect()`, `request(kind,payload,ttl_ms)`, `events()`, and `close()`. The device transport validates server-pushed `session_id/sequence`. Token is provided by constructor and never logged.
 
-- [ ] **Step 3: Write failing audio frame tests and implement GI adapters**
+- [x] **Step 3: Write failing audio frame tests and implement GI adapters**
 
 Validate exactly 640 bytes per non-EOS frame, monotonically increasing sequence, canonical stream ID, 16000/1/`pcm_s16le`, duplicate/stale rejection and one EOS. `CaptureReceiver` uses appsink with max-buffers=10/drop=true; `PlaybackSender` uses appsrc and emits Opus RTP to Pi port 5006. GI imports are lazy.
 
-- [ ] **Step 4: Run pure tests and commit**
+- [x] **Step 4: Run pure tests and commit**
 
 Run: `pytest -q tests/test_jetson_motion_transport.py tests/test_jetson_device_transport.py tests/test_jetson_audio.py`
 
