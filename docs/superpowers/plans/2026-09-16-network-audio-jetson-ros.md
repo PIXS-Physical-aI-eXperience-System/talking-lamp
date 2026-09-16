@@ -40,19 +40,19 @@
 - Consumes: stable ALSA card ID, Pi/Jetson wired addresses, capture/playback ports, injected async process factory.
 - Produces: `AudioConfig`, `AudioStatus`, `capture_pipeline(config)`, `playback_pipeline(config)`, and async `AudioSupervisor.start()`, `play_start(metadata)`, `play_stop(stream_id)`, `close()`.
 
-- [ ] **Step 1: Write failing pure pipeline and lifecycle tests**
+- [x] **Step 1: Write failing pure pipeline and lifecycle tests**
 
 Assert capture contains `alsasrc device=plughw:CARD=L16K6Ch,DEV=0`, mono/16 kHz conversion, `opusenc frame-size=20`, `rtpopuspay`, host `192.168.100.1`, port 5004 and bind `192.168.100.2`. Assert playback contains a source-bound `udpsrc` on 5006, exact Opus caps, `rtpjitterbuffer latency=40 drop-on-latency=true`, decode/resample and `alsasink device=plughw:CARD=L16K6Ch,DEV=0`.
 
 Use a fake process with `returncode`, `send_signal`, and `wait`. Assert a second stream is rejected as `audio_busy`, wrong PCM metadata is rejected before process creation, mismatched stop is `unknown_stream`, and valid stop sends SIGINT then waits before returning `drained`.
 
-- [ ] **Step 2: Run focused tests and verify the missing module failure**
+- [x] **Step 2: Run focused tests and verify the missing module failure**
 
 Run: `pytest -q tests/test_device_audio.py`
 
 Expected: collection fails with `ModuleNotFoundError: device.audio`.
 
-- [ ] **Step 3: Implement strict configuration, pipeline builders, and supervisor**
+- [x] **Step 3: Implement strict configuration, pipeline builders, and supervisor**
 
 ```python
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ class AudioStatus:
 
 Build argument arrays for `gst-launch-1.0 -q -e`; never invoke a shell. Keep one continuous capture process. Playback begins on `audio.play.start` and `audio.play.stop` sends SIGINT and awaits a bounded exit, killing only after timeout and returning `drain_timeout`.
 
-- [ ] **Step 4: Extend strict device commands**
+- [x] **Step 4: Extend strict device commands**
 
 Add exact commands:
 
@@ -88,7 +88,7 @@ audio.status     {}
 
 `stream_id` is canonical UUID, sample rate is exactly 16000, channels exactly 1, encoding exactly `pcm_s16le`. `DeviceCommandHandler` accepts an audio supervisor; `device.status` includes audio status and disconnect stops active playback without stopping capture.
 
-- [ ] **Step 5: Run protocol/audio/server tests and commit**
+- [x] **Step 5: Run protocol/audio/server tests and commit**
 
 Run: `pytest -q tests/test_device_audio.py tests/test_device_protocol.py tests/test_device_server.py`
 

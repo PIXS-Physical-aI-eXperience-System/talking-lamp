@@ -14,6 +14,9 @@ from uuid import UUID
 PROTOCOL_VERSION = 1
 MAX_LINE_BYTES = 16 * 1024
 DEVICE_COMMAND_TYPES = {
+    "audio.play.start",
+    "audio.play.stop",
+    "audio.status",
     "orientation.return_center",
     "orientation.status",
     "led.frame",
@@ -24,6 +27,7 @@ DEVICE_COMMAND_TYPES = {
     "system.heartbeat",
 }
 _EMPTY_PAYLOAD_TYPES = {
+    "audio.status",
     "orientation.return_center",
     "orientation.status",
     "led.clear",
@@ -145,6 +149,25 @@ def _validate_payload(kind: str, payload: dict[str, object]) -> None:
         _exact(payload, {"rgb", "brightness"})
         _rgb(payload["rgb"], 3)
         _brightness(payload["brightness"])
+        return
+    if kind == "audio.play.start":
+        _exact(payload, {"stream_id", "sample_rate", "channels", "encoding"})
+        if not isinstance(payload["stream_id"], str) or not _canonical_uuid(payload["stream_id"]):
+            raise DeviceProtocolError("invalid_payload", "stream_id must be canonical UUID text")
+        if (
+            payload["sample_rate"] != 16000
+            or isinstance(payload["sample_rate"], bool)
+            or payload["channels"] != 1
+            or isinstance(payload["channels"], bool)
+            or payload["encoding"] != "pcm_s16le"
+        ):
+            raise DeviceProtocolError(
+                "invalid_payload", "audio stream must be 16 kHz mono pcm_s16le")
+        return
+    if kind == "audio.play.stop":
+        _exact(payload, {"stream_id"})
+        if not isinstance(payload["stream_id"], str) or not _canonical_uuid(payload["stream_id"]):
+            raise DeviceProtocolError("invalid_payload", "stream_id must be canonical UUID text")
         return
     raise AssertionError(kind)
 

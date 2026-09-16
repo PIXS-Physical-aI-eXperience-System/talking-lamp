@@ -13,6 +13,7 @@ from typing import Any, Callable, Protocol
 from uuid import uuid4
 
 from .coordinator import DirectionError
+from .audio import AudioError
 from .led import LedError
 from .motion_client import MotionClientError
 from .protocol import (
@@ -39,9 +40,10 @@ class DeviceService(Protocol):
 class DeviceCommandHandler:
     """Map validated device requests to direction and LED policy objects."""
 
-    def __init__(self, coordinator: Any, led: Any) -> None:
+    def __init__(self, coordinator: Any, led: Any, audio: Any) -> None:
         self.coordinator = coordinator
         self.led = led
+        self.audio = audio
 
     async def dispatch(self, request: DeviceRequest) -> dict[str, object]:
         try:
@@ -49,6 +51,12 @@ class DeviceCommandHandler:
                 return asdict(await self.coordinator.return_center())
             if request.type == "orientation.status":
                 return asdict(await self.coordinator.status())
+            if request.type == "audio.play.start":
+                return asdict(await self.audio.play_start(request.payload))
+            if request.type == "audio.play.stop":
+                return asdict(await self.audio.play_stop(request.payload["stream_id"]))
+            if request.type == "audio.status":
+                return asdict(self.audio.status)
             if request.type == "led.frame":
                 return asdict(self.led.frame(
                     bytes(request.payload["rgb"]),
@@ -67,10 +75,11 @@ class DeviceCommandHandler:
                 return {
                     "orientation": asdict(await self.coordinator.status()),
                     "led": asdict(self.led.status),
+                    "audio": asdict(self.audio.status),
                 }
             if request.type == "system.heartbeat":
                 return {}
-        except (LedError, DirectionError, MotionClientError) as exc:
+        except (AudioError, LedError, DirectionError, MotionClientError) as exc:
             raise DeviceCommandError(exc.code, exc.message) from exc
         raise DeviceCommandError("unknown_type", "unsupported device command")
 
@@ -81,6 +90,7 @@ class DeviceCommandHandler:
             # The LED controller has already latched its fault. Disconnect
             # cleanup must not prevent the network owner from being released.
             pass
+        await self.audio.disconnect()
 
 
 class DeviceTcpServer:

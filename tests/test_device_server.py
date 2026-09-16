@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from device.coordinator import OrientationEvent
+from device.audio import AudioStatus
 from device.led import LedStatus
 from device.protocol import encode_message
 from device.server import DeviceCommandHandler, DeviceTcpServer
@@ -76,10 +77,41 @@ class FakeLed:
         return self._status
 
 
+class FakeAudio:
+    def __init__(self):
+        self.calls = []
+        self._status = AudioStatus(True, False, None, "idle", "capture_running", "")
+
+    @property
+    def status(self):
+        return self._status
+
+    async def play_start(self, payload):
+        self.calls.append(("start", dict(payload)))
+        self._status = AudioStatus(True, True, payload["stream_id"], "playing", "playing", "")
+        return self._status
+
+    async def play_stop(self, stream_id):
+        self.calls.append(("stop", stream_id))
+        self._status = AudioStatus(True, False, None, "idle", "drained", "")
+        return self._status
+
+    async def disconnect(self):
+        self.calls.append(("disconnect",))
+        self._status = AudioStatus(True, False, None, "idle", "disconnected", "")
+
 def test_command_handler_dispatches_orientation_led_and_device_status():
     async def scenario():
-        coordinator, led = FakeCoordinator(), FakeLed()
-        handler = DeviceCommandHandler(coordinator, led)
+        coordinator, led, audio = FakeCoordinator(), FakeLed(), FakeAudio()
+        handler = DeviceCommandHandler(coordinator, led, audio)
+
+        stream_id = "20000000-0000-0000-0000-000000000002"
+        playing = await handler.dispatch(type("Request", (), {
+            "type": "audio.play.start", "payload": {
+                "stream_id": stream_id, "sample_rate": 16000,
+                "channels": 1, "encoding": "pcm_s16le"}})())
+        drained = await handler.dispatch(type("Request", (), {
+            "type": "audio.play.stop", "payload": {"stream_id": stream_id}})())
 
         solid = await handler.dispatch(type("Request", (), {
             "type": "led.solid", "payload": {"rgb": [1, 2, 3], "brightness": .8}})())
@@ -95,12 +127,16 @@ def test_command_handler_dispatches_orientation_led_and_device_status():
         assert orientation["state"] == "centered"
         assert status["orientation"]["state"] == "aligned"
         assert status["led"]["active"] is True
+        assert status["audio"]["capture_running"] is True
+        assert playing["state"] == "playing"
+        assert drained["code"] == "drained"
         assert led.calls[:2] == [
             ("solid", (1, 2, 3), .8),
             ("frame", bytes(range(192)), .05),
         ]
         await handler.disconnected()
         assert led.calls[-1] == ("clear",)
+        assert audio.calls[-1] == ("disconnect",)
     asyncio.run(scenario())
 
 

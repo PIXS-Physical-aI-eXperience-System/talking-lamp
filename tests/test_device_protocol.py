@@ -30,8 +30,11 @@ def wire(kind="device.status", *, payload=None, **updates):
     return encode_message(message)
 
 
-def test_device_protocol_exposes_only_current_milestone_commands():
+def test_device_protocol_exposes_audio_orientation_and_led_commands():
     assert DEVICE_COMMAND_TYPES == {
+        "audio.play.start",
+        "audio.play.stop",
+        "audio.status",
         "orientation.return_center",
         "orientation.status",
         "led.frame",
@@ -41,9 +44,6 @@ def test_device_protocol_exposes_only_current_milestone_commands():
         "device.status",
         "system.heartbeat",
     }
-    with pytest.raises(DeviceProtocolError) as error:
-        decode_request(wire("audio.play.start"), token=TOKEN, received_at=1.0)
-    assert error.value.code == "unknown_type"
 
 
 def test_decode_authenticated_request_uses_receive_time_ttl():
@@ -94,6 +94,7 @@ def test_decode_rejects_invalid_envelope(updates, code):
     [
         "orientation.return_center",
         "orientation.status",
+        "audio.status",
         "led.clear",
         "led.status",
         "device.status",
@@ -124,6 +125,43 @@ def test_led_solid_accepts_exact_rgb_and_brightness():
         received_at=0.0,
     )
     assert request.payload == {"rgb": [1, 2, 3], "brightness": 1.0}
+
+
+def test_audio_commands_accept_exact_stream_contract():
+    stream_id = "20000000-0000-0000-0000-000000000002"
+    request = decode_request(wire("audio.play.start", payload={
+        "stream_id": stream_id,
+        "sample_rate": 16000,
+        "channels": 1,
+        "encoding": "pcm_s16le",
+    }), token=TOKEN, received_at=1.0)
+    assert request.payload["stream_id"] == stream_id
+
+    stopped = decode_request(wire(
+        "audio.play.stop", payload={"stream_id": stream_id}),
+        token=TOKEN, received_at=1.0)
+    assert stopped.payload == {"stream_id": stream_id}
+
+
+@pytest.mark.parametrize("kind,payload", [
+    ("audio.play.start", {
+        "stream_id": "bad", "sample_rate": 16000,
+        "channels": 1, "encoding": "pcm_s16le"}),
+    ("audio.play.start", {
+        "stream_id": "20000000-0000-0000-0000-000000000002", "sample_rate": 48000,
+        "channels": 1, "encoding": "pcm_s16le"}),
+    ("audio.play.start", {
+        "stream_id": "20000000-0000-0000-0000-000000000002", "sample_rate": 16000,
+        "channels": 2, "encoding": "pcm_s16le"}),
+    ("audio.play.start", {
+        "stream_id": "20000000-0000-0000-0000-000000000002", "sample_rate": 16000,
+        "channels": 1, "encoding": "opus"}),
+    ("audio.play.stop", {"stream_id": "BAD"}),
+])
+def test_audio_payload_rejects_invalid_stream_before_process_creation(kind, payload):
+    with pytest.raises(DeviceProtocolError) as error:
+        decode_request(wire(kind, payload=payload), token=TOKEN, received_at=0.0)
+    assert error.value.code == "invalid_payload"
 
 
 @pytest.mark.parametrize(
