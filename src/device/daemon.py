@@ -15,10 +15,10 @@ import signal
 import time
 from typing import Any, Awaitable, Callable
 
-from .coordinator import DirectionCoordinator
+from .coordinator import DirectionCoordinator, DirectionError
 from .doa import DoaCalibration, DoaSample, DoaStabilizer
 from .led import LedController, LedMapping, PIXEL_COUNT, Ws281xSink
-from .motion_client import MotionUnixClient
+from .motion_client import MotionClientError, MotionUnixClient
 from .server import DeviceCommandError, DeviceCommandHandler, DeviceTcpServer
 from .xvf3800 import XVF_PRODUCT_ID, XVF_VENDOR_ID, Xvf3800
 
@@ -212,8 +212,27 @@ class DeviceDaemon:
                     speech_detected=reading.speech_detected,
                 ))
                 if decision is not None:
-                    event = await self.coordinator.handle_decision(decision)
-                    await self.server.publish_event("orientation.status", asdict(event))
+                    try:
+                        event = await self.coordinator.handle_decision(decision)
+                        event_data = asdict(event)
+                    except (DirectionError, MotionClientError) as exc:
+                        # Motion is an independent service.  A missing/busy
+                        # socket rejects this orientation only; microphone,
+                        # LED and device control remain available.
+                        event_data = {
+                            "state": "fault",
+                            "speech_id": decision.speech_id,
+                            "raw_doa_deg": decision.doa_deg,
+                            "relative_rad": None,
+                            "target_yaw": None,
+                            "current_yaw": None,
+                            "clamped": False,
+                            "code": exc.code,
+                            "message": exc.message,
+                            "timestamp": decision.timestamp,
+                        }
+                        LOG.warning("orientation request failed: %s", exc)
+                    await self.server.publish_event("orientation.status", event_data)
                 await self.sleep(interval)
         except asyncio.CancelledError:
             raise

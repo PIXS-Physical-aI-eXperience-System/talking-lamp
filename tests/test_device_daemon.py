@@ -76,6 +76,12 @@ class FakeCoordinator:
         raise AssertionError("no terminal decision expected")
 
 
+class FailingCoordinator(FakeCoordinator):
+    async def handle_decision(self, decision):
+        from device.motion_client import MotionClientError
+        raise MotionClientError("connection_failed", "motion socket is absent")
+
+
 def config():
     return DeviceConfig(
         token="secret", calibration=DoaCalibration(0.0, 1),
@@ -186,5 +192,39 @@ def test_adapter_start_failure_closes_server_and_returns_nonzero():
         assert await daemon.run(asyncio.Event()) == 1
         assert "server.close" in order
         assert order[-2:] == ["led.clear", "led.close"]
+
+    asyncio.run(scenario())
+
+
+def test_motion_socket_failure_is_reported_without_stopping_device_service():
+    async def scenario():
+        order = []
+        gate = RuntimeDeviceService()
+        server = FakeServer(gate, order)
+        stop = asyncio.Event()
+        ticks = iter(index * 0.1 for index in range(20))
+
+        class SpeakingXvf(FakeXvf):
+            def read_doa(self):
+                self.order.append("xvf.read")
+                self.reads += 1
+                return type("Doa", (), {"doa_deg": 90, "speech_detected": True})()
+
+        async def sleep(_delay):
+            if order.count("xvf.read") >= 8:
+                stop.set()
+
+        daemon = DeviceDaemon(
+            config(), server=server, service=gate,
+            coordinator=FailingCoordinator(), stabilizer=DoaStabilizer(),
+            led_factory=lambda: FakeLed(order),
+            xvf_factory=lambda: SpeakingXvf(order),
+            clock=lambda: next(ticks), sleep=sleep,
+        )
+        assert await daemon.run(stop) == 0
+        assert order.count("xvf.read") == 8
+        assert server.events[-1][0] == "orientation.status"
+        assert server.events[-1][1]["state"] == "fault"
+        assert server.events[-1][1]["code"] == "connection_failed"
 
     asyncio.run(scenario())
