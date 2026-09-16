@@ -146,12 +146,15 @@ an assumed "latest" utterance.
   `success=true`, `code=drained`.
 - Direction alignment: live XVF3800 event produced a canonical `speech_id` and
   terminal `aligned` state; the base reached the reported target yaw.
+- Continuous direction tracking: the operator spoke repeatedly from changing
+  directions and confirmed that `base_yaw` continued to follow the sound.
 - Response ordering: audio and low-intensity `nod` were accepted together and
   both completed (`drained` / `completed`) before `ReturnCenter` completed at
   yaw `0.261799` rad; only then was `idle` accepted.
 - Looping idle responsiveness: while `active_motion=idle`, motion status and
   list services remained responsive, interrupt succeeded, and idle could be
-  started again.
+  started again. A complete 60-second idle cycle then returned
+  `success=true`, `code=completed` with the bounded 240-second action timeout.
 - Self-playback guard: Pi ignores XVF VAD/DOA while playback is active and for
   0.3 seconds after drain, preventing the speaker response from becoming a new
   orientation request.
