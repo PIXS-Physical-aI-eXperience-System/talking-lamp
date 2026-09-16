@@ -80,7 +80,9 @@ Device bridge:
 - `/lamp/audio/capture` — 20 ms `AudioFrame`, 16 kHz mono `pcm_s16le`
 - `/lamp/audio/playback_frames` — TTS producer frames for one accepted stream
 - `/lamp/play_audio` — owns playback start, EOS and Pi drain completion
-- `/lamp/audio_status` — capture/playback/sequence/buffer state
+- `/lamp/audio_status` — event-driven Pi capture/playback transitions and faults.
+  It is not latched at healthy startup; sequence/buffer fields are reserved in
+  this release.
 - `/lamp/orientation_status` — Pi DOA/alignment status with `speech_id`
 - `/lamp/return_center` — completes only at Pi `centered`
 - `/lamp/led/frame` — `sensor_msgs/Image`, exactly 8×8 `rgb8`
@@ -126,8 +128,10 @@ an assumed "latest" utterance.
 ## Failure behavior
 
 - Wired TCP loss: all pending Actions fail; nothing is replayed on reconnect.
-- Capture RTP loss: short gaps use Opus concealment; status faults after the
-  configured long gap while motion remains responsive.
+- Capture RTP loss: short gaps use the jitter buffer and Opus concealment. A
+  Pi capture-pipeline exit emits a fault and triggers supervised restart while
+  motion remains responsive. The Jetson bridge does not yet publish a
+  long-silence/RTP-gap alarm.
 - XVF removal: Pi keeps device TCP/LED alive, marks XVF fault and rediscovers
   with exponential backoff. A reconnect begins a new capture stream.
 - Playback loss: PlayAudio fails, so automatic center/idle does not run.

@@ -141,4 +141,3 @@ def test_unix_client_times_out_once_without_reconnect(tmp_path):
         assert error.value.code == "timeout"
         assert connections == 1
     asyncio.run(scenario())
-

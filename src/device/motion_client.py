@@ -120,4 +120,3 @@ class MotionUnixClient:
                 writer.close()
                 with suppress(OSError):
                     await writer.wait_closed()
-

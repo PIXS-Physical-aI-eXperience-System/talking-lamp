@@ -1,7 +1,7 @@
 # Raspberry Pi 오디오·DOA·LED와 Jetson ROS 통합 설계
 
-작성일: 2026-09-15  
-대상 저장소: Talking Lamp  
+작성일: 2026-09-15
+대상 저장소: Talking Lamp
 상태: 사용자 승인 완료
 
 ## 1. 목적
