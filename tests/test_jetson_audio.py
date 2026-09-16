@@ -86,3 +86,23 @@ def test_playback_session_preserves_frame_failure_until_action_consumes_it():
     session.reset()
     assert session.error is None
     assert not session.wait(0)
+
+
+def test_capture_correlator_tags_delayed_preroll_and_clears_after_vad_end():
+    correlator = audio_module.CaptureSpeechCorrelator(pre_roll_frames=2)
+    speech_id = str(uuid4())
+
+    assert correlator.push(b"a", pts=0, rtp_timestamp=0) == []
+    assert correlator.push(b"b", pts=20_000_000, rtp_timestamp=960) == []
+    correlator.activity(True, speech_id, rtp_timestamp=960)
+
+    ready = correlator.push(b"c", pts=40_000_000, rtp_timestamp=1920)
+    assert [(item.data, item.speech_id) for item in ready] == [(b"a", speech_id)]
+
+    correlator.activity(False, speech_id, rtp_timestamp=1920)
+    correlator.push(b"d", pts=60_000_000, rtp_timestamp=2880)
+    after_end = correlator.push(b"e", pts=80_000_000, rtp_timestamp=3840)
+    final = correlator.push(b"f", pts=100_000_000, rtp_timestamp=4800)
+
+    assert [(item.data, item.speech_id) for item in after_end] == [(b"c", speech_id)]
+    assert [(item.data, item.speech_id) for item in final] == [(b"d", "")]

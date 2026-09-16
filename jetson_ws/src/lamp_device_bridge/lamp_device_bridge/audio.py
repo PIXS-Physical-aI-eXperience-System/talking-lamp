@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 import threading
 from typing import Mapping
@@ -10,6 +11,9 @@ from uuid import UUID
 
 FRAME_BYTES = 640
 FRAME_DURATION_NS = 20_000_000
+RTP_CLOCK_RATE = 48_000
+RTP_FRAME_TICKS = 960
+RTP_MODULUS = 1 << 32
 
 
 class AudioFrameError(ValueError):
@@ -48,6 +52,76 @@ class PlaybackSession:
 
     def wait(self, timeout: float) -> bool:
         return self._event.wait(timeout)
+
+
+@dataclass(frozen=True)
+class CaptureChunk:
+    data: bytes
+    pts: int
+    rtp_timestamp: int
+    speech_id: str
+
+
+def _rtp_delta(value: int, reference: int) -> int:
+    return ((value - reference + (RTP_MODULUS // 2)) % RTP_MODULUS) - (
+        RTP_MODULUS // 2)
+
+
+class CaptureSpeechCorrelator:
+    """Delay capture briefly so TCP VAD markers can label RTP frames."""
+
+    def __init__(self, *, pre_roll_frames: int = 10) -> None:
+        if isinstance(pre_roll_frames, bool) or not isinstance(pre_roll_frames, int) or pre_roll_frames < 1:
+            raise AudioFrameError("invalid_config", "pre_roll_frames must be positive")
+        self.pre_roll_frames = pre_roll_frames
+        self._pending: deque[tuple[bytes, int, int]] = deque()
+        self._completed: deque[tuple[int, int, str]] = deque(maxlen=8)
+        self._active: tuple[int, str] | None = None
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _timestamp(value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < RTP_MODULUS:
+            raise AudioFrameError("invalid_activity", "RTP timestamp must be uint32")
+        return value
+
+    def activity(self, active: bool, speech_id: str, *, rtp_timestamp: int) -> None:
+        timestamp = self._timestamp(rtp_timestamp)
+        if not isinstance(active, bool) or not _uuid(speech_id):
+            raise AudioFrameError("invalid_activity", "activity requires bool and canonical speech_id")
+        with self._lock:
+            if active:
+                self._active = (timestamp, speech_id)
+                return
+            if self._active is None or self._active[1] != speech_id:
+                raise AudioFrameError("invalid_activity", "VAD end does not match active speech")
+            start, ident = self._active
+            self._completed.append((start, timestamp, ident))
+            self._active = None
+
+    def _speech_id(self, timestamp: int) -> str:
+        pre_roll = self.pre_roll_frames * RTP_FRAME_TICKS
+        for start, end, ident in reversed(self._completed):
+            if _rtp_delta(timestamp, (start - pre_roll) % RTP_MODULUS) >= 0 and _rtp_delta(
+                timestamp, end) <= 0:
+                return ident
+        if self._active is not None:
+            start, ident = self._active
+            if _rtp_delta(timestamp, (start - pre_roll) % RTP_MODULUS) >= 0:
+                return ident
+        return ""
+
+    def push(self, data: bytes, *, pts: int, rtp_timestamp: int) -> list[CaptureChunk]:
+        timestamp = self._timestamp(rtp_timestamp)
+        if not isinstance(data, bytes) or not isinstance(pts, int) or pts < 0:
+            raise AudioFrameError("invalid_capture", "capture frame metadata is invalid")
+        with self._lock:
+            self._pending.append((data, pts, timestamp))
+            if len(self._pending) <= self.pre_roll_frames:
+                return []
+            payload, frame_pts, frame_timestamp = self._pending.popleft()
+            return [CaptureChunk(
+                payload, frame_pts, frame_timestamp, self._speech_id(frame_timestamp))]
 
 
 @dataclass(frozen=True)
@@ -161,7 +235,7 @@ def _gst():
 
 
 class CaptureReceiver:
-    """GI appsink wrapper; callback receives immutable PCM bytes and PTS."""
+    """GI appsink wrapper; callback receives PCM bytes, PTS and RTP clock."""
 
     def __init__(self, callback, **pipeline_options) -> None:
         if not callable(callback):
@@ -184,7 +258,9 @@ class CaptureReceiver:
         if not ok:
             return self.Gst.FlowReturn.ERROR
         try:
-            self.callback(bytes(info.data), int(buffer.pts))
+            pts = int(buffer.pts)
+            rtp_timestamp = int(pts * RTP_CLOCK_RATE / 1_000_000_000) & 0xFFFFFFFF
+            self.callback(bytes(info.data), pts, rtp_timestamp)
         finally:
             buffer.unmap(info)
         return self.Gst.FlowReturn.OK

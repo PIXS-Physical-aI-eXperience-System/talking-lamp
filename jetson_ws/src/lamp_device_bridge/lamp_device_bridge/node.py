@@ -19,7 +19,13 @@ from std_srvs.srv import Trigger
 from lamp_interfaces.action import PlayAudio, ReturnCenter
 from lamp_interfaces.msg import AudioFrame, AudioStatus, LedStatus, OrientationStatus
 from lamp_interfaces.srv import SetLedSolid
-from .audio import AudioFrameError, CaptureReceiver, PlaybackSender, PlaybackSession
+from .audio import (
+    AudioFrameError,
+    CaptureReceiver,
+    CaptureSpeechCorrelator,
+    PlaybackSender,
+    PlaybackSession,
+)
 from .runner import AsyncRunner
 from .transport import DeviceTransport, TransportError
 
@@ -78,7 +84,7 @@ class DeviceBridgeNode(Node):
 
         self._capture_stream = str(uuid4())
         self._capture_sequence = 0
-        self._speech_id = ""
+        self._capture_correlator = CaptureSpeechCorrelator(pre_roll_frames=10)
         self._playback_lock = threading.Lock()
         self._playback_sender = None
         self._playback_stream = None
@@ -96,13 +102,23 @@ class DeviceBridgeNode(Node):
         return self.runner.submit(
             self.transport.request(kind, payload)).result(timeout=timeout)
 
-    def _capture_pcm(self, data: bytes, _pts: int):
+    def _capture_pcm(self, data: bytes, pts: int, rtp_timestamp: int):
         if len(data) != 640:
             return
+        try:
+            chunks = self._capture_correlator.push(
+                data, pts=pts, rtp_timestamp=rtp_timestamp)
+        except AudioFrameError as exc:
+            self.get_logger().error(str(exc))
+            return
+        for chunk in chunks:
+            self._publish_capture(chunk.data, chunk.speech_id)
+
+    def _publish_capture(self, data: bytes, speech_id: str):
         message = AudioFrame()
         message.stamp = self.get_clock().now().to_msg()
         message.stream_id = self._capture_stream
-        message.speech_id = self._speech_id
+        message.speech_id = speech_id
         message.sequence = self._capture_sequence
         message.sample_rate = 16000
         message.channels = 1
@@ -119,7 +135,13 @@ class DeviceBridgeNode(Node):
             if name == "orientation.status":
                 self._publish_orientation(data)
             elif name == "audio.activity":
-                self._speech_id = str(data.get("speech_id", "")) if data.get("active") else ""
+                try:
+                    self._capture_correlator.activity(
+                        data.get("active"), str(data.get("speech_id", "")),
+                        rtp_timestamp=data.get("rtp_timestamp"),
+                    )
+                except AudioFrameError as exc:
+                    self.get_logger().error(str(exc))
             elif name == "audio.status":
                 self._publish_audio_status(data)
             elif name == "led.status":

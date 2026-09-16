@@ -84,6 +84,10 @@ class FakeAudio:
     async def disconnect(self):
         self.order.append("audio.disconnect")
 
+    @staticmethod
+    def capture_rtp_timestamp(now):
+        return int(now * 48_000) & 0xFFFFFFFF
+
     async def close(self):
         self.order.append("audio.close")
         self._status = AudioStatus(False, False, None, "closed", "closed", "")

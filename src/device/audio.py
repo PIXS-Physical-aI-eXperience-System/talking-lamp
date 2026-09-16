@@ -8,6 +8,7 @@ import math
 import os
 import re
 import signal
+import time
 from typing import Any, Awaitable, Callable, Mapping
 from uuid import UUID
 
@@ -77,7 +78,7 @@ def capture_pipeline(config: AudioConfig) -> tuple[str, ...]:
         "!", "audioconvert", "!", "audioresample",
         "!", "audio/x-raw,format=S16LE,rate=16000,channels=1",
         "!", "opusenc", "frame-size=20", "bitrate=32000", "inband-fec=true",
-        "!", "rtpopuspay", "pt=96",
+        "!", "rtpopuspay", "pt=96", "timestamp-offset=0",
         "!", "udpsink", f"host={config.jetson_host}", f"port={config.capture_port}",
         f"bind-address={config.pi_host}", "sync=false", "async=false",
     )
@@ -143,15 +144,21 @@ class AudioSupervisor:
         config: AudioConfig,
         *,
         process_factory: Callable[[tuple[str, ...]], Awaitable[Any]] = _spawn,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        if not isinstance(config, AudioConfig) or not callable(process_factory):
+        if (
+            not isinstance(config, AudioConfig) or not callable(process_factory)
+            or not callable(clock)
+        ):
             raise AudioError("invalid_config", "audio config and process factory are required")
         self.config = config
         self.process_factory = process_factory
+        self.clock = clock
         self._capture = None
         self._playback = None
         self._stream_id: str | None = None
         self._closed = False
+        self._capture_epoch: float | None = None
         self._last = AudioStatus(False, False, None, "idle", "idle", "")
 
     @property
@@ -169,13 +176,24 @@ class AudioSupervisor:
         if self._capture is not None and self._capture.returncode is None:
             return self.status
         try:
+            self._capture_epoch = float(self.clock())
             self._capture = await self.process_factory(capture_pipeline(self.config))
         except (OSError, RuntimeError) as exc:
+            self._capture_epoch = None
             raise AudioError("capture_start_failed", str(exc)) from exc
         if self._capture.returncode is not None:
+            self._capture_epoch = None
             raise AudioError("capture_start_failed", "capture pipeline exited during startup")
         self._last = AudioStatus(True, False, None, "idle", "capture_running", "")
         return self.status
+
+    def capture_rtp_timestamp(self, now: float | None = None) -> int:
+        if self._capture_epoch is None or not self.status.capture_running:
+            raise AudioError("capture_not_running", "capture RTP clock is unavailable")
+        current = float(self.clock()) if now is None else float(now)
+        if not math.isfinite(current) or current < self._capture_epoch:
+            raise AudioError("invalid_timestamp", "capture timestamp precedes its RTP epoch")
+        return int((current - self._capture_epoch) * 48_000) & 0xFFFFFFFF
 
     async def play_start(self, metadata: object) -> AudioStatus:
         if self._closed:
@@ -247,5 +265,6 @@ class AudioSupervisor:
                 self._capture.kill()
                 await self._capture.wait()
         self._capture = None
+        self._capture_epoch = None
         self._closed = True
         self._last = AudioStatus(False, False, None, "closed", "closed", "")

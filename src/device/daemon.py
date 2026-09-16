@@ -291,7 +291,7 @@ class DeviceDaemon:
                             await self.server.publish_event("audio.activity", {
                                 "active": False,
                                 "speech_id": speech_id,
-                                "rtp_timestamp": int(timestamp * 48_000) & 0xFFFFFFFF,
+                                "rtp_timestamp": audio.capture_rtp_timestamp(timestamp),
                             })
                         vad_active = False
                         playback_suppressed = True
@@ -316,7 +316,7 @@ class DeviceDaemon:
                     await self.server.publish_event("audio.activity", {
                         "active": vad_active,
                         "speech_id": self.stabilizer.speech_id or "",
-                        "rtp_timestamp": int(timestamp * 48_000) & 0xFFFFFFFF,
+                        "rtp_timestamp": audio.capture_rtp_timestamp(timestamp),
                     })
                 if decision is not None:
                     try:

@@ -24,7 +24,7 @@ def test_capture_pipeline_uses_stable_card_processed_mono_opus_and_wired_bind():
     assert "audio/x-raw,format=S32LE,rate=16000,channels=6" in command
     assert "audio/x-raw,format=S16LE,rate=16000,channels=1" in command
     assert "opusenc frame-size=20" in command
-    assert "rtpopuspay pt=96" in command
+    assert "rtpopuspay pt=96 timestamp-offset=0" in command
     assert "udpsink host=192.168.100.1 port=5004 bind-address=192.168.100.2" in command
 
 
@@ -104,6 +104,23 @@ def test_supervisor_starts_continuous_capture_and_drains_one_playback_stream():
         await audio.close()
         assert factory.processes[0].signals == [signal.SIGINT]
         assert factory.processes[0].waited == 1
+
+    asyncio.run(scenario())
+
+
+def test_supervisor_maps_vad_clock_to_capture_rtp_timestamp_domain():
+    async def scenario():
+        now = [10.0]
+        factory = ProcessFactory()
+        audio = AudioSupervisor(
+            AudioConfig(), process_factory=factory, clock=lambda: now[0])
+
+        await audio.start()
+        now[0] = 10.5
+
+        assert audio.capture_rtp_timestamp() == 24_000
+        assert audio.capture_rtp_timestamp(10.75) == 36_000
+        await audio.close()
 
     asyncio.run(scenario())
 
