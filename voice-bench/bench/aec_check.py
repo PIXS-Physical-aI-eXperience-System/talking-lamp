@@ -248,6 +248,7 @@ def cmd_levels(args):
     print("  ② 그다음 말했다 멈췄다 해보며 얼마나 따라 움직이는지 볼 것\n")
 
     lo, hi, vals = 999.0, -999.0, []
+    zeros = total = 0          # 정확히 0 인 표본. 노이즈 게이트의 흔적이다
     block = int(SR * 0.1)
     try:
         with sd.InputStream(samplerate=SR, channels=1, device=ins,
@@ -255,14 +256,20 @@ def cmd_levels(args):
             t0 = time.time()
             while True:
                 x, over = st.read(block)
-                v = db(x[:, 0])
+                frame = x[:, 0]
+                zeros += int(np.count_nonzero(frame == 0.0))
+                total += len(frame)
+                v = db(frame)
                 vals.append(v)
                 lo, hi = min(lo, v), max(hi, v)
                 # -80 ~ 0 dB 를 40칸으로
                 n = max(0, min(40, int((v + 80) / 2)))
                 bar = "█" * n
+                # 줄 끝을 지우지 않으면 앞 줄의 긴 문자가 남아 값이 잘못 읽힌다.
+                # 실제로 "범위 -87~-8" 뒤에 남은 3 이 붙어 -83 으로 보였다.
                 print(f"  {time.time()-t0:5.1f}s  {v:7.1f} dB  {bar:<40}│ "
-                      f"범위 {lo:.0f}~{hi:.0f}{'  ! 넘침' if over else ''}",
+                      f"범위 {lo:6.1f} ~ {hi:6.1f}"
+                      f"{'  ! 넘침' if over else ''}\033[K",
                       end="\r", flush=True)
                 time.sleep(0.02)
     except KeyboardInterrupt:
@@ -271,10 +278,17 @@ def cmd_levels(args):
     if len(vals) < 10:
         print("표본이 너무 적다")
         return 1
+    frac = zeros / max(total, 1)
     print(f"표본 {len(vals)}개   최저 {min(vals):.1f}   최고 {max(vals):.1f} dB")
-    if min(vals) < -75:
-        print("  ! -75 dB 아래는 실제 방 소리가 아니라 무음이다.")
-        print("    마이크가 죽어 있거나 다른 프로세스가 잡고 있는지 확인할 것")
+    print(f"정확히 0 인 표본 {frac*100:.1f}%")
+    if frac > 0.05:
+        print("\n  → 보드에 노이즈 게이트가 걸려 있다. 조용하면 완전한 무음을 내보낸다.")
+        print("    실제 방 소리는 아날로그라 정확히 0 이 될 수 없다.")
+        print("    이래서 회차마다 '조용할 때' 값이 -20 과 -83 사이를 오갔다 —")
+        print("    게이트가 열렸느냐 닫혔느냐 차이였다.")
+        print("    barge-in 은 절대 dB 임계값이 아니라 '최근 수준 대비 상승' 으로 잡아야 한다.")
+    elif min(vals) < -75:
+        print("  ! -75 dB 아래인데 0 표본은 적다. 마이크가 죽었는지 확인할 것")
     return 0
 
 
