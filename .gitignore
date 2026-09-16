@@ -21,3 +21,4 @@ voice-bench/models/
 voice-bench/out/
 voice-bench/ref/*.wav
 voice-bench/tools/
+voice-bench/wake-data/
