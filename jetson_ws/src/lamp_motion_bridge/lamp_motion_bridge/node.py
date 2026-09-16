@@ -52,7 +52,8 @@ class MotionBridgeNode(Node):
 
     def _request(self, kind, payload, timeout=8):
         return self.runner.submit(
-            self.transport.request(kind, payload)).result(timeout=timeout)
+            self.transport.request(
+                kind, payload, response_timeout=timeout)).result(timeout=timeout + 1)
 
     def _play(self, goal_handle):
         request = goal_handle.request

@@ -161,3 +161,38 @@ def test_initial_connection_failure_retries_until_server_appears():
                 await server.wait_closed()
 
     asyncio.run(scenario())
+
+
+def test_terminal_response_timeout_is_independent_from_receive_ttl():
+    async def scenario():
+        async def handler(reader, writer):
+            request = json.loads(await reader.readline())
+            await send(writer, {
+                "id": request["id"], "state": "accepted",
+                "code": "accepted", "data": {},
+            })
+            await asyncio.sleep(0.05)
+            await send(writer, {
+                "id": request["id"], "state": "completed",
+                "code": "completed", "data": {"finished": True},
+            })
+            await reader.read()
+            writer.close()
+            await writer.wait_closed()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        transport = DeviceTransport(
+            "127.0.0.1", server.sockets[0].getsockname()[1], TOKEN,
+            heartbeat_interval=60)
+        try:
+            await transport.connect()
+            result = await transport.request(
+                "motion.play", {}, ttl_ms=1, response_timeout=0.2)
+            assert result["state"] == "completed"
+            assert result["data"] == {"finished": True}
+        finally:
+            await asyncio.wait_for(transport.close(), 1)
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())

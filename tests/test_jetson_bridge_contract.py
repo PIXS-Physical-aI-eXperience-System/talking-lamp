@@ -24,6 +24,11 @@ def test_motion_bridge_exposes_exact_ros_names_and_parameters():
     assert "from motion" not in text
 
 
+def test_motion_bridge_gives_terminal_motion_results_the_action_timeout():
+    text = source("jetson_ws/src/lamp_motion_bridge/lamp_motion_bridge/node.py")
+    assert "response_timeout=timeout" in text
+
+
 def test_device_bridge_exposes_exact_ros_names_parameters_and_bounded_qos():
     text = source("jetson_ws/src/lamp_device_bridge/lamp_device_bridge/node.py")
     for name in (

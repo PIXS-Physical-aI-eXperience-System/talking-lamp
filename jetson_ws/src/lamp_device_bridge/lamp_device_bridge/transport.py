@@ -118,11 +118,24 @@ class DeviceTransport:
 
     async def request(
         self, kind: str, payload: dict[str, object], ttl_ms: int = 1000,
+        *, response_timeout: float | None = None,
     ) -> dict[str, object]:
         if not self.connected:
             raise TransportError("not_connected", "device transport is not connected")
         if isinstance(ttl_ms, bool) or not isinstance(ttl_ms, int) or not 1 <= ttl_ms <= 10_000:
             raise TransportError("invalid_request", "ttl_ms must be in 1..10000")
+        if response_timeout is None:
+            terminal_timeout = ttl_ms / 1000.0 + 2.0
+        elif (
+            isinstance(response_timeout, bool)
+            or not isinstance(response_timeout, (int, float))
+            or not math.isfinite(response_timeout)
+            or response_timeout <= 0
+        ):
+            raise TransportError(
+                "invalid_request", "response_timeout must be finite and positive")
+        else:
+            terminal_timeout = float(response_timeout)
         ident = str(uuid4())
         line = _encode({
             "version": 1, "id": ident, "type": kind, "ttl_ms": ttl_ms,
@@ -140,7 +153,7 @@ class DeviceTransport:
                 await writer.drain()
             try:
                 return await asyncio.wait_for(
-                    asyncio.shield(future), timeout=ttl_ms / 1000.0 + 2.0)
+                    asyncio.shield(future), timeout=terminal_timeout)
             except TimeoutError as exc:
                 raise TransportError("timeout", "device request timed out") from exc
         except (ConnectionError, OSError) as exc:
