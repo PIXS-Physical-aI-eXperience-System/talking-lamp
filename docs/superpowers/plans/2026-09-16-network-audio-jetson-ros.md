@@ -237,15 +237,15 @@ Commit: `feat(ros): bridge lamp motion audio orientation and LED`.
 - Consumes: a conversation result with `speech_id`, TTS frame async iterator, and motion name plus injected Action clients.
 - Produces: `TurnOrchestrator.run(response) -> TurnResult` with explicit cancellation/failure policy.
 
-- [ ] **Step 1: Write ordering and failure tests**
+- [x] **Step 1: Write ordering and failure tests**
 
 Use timestamped fakes. Assert wait-aligned completes before TTS/motion start; TTS and motion overlap; return-center begins after both successful terminal results; idle begins only after centered. If either response task fails, assert no automatic center or idle. On barge-in, assert audio/motion cancellation and interrupt occur while orientation is retained.
 
-- [ ] **Step 2: Implement the minimal helper**
+- [x] **Step 2: Implement the minimal helper**
 
 Use `asyncio.TaskGroup` or `gather` with explicit sibling cancellation. Match orientation by `speech_id`, enforce timeouts, and return machine-readable codes instead of swallowing exceptions.
 
-- [ ] **Step 3: Document the Jetson team boundary and commit**
+- [x] **Step 3: Document the Jetson team boundary and commit**
 
 Document topic/action examples, failure policy, token locations, launch commands and the required call ordering. Commit: `feat(interaction): enforce aligned response center idle sequence`.
 
