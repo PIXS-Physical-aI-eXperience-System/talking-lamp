@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import deque
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse
@@ -18,6 +19,10 @@ from std_srvs.srv import Trigger
 from lamp_interfaces.action import PlayAudio, ReturnCenter
 from lamp_interfaces.msg import AudioFrame, AudioStatus, LedStatus, OrientationStatus
 from lamp_interfaces.srv import SetLedSolid
+
+# 20 ms frames; 150 covers three seconds of audio published before the sender
+# exists. Beyond that something is wrong and holding more only hides it.
+EARLY_FRAME_LIMIT = 150
 from .audio import (
     AudioFrameError,
     CaptureReceiver,
@@ -86,6 +91,14 @@ class DeviceBridgeNode(Node):
         self._playback_sender = None
         self._playback_stream = None
         self._playback_session = PlaybackSession()
+        # Frames that arrive between goal acceptance and sender creation.
+        # The goal is accepted before _play_audio runs, and creating the sender
+        # requires a TCP round trip to the Pi, so a client that starts publishing
+        # on acceptance always races this window. Dropping even one frame is
+        # fatal: PcmFrameValidator only advances next_sequence on an accepted
+        # frame, so losing sequence 0 makes every later frame out_of_order and
+        # the first rejection fails the whole stream.
+        self._playback_early = deque(maxlen=EARLY_FRAME_LIMIT)
         self.capture = CaptureReceiver(
             self._capture_pcm,
             bind_host="192.168.100.1",
@@ -201,16 +214,43 @@ class DeviceBridgeNode(Node):
     def _playback_frame(self, message):
         with self._playback_lock:
             sender = self._playback_sender
-            if sender is None or message.stream_id != self._playback_stream:
+            if sender is None:
+                # Hold instead of dropping. _drain_early replays these in order
+                # as soon as the sender exists.
+                if len(self._playback_early) == self._playback_early.maxlen:
+                    self.get_logger().warn(
+                        "playback frame buffer is full; dropping the oldest frame")
+                self._playback_early.append(message)
                 return
-            try:
-                frame = sender.push(self._frame_dict(message))
-            except AudioFrameError as exc:
-                self.get_logger().error(str(exc))
-                self._playback_session.fail(exc)
+            if message.stream_id != self._playback_stream:
+                self.get_logger().warn("dropping frame for another playback stream")
                 return
-            if frame.end_of_stream:
-                self._playback_session.finish()
+            self._push_frame(sender, message)
+
+    def _push_frame(self, sender, message):
+        """Caller holds _playback_lock."""
+        try:
+            frame = sender.push(self._frame_dict(message))
+        except AudioFrameError as exc:
+            self.get_logger().error(str(exc))
+            self._playback_session.fail(exc)
+            return
+        if frame.end_of_stream:
+            self._playback_session.finish()
+
+    def _drain_early(self, sender, stream_id):
+        """Caller holds _playback_lock. Replay frames buffered before start."""
+        held, self._playback_early = list(self._playback_early), deque(
+            maxlen=EARLY_FRAME_LIMIT)
+        replayed = 0
+        for message in held:
+            if message.stream_id != stream_id:
+                continue        # left over from an earlier stream
+            self._push_frame(sender, message)
+            replayed += 1
+        if replayed:
+            self.get_logger().info(
+                f"replayed {replayed} playback frames buffered before start")
 
     def _play_audio(self, goal_handle):
         goal = goal_handle.request
@@ -237,6 +277,7 @@ class DeviceBridgeNode(Node):
                 self._playback_sender = sender
                 self._playback_stream = goal.stream_id
                 self._playback_session.reset()
+                self._drain_early(sender, goal.stream_id)
             while not self._playback_session.wait(0.05):
                 if goal_handle.is_cancel_requested:
                     cancelled = True
@@ -271,6 +312,7 @@ class DeviceBridgeNode(Node):
             with self._playback_lock:
                 self._playback_sender = None
                 self._playback_stream = None
+                self._playback_early.clear()
             if sender is not None:
                 sender.close()
         (goal_handle.succeed if result.success else goal_handle.abort)()
