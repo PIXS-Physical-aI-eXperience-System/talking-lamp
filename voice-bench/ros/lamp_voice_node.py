@@ -128,7 +128,7 @@ class LampVoiceNode(Node):
                 self.sock = None
                 continue
             try:
-                self.handle(kind, body)
+                self.on_agent_message(kind, body)
             except Exception as e:
                 self.get_logger().error(f"{kind!r} 처리 실패: {e}")
 
@@ -149,7 +149,9 @@ class LampVoiceNode(Node):
         self.send(ORIENT, pack_id(msg.speech_id) + msg.state.encode("utf-8"))
 
     # ── 판단부 → ROS ───────────────────────────────────────────────────
-    def handle(self, kind, body):
+    def on_agent_message(self, kind, body):
+        # 이름을 handle 로 두면 안 된다. rclpy.Node 에 같은 이름의 속성이 있어서
+        # Node.__init__ 의 with self.handle: 이 우리 메서드를 잡고 터진다.
         if kind == CAP_FRAME or kind == ORIENT:
             return
         if kind == HEARD:
