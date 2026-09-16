@@ -229,8 +229,12 @@ def cmd_echo(args):
     res["vad_threshold_db"] = (res["doubletalk_db"] + res["echo_db"]) / 2
 
     print(f"\n잔향 여유 (③−②)      {margin:+.1f} dB")
-    if res["echo_db"] < res["quiet_db"] + 3:
-        print("  ! 잔향이 배경소음과 구별되지 않는다. 스피커에서 소리가 났는지 확인할 것")
+    if res["echo_db"] < res["quiet_db"] - 3:
+        # 이 보드에서는 정상이다. 재생 중 AEC 와 억제가 강하게 걸려 마이크
+        # 출력이 방 소음보다도 낮아진다. 3회 측정에서 모두 그랬고, 그때도
+        # 사람이 끼어들면 28~34 dB 튀었다. 소리가 안 난 것과는 ④로 구별된다.
+        print("  · 잔향이 배경소음보다 낮다. 재생 중 억제가 걸린 것으로 보인다 —")
+        print("    ④가 함께 낮으면 그때는 재생이 안 된 것을 의심할 것")
     print(f"사용자 감쇠 (④−③)    {survive:+.1f} dB   재생 중 사용자 목소리가 눌린 정도")
     print(f"재생 중 대비 (④−②)   {contrast:+.1f} dB   ← barge-in 은 이 값으로 정해진다")
 
