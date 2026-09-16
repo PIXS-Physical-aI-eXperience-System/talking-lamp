@@ -146,10 +146,10 @@ def cmd_echo(args):
     # sd.rec 로 녹음을 걸어둔 뒤 sd.play 를 부르면 안 된다. 둘이 같은 전역
     # 스트림을 쓰기 때문에 녹음 스트림이 교체되고 버퍼가 채워지지 않은 채
     # 남는다. 그 쓰레기 값으로 +710 dBFS 가 나왔다. 동시 입출력은 playrec 다.
-    kw = {"input_device": ins}
-    if outs is not None:
-        kw["output_device"] = outs
-    rec = sd.playrec(audio, samplerate=SR, channels=1, dtype="float32", **kw)
+    # playrec 은 input_device/output_device 가 아니라 device=(입력, 출력) 를 받는다.
+    # None 이면 그쪽은 기본 장치를 쓴다.
+    rec = sd.playrec(audio, samplerate=SR, channels=1, dtype="float32",
+                     device=(ins, outs))
     sd.wait()
     rec = rec[:, 0] if getattr(rec, "ndim", 1) > 1 else rec
     rec = _finite(rec, "램프 발화 중 녹음")
