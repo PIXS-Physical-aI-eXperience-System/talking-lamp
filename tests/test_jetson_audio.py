@@ -61,6 +61,7 @@ def test_jetson_gstreamer_pipelines_use_appsink_appsrc_opus_and_wired_addresses(
     capture = " ".join(capture_receiver_pipeline())
     assert "udpsrc address=192.168.100.1 port=5004" in capture
     assert "rtpjitterbuffer latency=40 drop-on-latency=true" in capture
+    assert "identity name=rtp_probe" in capture
     assert "rtpopusdepay ! opusdec" in capture
     assert "audio/x-raw,format=S16LE,rate=16000,channels=1" in capture
     assert "appsink name=capture emit-signals=true max-buffers=10 drop=true" in capture
@@ -71,6 +72,16 @@ def test_jetson_gstreamer_pipelines_use_appsink_appsrc_opus_and_wired_addresses(
     assert "opusenc frame-size=20" in playback
     assert "rtpopuspay pt=96" in playback
     assert "udpsink host=192.168.100.2 port=5006 bind-address=192.168.100.1" in playback
+
+
+def test_rtp_header_timestamp_reads_wire_clock_instead_of_local_pts():
+    packet = bytearray(12)
+    packet[0] = 0x80
+    packet[4:8] = (0xF1020304).to_bytes(4, "big")
+
+    assert audio_module.rtp_header_timestamp(bytes(packet)) == 0xF1020304
+    with pytest.raises(AudioFrameError, match="RTP header"):
+        audio_module.rtp_header_timestamp(b"short")
 
 
 def test_playback_session_preserves_frame_failure_until_action_consumes_it():

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 import threading
 from typing import Mapping
@@ -65,6 +65,12 @@ class CaptureChunk:
 def _rtp_delta(value: int, reference: int) -> int:
     return ((value - reference + (RTP_MODULUS // 2)) % RTP_MODULUS) - (
         RTP_MODULUS // 2)
+
+
+def rtp_header_timestamp(packet: bytes) -> int:
+    if len(packet) < 12 or packet[0] >> 6 != 2:
+        raise AudioFrameError("invalid_capture", "invalid RTP header")
+    return int.from_bytes(packet[4:8], "big")
 
 
 class CaptureSpeechCorrelator:
@@ -200,6 +206,7 @@ def capture_receiver_pipeline(
         "udpsrc", f"address={bind_host}", f"port={port}",
         "caps=application/x-rtp,media=audio,encoding-name=OPUS,payload=96,clock-rate=48000",
         "!", "rtpjitterbuffer", f"latency={jitter_ms}", "drop-on-latency=true",
+        "!", "identity", "name=rtp_probe",
         "!", "rtpopusdepay", "!", "opusdec", "!", "audioconvert", "!", "audioresample",
         "!", "audio/x-raw,format=S16LE,rate=16000,channels=1",
         "!", "appsink", "name=capture", "emit-signals=true", "max-buffers=10",
@@ -245,9 +252,36 @@ class CaptureReceiver:
         self.pipeline = self.Gst.parse_launch(" ".join(
             capture_receiver_pipeline(**pipeline_options)))
         self.sink = self.pipeline.get_by_name("capture")
-        if self.sink is None:
-            raise AudioFrameError("pipeline_failed", "capture appsink is missing")
+        self.probe = self.pipeline.get_by_name("rtp_probe")
+        if self.sink is None or self.probe is None:
+            raise AudioFrameError("pipeline_failed", "capture appsink or RTP probe is missing")
+        self._rtp_lock = threading.Lock()
+        self._rtp_by_pts: OrderedDict[int, int] = OrderedDict()
+        self._last_rtp_timestamp: int | None = None
+        probe_pad = self.probe.get_static_pad("src")
+        if probe_pad is None:
+            raise AudioFrameError("pipeline_failed", "RTP probe source pad is missing")
+        probe_pad.add_probe(self.Gst.PadProbeType.BUFFER, self._rtp_packet)
         self.sink.connect("new-sample", self._sample)
+
+    def _rtp_packet(self, _pad, probe_info):
+        buffer = probe_info.get_buffer()
+        if buffer is None:
+            return self.Gst.PadProbeReturn.OK
+        ok, info = buffer.map(self.Gst.MapFlags.READ)
+        if not ok:
+            return self.Gst.PadProbeReturn.OK
+        try:
+            timestamp = rtp_header_timestamp(bytes(info.data))
+        except AudioFrameError:
+            return self.Gst.PadProbeReturn.OK
+        finally:
+            buffer.unmap(info)
+        with self._rtp_lock:
+            self._rtp_by_pts[int(buffer.pts)] = timestamp
+            while len(self._rtp_by_pts) > 64:
+                self._rtp_by_pts.popitem(last=False)
+        return self.Gst.PadProbeReturn.OK
 
     def _sample(self, sink):
         sample = sink.emit("pull-sample")
@@ -259,7 +293,19 @@ class CaptureReceiver:
             return self.Gst.FlowReturn.ERROR
         try:
             pts = int(buffer.pts)
-            rtp_timestamp = int(pts * RTP_CLOCK_RATE / 1_000_000_000) & 0xFFFFFFFF
+            with self._rtp_lock:
+                rtp_timestamp = self._rtp_by_pts.pop(pts, None)
+                if rtp_timestamp is None and self._rtp_by_pts:
+                    nearest = min(self._rtp_by_pts, key=lambda value: abs(value - pts))
+                    if abs(nearest - pts) <= FRAME_DURATION_NS:
+                        rtp_timestamp = self._rtp_by_pts.pop(nearest)
+                if rtp_timestamp is None:
+                    rtp_timestamp = (
+                        int(pts * RTP_CLOCK_RATE / 1_000_000_000)
+                        if self._last_rtp_timestamp is None
+                        else self._last_rtp_timestamp + RTP_FRAME_TICKS
+                    ) & 0xFFFFFFFF
+                self._last_rtp_timestamp = rtp_timestamp
             self.callback(bytes(info.data), pts, rtp_timestamp)
         finally:
             buffer.unmap(info)
