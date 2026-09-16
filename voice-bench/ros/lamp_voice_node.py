@@ -33,6 +33,7 @@ from lamp_interfaces.action import PlayAudio
 from lamp_interfaces.msg import AudioFrame, OrientationStatus
 
 FRAME_BYTES = 640          # 20ms @ 16kHz 모노 s16le. 이 크기가 아니면 거부된다
+MAX_AHEAD_S = 2.0          # 재생 시각보다 이만큼 이상 앞서가지 않는다
 RATE = 16000
 HDR_LEN = 8
 
@@ -67,6 +68,12 @@ class LampVoiceNode(Node):
         self.sequence = 0
         self.goal_handle = None
         self.play_done = threading.Event()
+        # 목표가 수락되기 전에 발행한 프레임은 파이가 거부한다. 수락될 때까지
+        # 들고 있다가 한꺼번에 내보낸다.
+        self.accepted = threading.Event()
+        self.pending = []
+        self.frame_lock = threading.Lock()
+        self.play_t0 = 0.0
 
         sensor = QoSPresetProfiles.SENSOR_DATA.value
         self.create_subscription(AudioFrame, "/lamp/audio/capture",
@@ -169,6 +176,10 @@ class LampVoiceNode(Node):
         self.stream_id = str(uuid.uuid4())
         self.sequence = 0
         self.play_done.clear()
+        self.accepted.clear()
+        with self.frame_lock:
+            self.pending = []
+        self.play_t0 = time.time()
         if not self.play_audio.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("/lamp/play_audio 가 없다")
             return
@@ -180,10 +191,20 @@ class LampVoiceNode(Node):
     def _goal_accepted(self, fut):
         handle = fut.result()
         if not handle.accepted:
-            self.get_logger().error("PlayAudio 거부됨")
+            self.get_logger().error("PlayAudio 거부됨 — 프레임을 버린다")
+            with self.frame_lock:
+                self.pending = []
             return
         self.goal_handle = handle
         handle.get_result_async().add_done_callback(self._goal_result)
+        # 들고 있던 프레임을 순서대로 내보낸다.
+        with self.frame_lock:
+            held, self.pending = self.pending, []
+        self.accepted.set()
+        for data in held:
+            self._publish(data)
+        if held:
+            self.get_logger().info(f"수락 전 프레임 {len(held)}개를 내보냈다")
 
     def _goal_result(self, fut):
         r = fut.result().result
@@ -196,9 +217,29 @@ class LampVoiceNode(Node):
         if len(data) != FRAME_BYTES:
             self.get_logger().error(f"보낼 프레임이 {len(data)}바이트다 — 버린다")
             return
+        if not self.accepted.is_set():
+            with self.frame_lock:
+                self.pending.append(data)
+            return
+        self._publish(data)
+
+    def _publish(self, data):
+        # 합성은 재생보다 훨씬 빠르다(RTF 0.17). 만드는 대로 쏟아부으면 파이의
+        # 버퍼가 넘칠 수 있으므로, 재생 시각보다 너무 앞서가지 않게 늦춘다.
+        ahead = self.sequence * 0.02 - (time.time() - self.play_t0)
+        if ahead > MAX_AHEAD_S:
+            time.sleep(ahead - MAX_AHEAD_S)
         self.playback.publish(self._frame(data, eos=False))
 
     def finish_playback(self):
+        # 수락을 못 받은 채 끝났다면 들고 있던 것은 버린다. 다음 재생과
+        # 섞이면 순번이 어긋나 통째로 거부된다.
+        if not self.accepted.is_set():
+            with self.frame_lock:
+                n, self.pending = len(self.pending), []
+            if n:
+                self.get_logger().error(f"목표가 수락되지 않아 프레임 {n}개를 버렸다")
+            return
         # 계약상 EOS 는 데이터가 빈 프레임 하나다. 이걸 빠뜨리면 파이가
         # 드레인을 끝내지 못해 PlayAudio 가 완료되지 않는다.
         self.playback.publish(self._frame(b"", eos=True))
