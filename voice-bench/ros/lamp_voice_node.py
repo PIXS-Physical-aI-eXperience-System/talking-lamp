@@ -277,14 +277,16 @@ class LampVoiceNode(Node):
             with self.frame_lock:
                 self.pending = []
             return
-        # 수락을 못 받은 채 끝났다면 들고 있던 것은 버린다. 다음 재생과
-        # 섞이면 순번이 어긋나 통째로 거부된다.
+        # 수락은 비동기다. 합성이 빠르면(순음 시험처럼) 프레임과 끝 신호가
+        # 수락보다 먼저 도착한다. 실제 TTS 는 문장당 0.6초쯤 걸려 우연히
+        # 시간이 맞았을 뿐이고, 빨라지면 그대로 깨진다. 기다렸다가 보낸다.
         if not self.accepted.is_set():
-            with self.frame_lock:
-                n, self.pending = len(self.pending), []
-            if n:
-                self.get_logger().error(f"목표가 수락되지 않아 프레임 {n}개를 버렸다")
-            return
+            if not self.accepted.wait(3.0):
+                with self.frame_lock:
+                    n, self.pending = len(self.pending), []
+                self.get_logger().error(
+                    f"3초 안에 수락되지 않았다 — 프레임 {n}개를 버린다")
+                return
         # 계약상 EOS 는 데이터가 빈 프레임 하나다. 이걸 빠뜨리면 파이가
         # 드레인을 끝내지 못해 PlayAudio 가 완료되지 않는다.
         self.playback.publish(self._frame(b"", eos=True))
