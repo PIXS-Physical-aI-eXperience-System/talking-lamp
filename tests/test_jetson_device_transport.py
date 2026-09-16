@@ -1,5 +1,6 @@
 import asyncio
 import json
+import socket
 from uuid import UUID, uuid4
 
 import pytest
@@ -127,5 +128,36 @@ def test_stale_or_out_of_order_events_are_discarded():
             await asyncio.wait_for(transport.close(), 1)
             server.close()
             await server.wait_closed()
+
+    asyncio.run(scenario())
+
+
+def test_initial_connection_failure_retries_until_server_appears():
+    async def scenario():
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        transport = DeviceTransport(
+            "127.0.0.1", port, TOKEN,
+            heartbeat_interval=60, reconnect_delay=.01)
+        server = None
+        try:
+            await transport.start()
+            assert not transport.connected
+
+            async def handler(reader, writer):
+                await reader.read()
+                writer.close()
+                await writer.wait_closed()
+
+            server = await asyncio.start_server(handler, "127.0.0.1", port)
+            await transport.wait_connected(timeout=1)
+            assert transport.connected
+        finally:
+            await asyncio.wait_for(transport.close(), 1)
+            if server is not None:
+                server.close()
+                await server.wait_closed()
 
     asyncio.run(scenario())

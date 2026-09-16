@@ -31,7 +31,7 @@ class MotionBridgeNode(Node):
         self.transport = MotionTransport(
             self.get_parameter("pi_host").value,
             int(self.get_parameter("motion_port").value), token)
-        self.runner.submit(self.transport.connect()).result(timeout=5)
+        self.runner.submit(self.transport.start()).result(timeout=5)
 
         latest = QoSProfile(depth=1)
         self.status_pub = self.create_publisher(

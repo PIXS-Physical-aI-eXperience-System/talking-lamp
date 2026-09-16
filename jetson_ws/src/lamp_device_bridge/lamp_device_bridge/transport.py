@@ -85,6 +85,13 @@ class DeviceTransport:
     def connected(self) -> bool:
         return self._connected.is_set() and self._writer is not None
 
+    async def start(self) -> None:
+        """Attempt once, then keep reconnecting without failing the owner node."""
+        try:
+            await self.connect()
+        except TransportError:
+            self._schedule_reconnect()
+
     async def connect(self) -> None:
         if self._closed:
             raise TransportError("closed", "transport is closed")
@@ -228,7 +235,12 @@ class DeviceTransport:
         for future in tuple(self._pending.values()):
             if not future.done():
                 future.set_exception(TransportError("connection_lost", reason))
-        if not self._closed and (self._reconnect_task is None or self._reconnect_task.done()):
+        self._schedule_reconnect()
+
+    def _schedule_reconnect(self) -> None:
+        if not self._closed and (
+            self._reconnect_task is None or self._reconnect_task.done()
+        ):
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def _reconnect_loop(self) -> None:

@@ -41,7 +41,7 @@ class DeviceBridgeNode(Node):
         self.transport = DeviceTransport(
             self.get_parameter("pi_host").value,
             int(self.get_parameter("device_port").value), token)
-        self.runner.submit(self.transport.connect()).result(timeout=5)
+        self.runner.submit(self.transport.start()).result(timeout=5)
         latest = QoSProfile(depth=1)
         stream = QoSProfile(depth=10)
         self.capture_pub = self.create_publisher(
