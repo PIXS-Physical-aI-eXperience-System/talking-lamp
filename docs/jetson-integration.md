@@ -96,7 +96,16 @@ Device bridge:
 - `/lamp/orientation_status` — Pi DOA/alignment status with `speech_id`
 - `/lamp/return_center` — completes only at Pi `centered`
 - `/lamp/led/frame` — `sensor_msgs/Image`, exactly 8×8 `rgb8`
+- `/lamp/led/set_expression` — named 8×8 face and requested brightness
+- `/lamp/led/list_expressions` — the ten stable expression keys
 - `/lamp/led/set_solid`, `/lamp/led/clear`, `/lamp/led/status`
+
+The expression keys are `neutral`, `happy`, `excited`, `sad`, `angry`,
+`surprised`, `curious`, `thinking`, `shy`, and `love`. They are original
+row-major RGB pixel art stored in `lamp_device_bridge`, not copied emoji
+assets. The bridge resolves a name to the existing `led.frame` device command;
+the Pi remains responsible for the commissioned 180-degree physical mapping
+and the 0.08 brightness ceiling.
 
 Only the first release format is accepted: `sample_rate=16000`, `channels=1`,
 `encoding=pcm_s16le`, and 640 data bytes for every non-EOS frame. Sequence
@@ -150,8 +159,8 @@ an assumed "latest" utterance.
   output remain best-effort and are not acknowledged in this release.
 - Device-session change: event sequence restarts at one; the bridge discards
   events from older session IDs.
-- LED remains software-only until the physical mapping and shared-5 V power
-  tests in `docs/pi-device-commissioning.md` are completed.
+- An unknown expression name is rejected on Jetson without sending a frame.
+  Pi mapping, hardware faults and brightness clamping remain authoritative.
 
 ## Commissioning record (2026-09-16)
 
@@ -163,6 +172,10 @@ an assumed "latest" utterance.
   `success=true`, `code=drained`.
 - Direction alignment: live XVF3800 event produced a canonical `speech_id` and
   terminal `aligned` state; the base reached the reported target yaw.
+- WS2812B-64: Pi 5 RP1 PIO output on GPIO 12 passed pattern tests. Shared-5 V
+  tests passed at 25%, 50%, 75% and a bounded three-second 100% sample with
+  `throttled=0x0`; production was then visually tuned to 180-degree rotation
+  and remains conservatively capped at 8%.
 - Continuous direction tracking: the operator spoke repeatedly from changing
   directions and confirmed that `base_yaw` continued to follow the sound.
 - Response ordering: audio and low-intensity `nod` were accepted together and

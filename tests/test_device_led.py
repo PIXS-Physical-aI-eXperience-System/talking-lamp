@@ -1,5 +1,7 @@
 import itertools
 import math
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -181,3 +183,32 @@ def test_hardware_sink_requires_explicit_enable_before_import_or_gpio_access():
     with pytest.raises(LedError) as error:
         Ws281xSink(enable_hardware=False)
     assert error.value.code == "hardware_disabled"
+
+
+def test_hardware_sink_rejects_non_pi5_hardware():
+    with pytest.raises(LedError) as error:
+        Ws281xSink(
+            enable_hardware=True, hardware_model="Raspberry Pi 4 Model B Rev 1.5")
+    assert error.value.code == "unsupported_hardware"
+
+
+def test_hardware_sink_uses_pi5_pio_and_scales_pixels_before_transmit(monkeypatch):
+    events = []
+
+    def write(pin, data):
+        events.append(("write", pin.id, bytes(data)))
+
+    monkeypatch.setitem(sys.modules, "adafruit_raspberry_pi5_neopixel_write", SimpleNamespace(
+        neopixel_write=write,
+        free_pio=lambda: events.append(("free",)),
+    ))
+    sink = Ws281xSink(
+        enable_hardware=True, gpio_pin=12, hardware_model="Raspberry Pi 5 Model B Rev 1.1")
+    pixels = ((10, 20, 30),) + ((0, 0, 0),) * 63
+
+    sink.write(pixels, 0.10)
+    sink.close()
+
+    assert events[0] == ("write", 12, bytes((1, 2, 3)) + bytes(189))
+    assert events[1] == ("write", 12, bytes(192))
+    assert events[2] == ("free",)

@@ -1,7 +1,8 @@
 # Raspberry Pi Device Service Commissioning
 
 This procedure commissions the reSpeaker Flex XVF3800 Linear-4 and the
-WS2812B-64 control service without allowing unverified LED hardware to turn on.
+WS2812B-64 control service. The LED gate was passed on 2026-09-16; repeat the
+safe steps here after wiring, driver, power-supply or matrix changes.
 The Raspberry Pi owns the microphone, speaker, direction calculation, LED and
 base-yaw alignment; ROS remains on the Jetson.
 
@@ -72,9 +73,10 @@ systemctl is-enabled talking-lamp-device.service   # expected: disabled
 systemctl is-active talking-lamp-device.service    # expected: inactive
 ```
 
-The checked-in unit intentionally omits `--enable-led-hardware`; therefore it
-uses the in-memory `NullPixelSink` even if the module is accidentally wired.
-For a foreground dry run, load the protected token without printing it and run:
+The checked-in unit includes `--enable-led-hardware` because physical
+commissioning is complete, although the unit is still disabled by default.
+For a software-only foreground dry run, keep the matrix disconnected and omit
+that flag as shown below. Load the protected token without printing it and run:
 
 ```bash
 sudo -u pixs bash -c 'set -a; . /etc/talking-lamp/device.env; set +a; \
@@ -84,7 +86,7 @@ sudo -u pixs bash -c 'set -a; . /etc/talking-lamp/device.env; set +a; \
   --motion-socket /run/talking-lamp/motion-control.sock \
   --calibration /home/pixs/talking-lamp/voice-bench/out/doa/calibration.json \
   --sample-rate 20 --gpio-pin 12 --xvf-vid 0x2886 --xvf-pid 0x0022 \
-  --max-brightness 0.10'
+  --led-rotation 180 --max-brightness 0.08'
 ```
 
 Send `SIGTERM` and verify an exit code of zero. The shutdown order is: stop
@@ -98,9 +100,10 @@ wiring is Pi 5 V header to module 5 V, Pi GND to module GND, and GPIO 12 to the
 module **DIN**. Do not connect until DIN/DOUT, 5 V, GND and the physical first
 pixel have been identified from the actual board.
 
-After wiring is inspected, make a temporary copy of the unit with
-`--enable-led-hardware`; do not add that flag to the default checked-in unit.
-Keep `--max-brightness 0.10` for mapping checks. Verify, in this order:
+The production unit now carries `--enable-led-hardware` after the 2026-09-16
+commissioning pass, but remains disabled at boot. Keep `--led-rotation 180`
+and `--max-brightness 0.08` for normal operation. Verify, in this order after
+any wiring change:
 
 1. Clear/all off.
 2. One low-brightness red pixel at logical `(0, 0)`.
@@ -115,7 +118,13 @@ appropriate 74AHCT-family level shifter if the electrical level is unreliable.
 ## Shared-5 V power gate
 
 Only after mapping passes, test full white at 10%, 25%, 50%, 75%, then 100%.
-At every level run XVF3800 capture and playback concurrently and record:
+The production service clamps every request to 8%, so these are controlled
+commissioning samples, **not** normal ROS requests: stop the production service,
+run a bounded foreground harness with an explicit temporary ceiling for each
+stage, verify that its reported `applied_brightness` equals the intended stage,
+clear the matrix after every sample, and restore the 8% production unit before
+starting it again. At every level run XVF3800 capture and playback concurrently
+and record:
 
 ```bash
 vcgencmd get_throttled
@@ -143,7 +152,10 @@ Jetson-to-Pi playback action: PASS (success=true, code=drained, 2026-09-16)
 full-duplex USB reset/disconnect: none observed during bounded tone test
 Pi throttling after bounded full-duplex test: throttled=0x0
 operator audibility confirmation: PASS (bounded 440 Hz tone heard, 2026-09-16)
-pixel mapping: PENDING (LED disconnected)
-10/25/50/75/100% power results: PENDING (LED disconnected)
-approved max brightness: 0.10 unverified default
+pixel mapping: PASS (GPIO 12 / RP1 PIO; 180-degree rotation visibly confirmed, 2026-09-16)
+25/50/75% full-white power samples: PASS (8 s / 8 s / 5 s, throttled=0x0)
+100% full-white power sample: PASS BOUNDED ONLY (3 s, not a long-duration approval)
+minimum observed EXT5V: 5.0987 V; final SoC temperature: 31.8 C
+kernel under-voltage/USB reset/disconnect warnings: none observed
+approved production max brightness: 0.08
 ```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 from typing import Any, Protocol, Sequence
 
 
@@ -218,7 +219,7 @@ class LedController:
 
 
 class Ws281xSink:
-    """Lazy Raspberry Pi GPIO adapter, disabled unless explicitly commissioned."""
+    """Explicitly gated Raspberry Pi 5 RP1 PIO pixel adapter."""
 
     def __init__(
         self,
@@ -226,6 +227,7 @@ class Ws281xSink:
         enable_hardware: bool,
         gpio_pin: int = 12,
         pixel_count: int = PIXEL_COUNT,
+        hardware_model: str | None = None,
     ) -> None:
         if enable_hardware is not True:
             raise LedError("hardware_disabled", "LED hardware requires explicit enable_hardware=True")
@@ -233,35 +235,45 @@ class Ws281xSink:
             raise LedError("invalid_config", "gpio_pin must be a non-negative integer")
         if pixel_count != PIXEL_COUNT:
             raise LedError("invalid_config", "this service requires exactly 64 pixels")
+        if hardware_model is None:
+            try:
+                hardware_model = Path("/proc/device-tree/model").read_text().rstrip("\0")
+            except OSError:
+                hardware_model = ""
+        self._pio = None
+        self._pin = None
+        if "Raspberry Pi 5" not in hardware_model:
+            raise LedError(
+                "unsupported_hardware", "the commissioned LED backend requires Raspberry Pi 5")
         try:
-            import rpi_ws281x as ws
+            import adafruit_raspberry_pi5_neopixel_write as pio
         except ImportError as exc:
-            raise LedError("dependency_missing", "rpi-ws281x is required for LED hardware") from exc
-        self._ws = ws
-        self._strip = ws.PixelStrip(
-            pixel_count, gpio_pin, 800_000, 10, False, 255, 0,
-            ws.WS2811_STRIP_RGB,
-        )
-        self._strip.begin()
+            raise LedError(
+                "dependency_missing",
+                "Adafruit-Blinka-Raspberry-Pi5-Neopixel is required on Pi 5",
+            ) from exc
+        self._pio = pio
+        self._pin = type("GpioPin", (), {"id": gpio_pin})
         self._closed = False
 
     def write(self, pixels: tuple[tuple[int, int, int], ...], brightness: float) -> None:
         if self._closed:
             raise LedError("closed", "LED sink is closed")
-        self._strip.setBrightness(round(brightness * 255))
-        for index, channels in enumerate(pixels):
-            self._strip.setPixelColor(index, self._ws.Color(*channels))
-        self._strip.show()
+        data = bytes(
+            round(channel * brightness)
+            for channels in pixels
+            for channel in channels
+        )
+        self._pio.neopixel_write(self._pin, data)
 
     def clear(self) -> None:
         if self._closed:
             return
-        for index in range(PIXEL_COUNT):
-            self._strip.setPixelColor(index, 0)
-        self._strip.show()
+        self._pio.neopixel_write(self._pin, bytes(FRAME_BYTES))
 
     def close(self) -> None:
         if self._closed:
             return
         self.clear()
+        self._pio.free_pio()
         self._closed = True

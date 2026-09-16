@@ -11,7 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "matplotlib>=3.8"]
-pi-device = ["pyusb", "rpi-ws281x"]
+pi-device = ["pyusb"]
 
 [build-system]
 requires = ["hatchling"]

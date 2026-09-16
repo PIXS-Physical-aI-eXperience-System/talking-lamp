@@ -17,7 +17,7 @@ from std_srvs.srv import Trigger
 
 from lamp_interfaces.action import PlayAudio, ReturnCenter
 from lamp_interfaces.msg import AudioFrame, AudioStatus, LedStatus, OrientationStatus
-from lamp_interfaces.srv import SetLedSolid
+from lamp_interfaces.srv import ListLedExpressions, SetLedExpression, SetLedSolid
 from .audio import (
     AudioFrameError,
     CaptureReceiver,
@@ -25,6 +25,7 @@ from .audio import (
     PlaybackSender,
     PlaybackSession,
 )
+from .expressions import ExpressionError, expression_names, request_expression
 from .runner import AsyncRunner
 from .transport import DeviceTransport, TransportError
 
@@ -68,6 +69,12 @@ class DeviceBridgeNode(Node):
             callback_group=self.command_group)
         self.create_service(
             SetLedSolid, "/lamp/led/set_solid", self._led_solid,
+            callback_group=self.command_group)
+        self.create_service(
+            SetLedExpression, "/lamp/led/set_expression", self._led_expression,
+            callback_group=self.command_group)
+        self.create_service(
+            ListLedExpressions, "/lamp/led/list_expressions", self._led_expression_list,
             callback_group=self.command_group)
         self.create_service(
             Trigger, "/lamp/led/clear", self._led_clear,
@@ -304,6 +311,30 @@ class DeviceBridgeNode(Node):
         response.message = str(terminal.get("message", ""))
         response.applied_brightness = float(data.get("applied_brightness", 0.0))
         response.clamped = bool(data.get("clamped", False))
+        return response
+
+    def _led_expression(self, request, response):
+        try:
+            terminal = request_expression(
+                self._request, request.name, request.brightness)
+        except ExpressionError as exc:
+            response.success = False
+            response.code = exc.code
+            response.message = exc.message
+            response.applied_brightness = 0.0
+            response.clamped = False
+            return response
+        data = terminal.get("data", {})
+        response.success = terminal.get("state") == "completed"
+        response.code = str(terminal.get("code", "invalid_response"))
+        response.message = str(terminal.get("message", ""))
+        response.applied_brightness = float(data.get("applied_brightness", 0.0))
+        response.clamped = bool(data.get("clamped", False))
+        return response
+
+    @staticmethod
+    def _led_expression_list(_request, response):
+        response.expressions = list(expression_names())
         return response
 
     def _led_clear(self, _request, response):

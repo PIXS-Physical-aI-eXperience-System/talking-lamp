@@ -251,6 +251,26 @@ def test_heartbeat_timeout_disconnects_and_runs_safe_cleanup_once():
     asyncio.run(scenario())
 
 
+def test_server_close_terminates_an_active_authenticated_owner():
+    async def scenario():
+        service = RecordingService()
+        server, port = await start_server(service, heartbeat_timeout=2)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(envelope("system.heartbeat"))
+        await writer.drain()
+        await receive(reader)
+        await receive(reader)
+
+        await asyncio.wait_for(server.close(), timeout=0.5)
+
+        assert await asyncio.wait_for(reader.read(), timeout=0.5) == b""
+        assert service.disconnects == 1
+        writer.close()
+        await writer.wait_closed()
+
+    asyncio.run(scenario())
+
+
 def test_pushed_events_are_ordered_and_new_session_resets_sequence():
     async def connect(port):
         reader, writer = await asyncio.open_connection("127.0.0.1", port)

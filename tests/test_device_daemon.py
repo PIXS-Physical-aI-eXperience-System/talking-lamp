@@ -9,7 +9,9 @@ from device.daemon import (
     DeviceDaemonError,
     NullPixelSink,
     RuntimeDeviceService,
+    build_daemon,
     load_calibration,
+    parse_args,
 )
 from device.audio import AudioError, AudioStatus
 from device.doa import DoaCalibration, DoaStabilizer
@@ -155,6 +157,18 @@ def test_load_calibration_accepts_commissioned_voice_bench_v2_schema(tmp_path):
     path.write_text(json.dumps(payload))
     with pytest.raises(DeviceDaemonError, match="version"):
         load_calibration(path)
+
+
+def test_commissioned_led_defaults_are_rotated_and_dimmed():
+    args = parse_args(["--calibration", "/tmp/calibration.json"])
+
+    assert args.led_rotation == 180
+    assert args.max_brightness == pytest.approx(0.08)
+
+    controller = build_daemon(config()).led_factory()
+    assert controller.mapping.rotation_deg == 180
+    assert controller.max_brightness == pytest.approx(0.08)
+    controller.close()
 
 
 def test_null_pixel_sink_tracks_clear_and_never_opens_gpio():

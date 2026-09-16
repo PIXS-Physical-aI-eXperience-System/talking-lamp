@@ -44,7 +44,8 @@ def test_device_bridge_exposes_exact_ros_names_parameters_and_bounded_qos():
     for name in (
         "/lamp/audio/capture", "/lamp/audio/playback_frames", "/lamp/play_audio",
         "/lamp/audio_status", "/lamp/orientation_status", "/lamp/return_center",
-        "/lamp/led/frame", "/lamp/led/set_solid", "/lamp/led/clear", "/lamp/led/status",
+        "/lamp/led/frame", "/lamp/led/set_solid", "/lamp/led/set_expression",
+        "/lamp/led/list_expressions", "/lamp/led/clear", "/lamp/led/status",
     ):
         assert name in text
     for parameter in (
@@ -60,7 +61,7 @@ def test_device_bridge_exposes_exact_ros_names_parameters_and_bounded_qos():
 def test_device_bridge_streaming_action_uses_reentrant_multithreaded_callbacks():
     text = source("jetson_ws/src/lamp_device_bridge/lamp_device_bridge/node.py")
     assert "ReentrantCallbackGroup()" in text
-    assert text.count("callback_group=self.command_group") == 6
+    assert text.count("callback_group=self.command_group") == 8
     assert "MultiThreadedExecutor(num_threads=4)" in text
     assert "if rclpy.ok():" in text
 

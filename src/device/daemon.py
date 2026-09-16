@@ -42,8 +42,9 @@ class DeviceConfig:
     motion_socket: str = "/run/talking-lamp/motion-control.sock"
     sample_rate_hz: float = 20.0
     gpio_pin: int = 12
+    led_rotation: int = 180
     enable_led_hardware: bool = False
-    max_brightness: float = 0.10
+    max_brightness: float = 0.08
     xvf_vid: int = XVF_VENDOR_ID
     xvf_pid: int = XVF_PRODUCT_ID
     alsa_card: str = "L16K6Ch"
@@ -362,25 +363,31 @@ class DeviceDaemon:
                         LOG.warning("orientation request failed: %s", exc)
                     await self.server.publish_event("orientation.status", event_data)
                 await self.sleep(interval)
+            LOG.info("shutdown requested; closing device adapters")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             LOG.error("device daemon failed: %s", exc)
             failed = True
         finally:
+            LOG.info("closing device TCP server")
             with suppress(Exception):
                 await self.server.close()
+            LOG.info("closing audio supervisor")
             if audio is not None:
                 with suppress(Exception):
                     await audio.close()
+            LOG.info("clearing LED output")
             if led is not None:
                 with suppress(Exception):
                     led.clear()
                 with suppress(Exception):
                     led.close()
+            LOG.info("closing XVF3800 USB handle")
             if xvf is not None:
                 with suppress(Exception):
                     xvf.close()
+            LOG.info("device shutdown complete")
         return 1 if failed else 0
 
 
@@ -402,7 +409,8 @@ def build_daemon(config: DeviceConfig) -> DeviceDaemon:
             if config.enable_led_hardware else NullPixelSink()
         )
         return LedController(
-            sink, LedMapping(), max_brightness=config.max_brightness)
+            sink, LedMapping(rotation_deg=config.led_rotation),
+            max_brightness=config.max_brightness)
 
     def audio_factory():
         return AudioSupervisor(AudioConfig(
@@ -439,9 +447,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--calibration", required=True)
     parser.add_argument("--sample-rate", type=float, default=20.0)
     parser.add_argument("--gpio-pin", type=int, default=12)
+    parser.add_argument("--led-rotation", type=int, choices=(0, 90, 180, 270), default=180)
     parser.add_argument("--xvf-vid", type=_integer, default=XVF_VENDOR_ID)
     parser.add_argument("--xvf-pid", type=_integer, default=XVF_PRODUCT_ID)
-    parser.add_argument("--max-brightness", type=float, default=0.10)
+    parser.add_argument("--max-brightness", type=float, default=0.08)
     parser.add_argument("--alsa-card", default="L16K6Ch")
     parser.add_argument("--capture-port", type=int, default=5004)
     parser.add_argument("--playback-port", type=int, default=5006)
@@ -461,6 +470,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         motion_socket=args.motion_socket,
         sample_rate_hz=args.sample_rate,
         gpio_pin=args.gpio_pin,
+        led_rotation=args.led_rotation,
         enable_led_hardware=args.enable_led_hardware,
         max_brightness=args.max_brightness,
         xvf_vid=args.xvf_vid,
@@ -473,9 +483,14 @@ async def async_main(argv: list[str] | None = None) -> int:
     daemon = build_daemon(config)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
+
+    def request_stop(signum: signal.Signals) -> None:
+        LOG.info("received %s; requesting shutdown", signum.name)
+        stop.set()
+
     for signum in (signal.SIGINT, signal.SIGTERM):
         with suppress(NotImplementedError):
-            loop.add_signal_handler(signum, stop.set)
+            loop.add_signal_handler(signum, request_stop, signum)
     return await daemon.run(stop)
 
 

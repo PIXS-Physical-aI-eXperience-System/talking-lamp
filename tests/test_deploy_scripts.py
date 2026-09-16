@@ -114,6 +114,18 @@ def test_set_led_solid_service_reports_applied_power_policy():
     )
 
 
+def test_named_led_expression_services_are_discoverable_and_report_power_policy():
+    assert read_ros_service_sections(
+        "jetson_ws/src/lamp_interfaces/srv/SetLedExpression.srv") == (
+        ["string name", "float32 brightness"],
+        ["bool success", "string code", "string message",
+         "float32 applied_brightness", "bool clamped"],
+    )
+    assert read_ros_service_sections(
+        "jetson_ws/src/lamp_interfaces/srv/ListLedExpressions.srv") == (
+        [], ["string[] expressions"])
+
+
 def test_motion_services_list_catalog_and_interrupt_active_work():
     assert read_ros_service_sections("jetson_ws/src/lamp_interfaces/srv/ListMotions.srv") == (
         [], ["string[] motions"])

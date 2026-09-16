@@ -57,7 +57,7 @@ Jetson의 8GB는 CPU와 GPU가 함께 씁니다. 그래서 모델 파일 크기�
 | 카메라 | 단안(렌즈 1개) 광각 — 깊이 카메라 불필요 |
 | 마이크 | reSpeaker Flex XVF3800 Linear-4, L16K6Ch 1.0.3 — Pi USB-C 연결, 전면 180° DOA |
 | 스피커 | XVF3800 재생 장치를 통해 Pi에서 출력. Jetson TTS는 유선 LAN으로 전송 |
-| 표정 LED | WS2812B-64 8×8 — Pi GPIO 12·5 V 예정, 실물 전원 시험 전 기본 비활성 |
+| 표정 LED | WS2812B-64 8×8 — Pi GPIO 12(물리 32번)·5 V(4번)·GND(34번), 실물 점등·전원 시험 완료, 180° 보정·운영 상한 8% |
 | 서보 드라이버 | 기성 버스 서보 드라이버 보드 (USB 연결) |
 | 네트워크 | Jetson `192.168.100.1` ↔ Pi `192.168.100.2` 전용 유선 LAN |
 | 전원 | Jetson 19 V, Raspberry Pi 정품 5 V, 서보 12 V 계통 분리 |
@@ -152,3 +152,9 @@ LeLamp 원본은 **AI를 전부 OpenAI 클라우드로 호출**하고(`main.py`)
 LeLamp은 Apple의 [ELEGNT](https://machinelearning.apple.com/research/elegnt-expressive-functional-movement) 연구를 기반으로 제작되었습니다.
 
 > `lelamp_runtime` 저장소에는 LICENSE 파일이 없고 README가 "메인 LeLamp 저장소의 라이선스를 확인하라"고 안내하고 있어, GPL-3.0을 따르는 것으로 간주했습니다.
+
+Raspberry Pi 5 LED 실물 시험에는 별도 설치한
+`Adafruit-Blinka-Raspberry-Pi5-Neopixel`(GPL-2.0-only)을 사용한다. 이 저장소에는
+해당 코드를 포함하지 않는다. 현재 구성은 내부 프로토타입 평가용이며, 두 라이선스가
+결합된 배포 이미지·제품을 외부 배포하기 전에는 호환성 검토 또는 호환 드라이버
+교체를 필수 release gate로 둔다.

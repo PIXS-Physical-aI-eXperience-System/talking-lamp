@@ -17,6 +17,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LedStatus.msg"
   "msg/MotionStatus.msg"
   "srv/ListMotions.srv"
+  "srv/ListLedExpressions.srv"
+  "srv/SetLedExpression.srv"
   "srv/SetLedSolid.srv"
   "srv/InterruptMotion.srv"
   DEPENDENCIES builtin_interfaces geometry_msgs

@@ -4,6 +4,7 @@ from pathlib import Path
 import shlex
 import stat
 import subprocess
+import tomllib
 
 import pytest
 
@@ -48,7 +49,7 @@ def parse_unit(path):
     return unit
 
 
-def test_device_unit_is_independent_safe_and_has_no_led_hardware_flag():
+def test_device_unit_enables_commissioned_pi5_led_rotated_at_eight_percent():
     unit = parse_unit(UNIT)
     assert unit["Service"]["User"] == "pixs"
     assert unit["Service"]["Group"] == "talking-lamp"
@@ -59,15 +60,16 @@ def test_device_unit_is_independent_safe_and_has_no_led_hardware_flag():
     argv = shlex.split(unit["Service"]["ExecStart"])
     assert argv[:3] == [
         "/home/pixs/talking-lamp/lelamp_runtime/.venv/bin/python", "-m", "device.daemon"]
-    assert "--enable-led-hardware" not in argv
-    assert dict(zip(argv[3::2], argv[4::2])) == {
+    assert argv[-1] == "--enable-led-hardware"
+    assert dict(zip(argv[3:-1:2], argv[4:-1:2])) == {
         "--bind": "192.168.100.2", "--port": "8766",
         "--allow-host": "192.168.100.1",
         "--motion-socket": "/run/talking-lamp/motion-control.sock",
         "--calibration": "/home/pixs/talking-lamp/voice-bench/out/doa/calibration.json",
         "--sample-rate": "20", "--gpio-pin": "12",
+        "--led-rotation": "180",
         "--xvf-vid": "0x2886", "--xvf-pid": "0x0022",
-        "--max-brightness": "0.10",
+        "--max-brightness": "0.08",
         "--alsa-card": "L16K6Ch", "--capture-port": "5004",
         "--playback-port": "5006", "--jitter-ms": "40",
     }
@@ -95,6 +97,20 @@ def test_staged_installer_preserves_secret_and_defaults_disabled(repository, tmp
     assert second.returncode == 0, second.stderr
     assert env.read_text() == "TALKING_LAMP_TOKEN=existing-device-token\n"
     assert not (destination / "etc/systemd/system/multi-user.target.wants").exists()
+    pio_rule = destination / "etc/udev/rules.d/99-talking-lamp-pio.rules"
+    assert pio_rule.read_text() == 'SUBSYSTEM=="*-pio", GROUP="gpio", MODE="0660"\n'
+
+
+def test_pi5_extra_does_not_install_the_unsupported_legacy_ws281x_backend():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert project["project"]["optional-dependencies"]["pi-device"] == ["pyusb"]
+
+
+def test_live_installer_preflights_pi5_pio_as_the_service_user():
+    script = INSTALLER.read_text()
+    assert 'usermod -a -G "$service_group,gpio" "$service_user"' in script
+    assert 'test -r /dev/pio0 -a -w /dev/pio0' in script
+    assert 'import adafruit_raspberry_pi5_neopixel_write' in script
 
 
 def test_staged_enable_is_explicit_and_dry_run_writes_nothing(repository, tmp_path):

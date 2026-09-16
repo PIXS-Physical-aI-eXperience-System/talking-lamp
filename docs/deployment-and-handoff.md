@@ -34,8 +34,9 @@ topic만 구독하면 되며 Pi의 DOA나 모터 코드를 호출하지 않는�
 - reSpeaker Flex XVF3800 Linear-4: Pi USB, VID:PID `2886:0022`, 펌웨어
   `L16K6Ch 1.0.3`
 - 스피커: Pi에 연결된 XVF3800 재생 장치를 통해 출력
-- WS2812B-64 8×8: Pi 5 V, GND, GPIO 12 데이터 사용 예정. 현재는 물리적으로
-  분리되어 있으며 소프트웨어도 `NullPixelSink`를 사용한다.
+- WS2812B-64 8×8: Pi 물리 핀 4(5 V), 34(GND), 32(GPIO 12 데이터)에 연결한다.
+  Pi 5 RP1 PIO 드라이버로 패턴·공유 5 V 전원 시험을 완료했고, 장착 방향은
+  논리 화면 기준 180° 보정하며 운영 밝기는 8% 상한을 유지한다.
 - Jetson↔Pi 전용 유선 LAN. 인터넷·원격 관리는 Jetson의 Wi-Fi/Tailscale을
   별도로 사용한다.
 
@@ -138,8 +139,27 @@ uv pip install --python .venv pyusb 'ruckig>=0.14'
 
 `uv`가 없는 현 장비처럼 이미 `.venv`가 준비되어 있으면 재생성하지 말고
 `/home/pixs/talking-lamp/lelamp_runtime/.venv/bin/python`이 실행 가능한지만
-확인한다. `rpi-ws281x`는 실제 LED를 승인하기 전에는 필요하지 않으며 현재
-장비에도 설치되어 있지 않다. 모터 캘리브레이션 절차는
+확인한다. Raspberry Pi 5에서는 `rpi-ws281x` 5.0.0 초기화가 지원되지 않아
+사용하지 않는다. 외부 GPL-2-only 드라이버를 저장소에 vendoring하지 않고,
+검증한 upstream commit을 Pi에서 직접 빌드해 설치한다.
+
+```bash
+git clone https://github.com/adafruit/Adafruit_Blinka_Raspberry_Pi5_Neopixel.git
+cd Adafruit_Blinka_Raspberry_Pi5_Neopixel
+git checkout 85c28b8e6ba45c307784633c053d6e16ea7a5651
+/home/pixs/talking-lamp/lelamp_runtime/.venv/bin/pip install .
+sudo /home/pixs/talking-lamp/deploy/pi/install-device-service.sh
+sudo -u pixs test -r /dev/pio0 -a -w /dev/pio0
+```
+
+오프라인 설치 시 같은 commit의 source archive와 build dependency wheel을 PC에서
+준비해 복사한다. 설치기는 `pixs`를 `gpio` 그룹에 추가하고 지속적인 udev rule을
+설치한 뒤, 실제 서비스 사용자로 `/dev/pio0` 읽기·쓰기 권한과 backend import를
+검증한다. 권한 그룹 변경 뒤 이미 로그인 중인 셸은 재로그인해야 반영될 수 있다.
+
+이 backend는 GPL-2.0-only이며 프로젝트는 GPL-3.0이다. 현재 실물 구성은 내부
+프로토타입에 한정한다. 결합된 OS 이미지나 제품을 외부 배포하기 전에는 법적
+호환성 검토를 마치거나 호환 라이선스 backend로 교체해야 한다. 모터 캘리브레이션 절차는
 [LeLamp Runtime README](../lelamp_runtime/README.md)를 따른다.
 
 ### 3.3 유선 IP 설정
@@ -375,17 +395,29 @@ ros2 service call /lamp/interrupt_motion \
 
 ### LED API
 
-ROS 인터페이스는 준비되어 있다.
+다른 Jetson 작업자는 raw frame을 만들 필요 없이 이름 기반 서비스를 우선 사용한다.
 
+- `/lamp/led/set_expression`: 이름 기반 8×8 표정과 brightness 요청
+- `/lamp/led/list_expressions`: 사용 가능한 표정 이름 조회
 - `/lamp/led/set_solid`: 단색과 brightness 요청
 - `/lamp/led/frame`: 정확히 8×8 `rgb8` 프레임
 - `/lamp/led/clear`: 전체 끄기
 - `/lamp/led/status`: 적용 밝기, clamp, fault
 
-현재 production unit에는 `--enable-led-hardware`가 없으므로 실제 LED는 켜지지
-않는다. [Pi 장치 커미셔닝](pi-device-commissioning.md)의 매핑·전원 단계가 모두
-통과하기 전에는 기본 unit을 변경하지 않는다. 실물 시험을 시작할 때만 Pi에서
-`uv pip install --python lelamp_runtime/.venv rpi-ws281x`로 드라이버를 설치한다.
+```bash
+ros2 service call /lamp/led/list_expressions \
+  lamp_interfaces/srv/ListLedExpressions '{}'
+
+ros2 service call /lamp/led/set_expression \
+  lamp_interfaces/srv/SetLedExpression \
+  "{name: happy, brightness: 0.08}"
+```
+
+지원 이름은 `neutral`, `happy`, `excited`, `sad`, `angry`, `surprised`,
+`curious`, `thinking`, `shy`, `love`다. 이름은 대소문자를 구분하며 잘못된 이름은
+Jetson에서 `unknown_expression`으로 거부되어 Pi로 전송되지 않는다. production
+unit은 커미셔닝 완료에 따라 `--enable-led-hardware`를 사용하지만 부팅 자동 시작은
+여전히 별도 승인 사항이다. 요청값이 8%를 넘어도 Pi가 8%로 clamp한다.
 
 ## 5. 이번 작업에서 구현한 내용
 
@@ -396,13 +428,14 @@ ROS 인터페이스는 준비되어 있다.
 - XVF3800 firmware/USB 검증과 재발견
 - 20 Hz DOA 읽기, 보정·안정화, `base_yaw` 정렬과 중앙 복귀
 - GStreamer 기반 마이크 Opus/RTP 송신과 스피커 Opus/RTP 수신
-- WS2812B-64 8×8 매핑·밝기 제한·fault API와 기본 null sink
+- WS2812B-64 8×8 매핑·180° 장착 보정·Pi 5 RP1 PIO 출력·8% 밝기 제한·fault API
 - 모션과 device 프로세스 분리 및 systemd 안전 종료
 
 ### Jetson
 
 - ROS 2 Jazzy 인터페이스 패키지
 - motion/device TCP 재연결 브리지
+- 이름 기반 LED 표정 10종과 조회·설정 서비스
 - 마이크 `AudioFrame` publish와 TTS frame 검증·재생 action
 - 방향·모션·오디오·LED 상태와 action/service/topic API
 - 방향 정렬 후 응답, 응답 종료 후 중앙 복귀와 idle을 강제하는
@@ -456,11 +489,10 @@ journalctl -u "$unit" --since "$started" -p warning --no-pager
    - STT 결과와 orientation을 exact `speech_id`로 결합한다.
    - 대화 정책이 표현 모션 이름과 TTS 스트림을 만든 뒤
      `TurnOrchestrator`만 호출하게 한다.
-2. **WS2812B-64 실물 커미셔닝**
-   - DIN/DOUT·첫 픽셀·색 순서를 확인한다.
-   - 10% mapping 이후 10/25/50/75/100% 순으로 전원 시험한다.
-   - USB reset, 전압 저하, 발열이 생기기 전 마지막 통과 밝기를 ceiling으로
-     승인한다. 별도 5 V 환경이 없으므로 100% 가능을 가정하지 않는다.
+2. **WS2812B-64 장시간 관찰**
+   - 패턴·색·방향과 25/50/75/100% 단기 전원 시험은 완료됐다.
+   - 100%는 3초 표본뿐이므로 장시간 안전으로 간주하지 않고 운영 상한 8%를
+     유지한다. 케이블·커넥터 발열, USB reset과 throttling을 계속 관찰한다.
 3. **복구 시험**
    - XVF3800 분리·재연결, Jetson/Pi 링크 단절·복구, 각 장비 재부팅을 시험한다.
    - 재연결은 이전 action이나 오디오 프레임을 자동 재실행하지 않는 것이 정상이다.
@@ -490,6 +522,6 @@ colcon build --symlink-install
   구현하지 않는다.
 - TCP 재연결 후 이전 non-idempotent motion/audio 요청을 자동 재전송하지 않는다.
 - 장치 토큰을 저장소·launch 파일·로그에 넣지 않는다.
-- 실제 LED 활성화는 명시적인 커미셔닝 결과와 운영자 승인 없이는 기본 서비스에
-  추가하지 않는다.
+- LED 하드웨어는 커미셔닝 완료된 GPIO 12와 Pi 5 RP1 PIO 경로만 사용하며,
+  `--max-brightness 0.08`을 별도 장시간 시험 없이 올리지 않는다.
 - 오디오나 표현 모션이 실패하면 자동 중앙 복귀와 idle로 성공처럼 덮지 않는다.

@@ -7,6 +7,7 @@ from contextlib import suppress
 from dataclasses import asdict
 import inspect
 import json
+import logging
 import math
 import time
 from typing import Any, Callable, Protocol
@@ -23,6 +24,9 @@ from .protocol import (
     decode_request,
     encode_message,
 )
+
+
+LOG = logging.getLogger("talking_lamp.device.server")
 
 
 class DeviceCommandError(RuntimeError):
@@ -154,14 +158,18 @@ class DeviceTcpServer:
         await self._server.serve_forever()
 
     async def close(self) -> None:
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
-            self._server = None
+        server = self._server
+        self._server = None
+        if server is not None:
+            server.close()
         tasks = list(self._connections)
+        LOG.info("closing device server with %d active connection(s)", len(tasks))
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        LOG.info("device server connection tasks closed")
+        if server is not None:
+            await server.wait_closed()
 
     async def publish_event(self, event: str, data: dict[str, object]) -> bool:
         sender = self._event_sender
@@ -312,12 +320,16 @@ class DeviceTcpServer:
                 result = self.service.disconnected()
                 if inspect.isawaitable(result):
                     with suppress(Exception):
+                        LOG.info("running device owner disconnect cleanup")
                         await result
+                        LOG.info("device owner disconnect cleanup complete")
             for task in replies:
                 task.cancel()
             await asyncio.gather(*replies, return_exceptions=True)
             writer.close()
             with suppress(ConnectionError, OSError):
+                LOG.info("waiting for device owner socket to close")
                 await writer.wait_closed()
+                LOG.info("device owner socket closed")
             if connection is not None:
                 self._connections.discard(connection)
