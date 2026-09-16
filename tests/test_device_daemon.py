@@ -100,6 +100,29 @@ def test_load_calibration_requires_exact_finite_schema(tmp_path):
         load_calibration(path)
 
 
+def test_load_calibration_accepts_commissioned_voice_bench_v2_schema(tmp_path):
+    path = tmp_path / "calibration.json"
+    path.write_text(json.dumps({
+        "conv": 2,
+        "offset_deg": 90.49852890666492,
+        "sign": 1,
+        "n": 47,
+        "std": 1.8557965149873001,
+        "side_raw": 158.0,
+        "side_delta": 67.50147109333508,
+        "side_std": 0.0,
+        "side": "r",
+    }))
+    assert load_calibration(path) == DoaCalibration(
+        90.49852890666492, 1, 90.0)
+
+    payload = json.loads(path.read_text())
+    payload["conv"] = 1
+    path.write_text(json.dumps(payload))
+    with pytest.raises(DeviceDaemonError, match="version"):
+        load_calibration(path)
+
+
 def test_null_pixel_sink_tracks_clear_and_never_opens_gpio():
     sink = NullPixelSink()
     sink.write(((1, 2, 3),) * 64, 0.1)

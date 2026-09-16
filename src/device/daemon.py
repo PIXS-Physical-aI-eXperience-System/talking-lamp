@@ -71,14 +71,36 @@ def load_calibration(path: str | Path) -> DoaCalibration:
         payload = json.loads(source.read_text())
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise DeviceDaemonError(f"cannot read calibration {source}: {exc}") from exc
-    expected = {"doa_zero_deg", "doa_direction_sign", "front_half_angle_deg"}
-    if not isinstance(payload, dict) or set(payload) != expected:
+    native_fields = {"doa_zero_deg", "doa_direction_sign", "front_half_angle_deg"}
+    bench_fields = {
+        "conv", "offset_deg", "sign", "n", "std", "side_raw",
+        "side_delta", "side_std", "side",
+    }
+    fields = set(payload) if isinstance(payload, dict) else set()
+    if not isinstance(payload, dict) or (fields != native_fields and fields != bench_fields):
         raise DeviceDaemonError(
-            "calibration fields must be exactly doa_zero_deg, doa_direction_sign, "
-            "front_half_angle_deg")
-    zero = payload["doa_zero_deg"]
-    sign = payload["doa_direction_sign"]
-    front = payload["front_half_angle_deg"]
+            "calibration fields must match the device or voice-bench v2 schema")
+    if fields == bench_fields:
+        if payload["conv"] != 2:
+            raise DeviceDaemonError("unsupported voice-bench calibration version")
+        if (
+            isinstance(payload["n"], bool)
+            or not isinstance(payload["n"], int)
+            or payload["n"] < 1
+            or payload["side"] not in {"l", "r"}
+        ):
+            raise DeviceDaemonError("invalid voice-bench calibration metadata")
+        for field in ("std", "side_raw", "side_delta", "side_std"):
+            value = payload[field]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise DeviceDaemonError(f"voice-bench {field} must be finite")
+        zero = payload["offset_deg"]
+        sign = payload["sign"]
+        front = 90.0
+    else:
+        zero = payload["doa_zero_deg"]
+        sign = payload["doa_direction_sign"]
+        front = payload["front_half_angle_deg"]
     if isinstance(zero, bool) or not isinstance(zero, (int, float)) or not math.isfinite(zero):
         raise DeviceDaemonError("doa_zero_deg must be finite")
     if isinstance(sign, bool) or sign not in {-1, 1}:
