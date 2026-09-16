@@ -10,6 +10,7 @@ DETECT = ROOT / "deploy/jetson/detect-platform.sh"
 INSTALL = ROOT / "deploy/jetson/install-ros-bridges.sh"
 NORMALIZE_APT = ROOT / "deploy/jetson/normalize-apt-sources.sh"
 UNIT = ROOT / "deploy/jetson/talking-lamp-bridges.service"
+RUN_BRIDGES = ROOT / "deploy/jetson/run-bridges.sh"
 
 
 def test_platform_detection_maps_actual_l4t39_ubuntu24_to_jazzy(tmp_path):
@@ -98,3 +99,46 @@ def test_apt_source_normalizer_uses_tls_valid_ubuntu_and_ros_mirrors(tmp_path):
         "Types: deb\n"
         "URIs: https://ftp.osuosl.org/pub/ros2/\n"
         "Suites: noble\n")
+
+
+def test_bridge_runner_sources_ros_environment_before_enabling_nounset(tmp_path):
+    ros_setup = tmp_path / "ros-setup.bash"
+    ros_setup.write_text(
+        ': "$AMENT_TRACE_SETUP_FILES"\n'
+        'export AMENT_TRACE_SETUP_FILES=ready\n')
+    repo = tmp_path / "repo"
+    workspace_setup = repo / "jetson_ws/install/setup.bash"
+    workspace_setup.parent.mkdir(parents=True)
+    workspace_setup.write_text(
+        'test "$AMENT_TRACE_SETUP_FILES" = ready\n')
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    ros2 = commands / "ros2"
+    ros2.write_text(
+        '#!/bin/sh\n'
+        'echo "$*" >> "$BRIDGE_CALLS_FILE"\n'
+        'sleep 0.1\n')
+    ros2.chmod(0o755)
+    calls = tmp_path / "calls"
+
+    result = subprocess.run(
+        ["bash", str(RUN_BRIDGES)],
+        env={
+            **os.environ,
+            "PATH": f"{commands}:{os.environ['PATH']}",
+            "ROS_SETUP_FILE": str(ros_setup),
+            "TALKING_LAMP_REPO": str(repo),
+            "BRIDGE_CALLS_FILE": str(calls),
+        },
+        capture_output=True, text=True)
+
+    assert result.returncode == 1
+    assert "unbound variable" not in result.stderr
+    assert sorted(calls.read_text().splitlines()) == [
+        "run lamp_device_bridge lamp_device_bridge --ros-args -p pi_host:=192.168.100.2 "
+        "-p device_port:=8766 -p capture_rtp_port:=5004 -p playback_rtp_port:=5006 "
+        "-p token_env:=TALKING_LAMP_DEVICE_TOKEN -p audio_frame_ms:=20 "
+        "-p jitter_buffer_ms:=40",
+        "run lamp_motion_bridge lamp_motion_bridge --ros-args -p pi_host:=192.168.100.2 "
+        "-p motion_port:=8765 -p token_env:=TALKING_LAMP_MOTION_TOKEN",
+    ]

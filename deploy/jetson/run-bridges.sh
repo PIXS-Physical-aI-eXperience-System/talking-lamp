@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 repo=${TALKING_LAMP_REPO:-/home/asdf/talking-lamp}
-source /opt/ros/jazzy/setup.bash
+ros_setup=${ROS_SETUP_FILE:-/opt/ros/jazzy/setup.bash}
+source "$ros_setup"
 source "$repo/jetson_ws/install/setup.bash"
+set -u
 
 ros2 run lamp_motion_bridge lamp_motion_bridge --ros-args \
     -p pi_host:=192.168.100.2 -p motion_port:=8765 \
