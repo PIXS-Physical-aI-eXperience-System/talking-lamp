@@ -98,6 +98,7 @@ class MotionController:
         self._task_settled_ticks = 0
         self._orientation_ticket: CommandTicket | None = None
         self._return_ticket: CommandTicket | None = None
+        self._last_measured_yaw: float | None = None
         self._primitive_yaw_scale = 1.0
         self._safe_wait = False
         self._fault: str | None = None
@@ -303,8 +304,12 @@ class MotionController:
         return asdict(self.runtime.orientation_snapshot())
 
     def _observe_orientation(self, step: StepState, now: float) -> None:
+        measured_yaw = float(step.q_meas[0])
+        measured_velocity = 0.0 if self._last_measured_yaw is None else (
+            measured_yaw - self._last_measured_yaw) / self.runtime.dt
+        self._last_measured_yaw = measured_yaw
         snapshot = self.runtime.orientation_control.observe(
-            now=now, current_yaw=float(step.q_cmd[0]), velocity=float(step.vel[0]),
+            now=now, current_yaw=measured_yaw, velocity=measured_velocity,
         )
         data = asdict(snapshot)
         if snapshot.state in {"aligned", "timeout"} and self._orientation_ticket is not None:

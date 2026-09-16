@@ -467,6 +467,35 @@ def test_orientation_acquisition_timeout_completes_ticket():
     assert ticket.completed.result().code == "timeout"
 
 
+def test_orientation_does_not_report_aligned_when_measured_yaw_is_stalled():
+    """A commanded target is not alignment until physical feedback follows it."""
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    initial = MotionRuntime(idle_cfg=IdleConfig(enabled=False)).traj.pos.copy()
+
+    class StalledBackend:
+        def send(self, _q_cmd):
+            pass
+
+        def measured(self):
+            return initial.copy()
+
+    runtime = MotionRuntime(
+        backend=StalledBackend(), initial_pose=initial,
+        primitives=catalog.library(), idle_cfg=IdleConfig(enabled=False),
+        orientation_cfg=OrientationConfig(acquire_timeout=2.0),
+    )
+    controller = MotionController(runtime, catalog)
+    ticket = controller.submit(orient(target_yaw=initial[0] + .4))
+
+    for index in range(220):
+        controller.tick_once(now=index / 100)
+        if ticket.completed.done():
+            break
+
+    assert ticket.completed.result().code == "timeout"
+    assert ticket.completed.result().data["current_yaw"] == pytest.approx(initial[0])
+
+
 def test_duplicate_orientation_speech_id_does_not_retarget_active_request(controller):
     original = controller.submit(orient("first", speech_id="speaker", target_yaw=.4))
     duplicate = controller.submit(orient("second", speech_id="speaker", target_yaw=-.4))

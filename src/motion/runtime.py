@@ -104,6 +104,7 @@ class MotionRuntime:
         # Preserve the exact measured range, including valid initial poses
         # at its endpoints; the generated MJCF rounds these same limits.
         self.traj = TrajectoryGenerator(initial, dt=self.dt, position_limits=position_limits)
+        self.measured_pose = initial.copy()
         self.track.seed_pose(initial)
         self.t = 0.0
 
@@ -134,7 +135,7 @@ class MotionRuntime:
             speech_id,
             target_yaw,
             now=now,
-            current_yaw=float(self.traj.pos[0]),
+            current_yaw=float(self.measured_pose[0]),
             task_light_busy=self.task_light.busy,
             current_velocity=float(self.traj.vel[0]),
         )
@@ -147,7 +148,7 @@ class MotionRuntime:
     def return_center(self, *, now: float, motion_busy: bool):
         return self.orientation_control.return_center(
             now=now,
-            current_yaw=float(self.traj.pos[0]),
+            current_yaw=float(self.measured_pose[0]),
             motion_busy=motion_busy,
         )
 
@@ -201,6 +202,9 @@ class MotionRuntime:
         self.backend.send(q_cmd)
         meas = self.backend.measured()
         q_meas = self.traj.pos if meas is None else np.asarray(meas, float)
+        if q_meas.shape != (NJ,) or not np.all(np.isfinite(q_meas)):
+            raise ValueError("backend measurement must contain five finite radians")
+        self.measured_pose = q_meas.copy()
         return StepState(self.t, trace.q, q_cmd, q_meas, self.traj.vel.copy(), trace)
 
     def run(
