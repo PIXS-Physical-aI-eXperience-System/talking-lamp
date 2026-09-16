@@ -26,6 +26,7 @@ from voice import link                    # noqa: E402
 from voice.agent import VoiceAgent        # noqa: E402
 from voice.stt import Stt                 # noqa: E402
 from voice.tts import Tts                 # noqa: E402
+from voice.llm import load_llm          # noqa: E402
 from voice.wake import PHRASE, load_wake  # noqa: E402
 
 
@@ -102,6 +103,10 @@ def main() -> int:
                     help="TTS 대신 440Hz 순음을 보낸다. 소리가 안 날 때 "
                          "오디오 내용 문제인지 전송 경로 문제인지 가른다 — "
                          "저쪽 검수에서 440Hz 톤은 들렸다고 기록돼 있다")
+    ap.add_argument("--llm", help="OpenAI 호환 엔드포인트. 없으면 되받아 말한다. "
+                                  "예: http://127.0.0.1:8080/v1/chat/completions")
+    ap.add_argument("--llm-model", default="local")
+    ap.add_argument("--llm-timeout", type=float, default=20.0)
     ap.add_argument("--rise-db", type=float, default=12.0,
                     help="재생 중 바닥 대비 몇 dB 오르면 끼어든 것으로 볼지. "
                          "실측에서 끼어들면 최악 28 dB 튀었다")
@@ -121,9 +126,16 @@ def main() -> int:
         print(f'  ! "{PHRASE}" 모델이 없다. 지금은 아무 말에나 깨어난다 — 제품이 아니다.')
     print(f"  합계 {time.time() - t0:.1f}s")
 
+    llm = load_llm(args.llm, args.llm_model, args.llm_timeout)
+    print(f"  응답 생성 {llm.name}")
+
     def think(text):
         print(f"  들은 말: {text}")
-        return f"{text}, 라고 하셨네요."
+        # 문장이 완성될 때마다 하나씩 내보낸다. 판단부가 받는 즉시 합성하므로
+        # 답을 다 만들 때까지 기다리지 않는다.
+        for part in llm.reply(text):
+            print(f"  답할 말: {part}")
+            yield part
 
     mark = {"대기": "·", "듣기": "◉", "생각": "…", "말하기": "▶"}
     serve(lambda send: VoiceAgent(stt, tts, wake, think, send,

@@ -126,6 +126,38 @@ def main() -> int:
     if sent:
         fails.append("0.1초짜리 소음으로 한 턴을 돌렸다")
 
+    # ③-d 스트리밍 응답도 받는다 ─────────────────────────────────────
+    #    LLM 이 문장을 하나씩 내보내면 그때그때 합성해야 한다. 다 모아서
+    #    합성하면 스트리밍의 이점이 사라진다.
+    sent3, times = [], []
+
+    def streamed(text):
+        for part in ("네, 알겠습니다.", "왼쪽을 밝게 할게요."):
+            times.append(time.time())
+            yield part
+
+    agent = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
+                       on_utterance=streamed,
+                       send=lambda k, p: sent3.append((k, p, time.time())))
+    agent.state = LISTENING
+    agent._voiced = 100
+    agent._buf = [frame(-20)] * 100
+    agent._while_listening("", frame(-60))          # 발화 끝 -> 생각 -> 말하기
+    for _ in range(80):
+        if any(k == link.SPEAK_END for k, _, _ in sent3):
+            break
+        time.sleep(0.05)
+    audio_t = [t for k, _, t in sent3 if k == link.SPEAK_AUDIO]
+    print(f"  ③-d 스트리밍 응답     조각 {len(times)}개, 오디오 프레임 {len(audio_t)}개")
+    if len(times) == 2 and audio_t:
+        # 두 번째 문장을 내놓기 전에 첫 문장 오디오가 나갔어야 한다
+        before = sum(1 for t in audio_t if t < times[1])
+        print(f"     두 번째 문장 전에 나간 오디오 {before}개")
+        if before == 0:
+            fails.append("첫 문장을 합성하지 않고 다음 문장을 기다렸다")
+    else:
+        fails.append("스트리밍 응답을 처리하지 못했다")
+
     # ④ 말하는 중에 끼어들기 ─────────────────────────────────────────
     sent2, states2 = [], []
     agent = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),

@@ -236,6 +236,9 @@ class VoiceAgent:
             return
         self.send(link.HEARD, text.encode("utf-8"))
 
+        # on_utterance 는 문자열 하나를 돌려줘도 되고, 문장이 완성될 때마다
+        # 하나씩 내보내도 된다(LLM 스트리밍). 뒤쪽이면 첫 문장이 나오는 즉시
+        # 합성이 시작되므로 말을 훨씬 빨리 시작한다.
         t0 = time.time()
         try:
             reply = self.on_utterance(text)
@@ -243,10 +246,11 @@ class VoiceAgent:
             print(f"  ! 응답 생성 실패: {type(e).__name__}: {e}")
             reply = None
         t_think = time.time() - t0
-        if not reply:
+        if reply is None:
             with self._lock:
                 self._set(IDLE)
             return
+        chunks = [reply] if isinstance(reply, str) else reply
 
         self._stop_speaking.clear()
         self.barge.reset()
@@ -254,19 +258,26 @@ class VoiceAgent:
             self._set(SPEAKING)
         self.send(link.SPEAK_BEGIN, link.pack_id(speech_id))
         t0 = first = None
+        # 스트리밍이면 여기서 한참 기다릴 수 있다. SPEAK_BEGIN 을 먼저 보내는
+        # 것은 브리지가 송신기를 준비할 시간을 벌기 위해서다.
+        spoke = False
         try:
             t0 = time.time()
             # 문장 단위로 만들어 만드는 대로 보낸다. 통째로 만들면 첫 소리까지
             # 4.56초, 최고 메모리 1750 MB 다. 쪼개면 0.59초, 1245 MB.
-            for part in split_sentences(reply):
+            for chunk in chunks:
                 if self._stop_speaking.is_set():
                     break
-                wav = self.tts.synth(part)
-                if first is None:
-                    first = time.time() - t0
-                if self._stop_speaking.is_set():
-                    break
-                self._send_audio(wav, self.tts.samplerate)
+                for part in split_sentences(chunk):
+                    if self._stop_speaking.is_set():
+                        break
+                    wav = self.tts.synth(part)
+                    if first is None:
+                        first = time.time() - t0
+                    if self._stop_speaking.is_set():
+                        break
+                    self._send_audio(wav, self.tts.samplerate)
+                    spoke = True
         except Exception as e:
             print(f"  ! TTS 실패: {type(e).__name__}: {e}")
         finally:
