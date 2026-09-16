@@ -63,7 +63,10 @@ FRAME_INTERVAL_S = 0.02
 # next_sequence 를 올리므로, 첫 프레임(순번 0)이 버려지면 그 뒤로 오는
 # 1, 2, 3 이 전부 out_of_order 로 거부되고 스트림이 통째로 죽는다.
 # 그래서 넉넉하게 잡는다. 늦게 말하는 것이 아예 말 못 하는 것보다 낫다.
-SENDER_READY_S = 1.5
+# 브리지 송신기가 만들어질 때까지 기다리는 시간. 준비 신호가 없어서 짐작이다.
+# 이 시간이 그대로 응답 지연에 얹히므로 짧을수록 좋지만, 모자라면 첫 프레임이
+# 버려져 스트림이 통째로 죽는다. TTS 합성과 겹치므로 실제 손해는 이보다 작다.
+SENDER_READY_S = 0.6
 RATE = 16000
 HDR_LEN = 8
 
@@ -306,6 +309,7 @@ class LampVoiceNode(Node):
         # udpsink 소켓을 찾아보려 했으나 안 된다. udpsink 는 소켓을 connect
         # 하지 않고 sendto 로 보내므로 /proc/net/udp 에 상대 주소가 안 남는다.
         time.sleep(SENDER_READY_S)
+        t_ready = time.time()
 
         t0 = time.time()
         seq = 0
@@ -319,6 +323,10 @@ class LampVoiceNode(Node):
                 return
             # 다음 프레임 시각까지 기다린다. 절대 시각으로 잡아야 오차가
             # 쌓이지 않는다.
+            if seq == 0:
+                self.get_logger().info(
+                    f"첫 프레임 발행까지 {t_ready - self.play_t0:.2f}초 "
+                    f"(대기 {SENDER_READY_S:.1f}초 포함)")
             due = t0 + seq * FRAME_INTERVAL_S
             delay = due - time.time()
             if delay > 0:

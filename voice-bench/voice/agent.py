@@ -189,8 +189,9 @@ class VoiceAgent:
         if ended or too_long:
             audio = np.concatenate(self._buf) if self._buf else np.zeros(1, np.float32)
             self._buf = []
+            # 발화가 끝났다고 판단한 시각. 여기부터 첫 소리까지가 체감 지연이다.
             threading.Thread(target=self._think_and_speak,
-                             args=(audio, self.speech_id), daemon=True).start()
+                             args=(audio, self.speech_id, time.time()), daemon=True).start()
             self._set(THINKING)
 
     def _while_speaking(self, pcm):
@@ -210,23 +211,28 @@ class VoiceAgent:
             self._quiet_run = 0
             self._set(LISTENING)
 
-    def _think_and_speak(self, audio, speech_id):
+    def _think_and_speak(self, audio, speech_id, t_end=None):
+        t_end = t_end or time.time()
         text = ""
+        t0 = time.time()
         try:
             text = self.stt.transcribe(audio, link.RATE)
         except Exception as e:
             print(f"  ! STT 실패: {type(e).__name__}: {e}")
+        t_stt = time.time() - t0
         if not text:
             with self._lock:
                 self._set(IDLE)
             return
         self.send(link.HEARD, text.encode("utf-8"))
 
+        t0 = time.time()
         try:
             reply = self.on_utterance(text)
         except Exception as e:
             print(f"  ! 응답 생성 실패: {type(e).__name__}: {e}")
             reply = None
+        t_think = time.time() - t0
         if not reply:
             with self._lock:
                 self._set(IDLE)
@@ -237,19 +243,27 @@ class VoiceAgent:
         with self._lock:
             self._set(SPEAKING)
         self.send(link.SPEAK_BEGIN, link.pack_id(speech_id))
+        t0 = first = None
         try:
+            t0 = time.time()
             # 문장 단위로 만들어 만드는 대로 보낸다. 통째로 만들면 첫 소리까지
             # 4.56초, 최고 메모리 1750 MB 다. 쪼개면 0.59초, 1245 MB.
             for part in split_sentences(reply):
                 if self._stop_speaking.is_set():
                     break
                 wav = self.tts.synth(part)
+                if first is None:
+                    first = time.time() - t0
                 if self._stop_speaking.is_set():
                     break
                 self._send_audio(wav, self.tts.samplerate)
         except Exception as e:
             print(f"  ! TTS 실패: {type(e).__name__}: {e}")
         finally:
+            print(f"  지연  STT {t_stt:.2f}s + 응답생성 {t_think:.2f}s + "
+                  f"TTS 첫문장 {first:.2f}s = {time.time()-t_end:.2f}s"
+                  if first is not None else
+                  f"  지연  STT {t_stt:.2f}s + 응답생성 {t_think:.2f}s")
             self.send(link.SPEAK_END, b"")
             with self._lock:
                 if self.state == SPEAKING:
