@@ -9,8 +9,15 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/PlayMotion.action"
   "action/PlaceTaskLight.action"
+  "action/PlayAudio.action"
+  "action/ReturnCenter.action"
+  "msg/AudioFrame.msg"
+  "msg/AudioStatus.msg"
+  "msg/OrientationStatus.msg"
+  "msg/LedStatus.msg"
   "msg/MotionStatus.msg"
   "srv/ListMotions.srv"
+  "srv/SetLedSolid.srv"
   "srv/InterruptMotion.srv"
   DEPENDENCIES builtin_interfaces geometry_msgs
 )

@@ -1,0 +1,9 @@
+builtin_interfaces/Time stamp
+string stream_id
+string speech_id
+uint64 sequence
+uint32 sample_rate
+uint8 channels
+string encoding
+uint8[] data
+bool end_of_stream

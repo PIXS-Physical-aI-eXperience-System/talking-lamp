@@ -146,15 +146,15 @@ Record exact ALSA card string, negotiated formats, packet counters, process exit
 - Consumes: generated ROS 2 built-in time and `sensor_msgs/Image`/`std_srvs/Trigger` at node boundaries.
 - Produces: exact interfaces listed in spec sections 8-9.
 
-- [ ] **Step 1: Write failing static contract tests**
+- [x] **Step 1: Write failing static contract tests**
 
 Assert exact field order/types. `PlayAudio` goal is stream ID/sample rate/channels/encoding; result is success/code/message; feedback is received sequence, played sequence, buffered ms. `ReturnCenter` result includes success/code/message/current yaw. Orientation status includes speech ID, raw/relative/target/current angles, clamped, state/code/message.
 
-- [ ] **Step 2: Add interface files and ament dependencies**
+- [x] **Step 2: Add interface files and ament dependencies**
 
 Add `sensor_msgs` and `std_srvs` dependencies where used by packages; register all messages, services and actions with `rosidl_generate_interfaces`.
 
-- [ ] **Step 3: Run static tests and commit**
+- [x] **Step 3: Run static tests and commit**
 
 Run: `pytest -q tests/test_deploy_scripts.py`
 

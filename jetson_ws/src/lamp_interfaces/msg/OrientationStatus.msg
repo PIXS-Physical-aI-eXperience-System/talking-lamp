@@ -1,0 +1,10 @@
+builtin_interfaces/Time stamp
+string speech_id
+float32 raw_doa_deg
+float32 relative_rad
+float32 target_yaw
+float32 current_yaw
+bool clamped
+string state
+string code
+string message

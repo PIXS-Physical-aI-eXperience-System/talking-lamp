@@ -68,6 +68,52 @@ def test_motion_status_exposes_bridge_health_and_control_counters():
     ]
 
 
+def test_audio_orientation_and_led_interfaces_have_exact_stream_contracts():
+    assert read_ros_fields("jetson_ws/src/lamp_interfaces/msg/AudioFrame.msg") == [
+        "builtin_interfaces/Time stamp", "string stream_id", "string speech_id",
+        "uint64 sequence", "uint32 sample_rate", "uint8 channels", "string encoding",
+        "uint8[] data", "bool end_of_stream",
+    ]
+    assert read_ros_fields("jetson_ws/src/lamp_interfaces/msg/AudioStatus.msg") == [
+        "builtin_interfaces/Time stamp", "bool capture_connected", "bool playback_active",
+        "string stream_id", "uint64 received_sequence", "uint64 played_sequence",
+        "float32 buffered_ms", "string state", "string code", "string message",
+    ]
+    assert read_ros_fields("jetson_ws/src/lamp_interfaces/msg/OrientationStatus.msg") == [
+        "builtin_interfaces/Time stamp", "string speech_id", "float32 raw_doa_deg",
+        "float32 relative_rad", "float32 target_yaw", "float32 current_yaw",
+        "bool clamped", "string state", "string code", "string message",
+    ]
+    assert read_ros_fields("jetson_ws/src/lamp_interfaces/msg/LedStatus.msg") == [
+        "builtin_interfaces/Time stamp", "bool active", "float32 requested_brightness",
+        "float32 applied_brightness", "bool clamped", "string fault",
+    ]
+
+
+def test_audio_and_return_center_actions_report_terminal_and_feedback_state():
+    audio = read_ros_sections("jetson_ws/src/lamp_interfaces/action/PlayAudio.action")
+    assert audio.goal == [
+        "string stream_id", "uint32 sample_rate", "uint8 channels", "string encoding"]
+    assert audio.result == ["bool success", "string code", "string message"]
+    assert audio.feedback == [
+        "uint64 received_sequence", "uint64 played_sequence", "float32 buffered_ms"]
+
+    center = read_ros_sections("jetson_ws/src/lamp_interfaces/action/ReturnCenter.action")
+    assert center.goal == []
+    assert center.result == [
+        "bool success", "string code", "string message", "float32 current_yaw"]
+    assert center.feedback == ["string state", "float32 current_yaw"]
+
+
+def test_set_led_solid_service_reports_applied_power_policy():
+    assert read_ros_service_sections(
+        "jetson_ws/src/lamp_interfaces/srv/SetLedSolid.srv") == (
+        ["uint8 r", "uint8 g", "uint8 b", "float32 brightness"],
+        ["bool success", "string code", "string message",
+         "float32 applied_brightness", "bool clamped"],
+    )
+
+
 def test_motion_services_list_catalog_and_interrupt_active_work():
     assert read_ros_service_sections("jetson_ws/src/lamp_interfaces/srv/ListMotions.srv") == (
         [], ["string[] motions"])

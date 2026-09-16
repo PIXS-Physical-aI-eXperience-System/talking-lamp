@@ -1,0 +1,10 @@
+builtin_interfaces/Time stamp
+bool capture_connected
+bool playback_active
+string stream_id
+uint64 received_sequence
+uint64 played_sequence
+float32 buffered_ms
+string state
+string code
+string message
