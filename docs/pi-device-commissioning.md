@@ -135,6 +135,14 @@ uses an official adapter.
 ```text
 XVF identity/version: 2886:0022 / 1.0.3
 Null-sink SIGTERM clear: PASS (2026-09-16; service exited cleanly and remained disabled)
+capture format: S16_LE, 16000 Hz, 6 channels (ALSA hardware)
+Jetson capture output: pcm_s16le, 16000 Hz, mono, 20 ms frames
+capture ROS rate: PASS (49.989-50.003 Hz, 50-frame window, 2026-09-16)
+playback format: S16_LE, 16000 Hz, 2 channels (ALSA hardware)
+Jetson-to-Pi playback action: PASS (success=true, code=drained, 2026-09-16)
+full-duplex USB reset/disconnect: none observed during bounded tone test
+Pi throttling after bounded full-duplex test: throttled=0x0
+operator audibility confirmation: PENDING
 pixel mapping: PENDING (LED disconnected)
 10/25/50/75/100% power results: PENDING (LED disconnected)
 approved max brightness: 0.10 unverified default
