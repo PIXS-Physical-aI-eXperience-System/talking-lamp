@@ -1,0 +1,45 @@
+[motions.nod]
+file = "nod.csv"
+enabled = true
+tags = ["agreement"]
+
+[motions.headshake]
+file = "headshake.csv"
+enabled = true
+tags = ["disagreement"]
+
+[motions.curious]
+file = "curious.csv"
+enabled = true
+
+[motions.excited]
+file = "excited.csv"
+enabled = true
+
+[motions.happy_wiggle]
+file = "happy_wiggle.csv"
+enabled = true
+
+[motions.sad]
+file = "sad.csv"
+enabled = true
+
+[motions.shy]
+file = "shy.csv"
+enabled = true
+
+[motions.shock]
+file = "shock.csv"
+enabled = true
+
+[motions.scanning]
+file = "scanning.csv"
+enabled = true
+
+[motions.wake_up]
+file = "wake_up.csv"
+enabled = true
+
+[motions.idle]
+file = "idle.csv"
+enabled = true

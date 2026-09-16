@@ -1,0 +1,21 @@
+[Unit]
+Description=Talking Lamp ROS 2 motion and device bridges
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=asdf
+WorkingDirectory=/home/asdf/talking-lamp
+EnvironmentFile=/etc/talking-lamp/motion-bridge.env
+EnvironmentFile=/etc/talking-lamp/device-bridge.env
+Environment=TALKING_LAMP_REPO=/home/asdf/talking-lamp
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && exec /home/asdf/talking-lamp/deploy/jetson/run-bridges.sh --pi-host 192.168.100.2'
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

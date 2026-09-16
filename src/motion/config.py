@@ -30,6 +30,9 @@ HEAD_SITE = "head"
 
 CONTROL_HZ = 100.0
 CONTROL_DT = 1.0 / CONTROL_HZ
+# Accept OS wakeup jitter without treating every late wake as a miss. Adjacent
+# sends can be 9 ms apart; substantially overdue trajectory slots are discarded.
+DEADLINE_JITTER_SECONDS = 0.001
 
 # Per-joint kinematic limits for the online trajectory generator.
 # Conservative defaults for STS3215 @ 12 V with an unballasted head; retune once

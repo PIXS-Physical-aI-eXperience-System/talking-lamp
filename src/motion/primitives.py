@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 
@@ -52,12 +53,32 @@ class Primitive:
         scale: np.ndarray | None = None,
         loop: bool | None = None,
         recordings_dir: Path | None = None,
+        recording_path: Path | None = None,
     ) -> "Primitive":
-        path = Path(recordings_dir or RECORDINGS_DIR) / f"{name}.csv"
-        raw = np.genfromtxt(path, delimiter=",", names=True)
+        path = (
+            Path(recording_path)
+            if recording_path is not None
+            else Path(recordings_dir or RECORDINGS_DIR) / f"{name}.csv"
+        )
+        try:
+            raw = np.genfromtxt(path, delimiter=",", names=True)
+        except ValueError as exc:
+            raise ValueError(f"malformed_columns: {exc}") from exc
         # genfromtxt turns the header "base_yaw.pos" into the field "base_yawpos"
-        normalized = np.stack([raw[f"{j}pos"] for j in JOINT_NAMES], axis=1)
-        t = raw["timestamp"].astype(float)
+        fields = raw.dtype.names
+        required_fields = {"timestamp", *(f"{joint}pos" for joint in JOINT_NAMES)}
+        if fields is None or not required_fields.issubset(fields):
+            missing = sorted(required_fields - set(fields or ()))
+            raise ValueError(f"malformed_columns: missing required columns: {missing}")
+
+        normalized = np.column_stack(
+            [np.atleast_1d(raw[f"{joint}pos"]).astype(float) for joint in JOINT_NAMES]
+        )
+        t = np.atleast_1d(raw["timestamp"]).astype(float)
+        if not np.isfinite(t).all() or not np.isfinite(normalized).all():
+            raise ValueError("non_finite: recording contains a non-finite sample")
+        if len(t) < 2 or np.any(np.diff(t) <= 0):
+            raise ValueError("invalid_recording: timestamps must strictly increase")
         t = t - t[0]
 
         rad = HardwareAlignment.load().normalized_to_radians(normalized)
@@ -101,22 +122,51 @@ class Primitive:
         off = np.stack([np.interp(tt, self.times, self.offsets[:, i]) for i in range(NJ)], axis=1)
         return Primitive(self.name, tt, off, self.loop)
 
+    def scaled_joint(self, index: int, factor: float) -> "Primitive":
+        if not 0 <= index < NJ:
+            raise ValueError(f"joint index must be in [0, {NJ})")
+        if not np.isfinite(factor) or not 0.0 <= factor <= 1.0:
+            raise ValueError("joint scale factor must be finite and in [0, 1]")
+        offsets = self.offsets.copy()
+        offsets[:, index] *= factor
+        return Primitive(self.name, self.times.copy(), offsets, self.loop)
+
 
 @dataclass
 class PrimitiveLibrary:
     recordings_dir: Path = field(default_factory=lambda: RECORDINGS_DIR)
     _cache: dict[str, Primitive] = field(default_factory=dict)
+    allowed_names: frozenset[str] | None = None
+    recording_paths: Mapping[str, Path] | None = None
 
     def get(self, name: str, **kw) -> Primitive:
+        if self.allowed_names is not None and name not in self.allowed_names:
+            raise KeyError(f"motion {name!r} is not in the allowed catalog")
+        recording_path = None
+        if self.recording_paths is not None:
+            try:
+                recording_path = self.recording_paths[name]
+            except KeyError as exc:
+                raise KeyError(f"motion {name!r} has no configured recording") from exc
         # Custom loads must not inherit or replace a cached default's
         # direction, amplitude, or looping policy.
         if kw:
-            return Primitive.load(name, recordings_dir=self.recordings_dir, **kw)
+            return Primitive.load(
+                name,
+                recordings_dir=self.recordings_dir,
+                recording_path=recording_path,
+                **kw,
+            )
         if name not in self._cache:
             self._cache[name] = Primitive.load(
-                name, recordings_dir=self.recordings_dir, **kw
+                name,
+                recordings_dir=self.recordings_dir,
+                recording_path=recording_path,
+                **kw,
             )
         return self._cache[name]
 
     def available(self) -> list[str]:
+        if self.allowed_names is not None:
+            return sorted(self.allowed_names)
         return sorted(p.stem for p in Path(self.recordings_dir).glob("*.csv"))

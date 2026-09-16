@@ -1,0 +1,8 @@
+geometry_msgs/PointStamped target
+---
+bool success
+string code
+string message
+---
+string state
+float32 progress
