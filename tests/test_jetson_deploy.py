@@ -8,6 +8,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 DETECT = ROOT / "deploy/jetson/detect-platform.sh"
 INSTALL = ROOT / "deploy/jetson/install-ros-bridges.sh"
+NORMALIZE_APT = ROOT / "deploy/jetson/normalize-apt-sources.sh"
 UNIT = ROOT / "deploy/jetson/talking-lamp-bridges.service"
 
 
@@ -64,3 +65,26 @@ def test_staged_installer_preserves_tokens_and_defaults_disabled(tmp_path):
     assert "operator-secret" in (
         destination / "etc/talking-lamp/motion-bridge.env").read_text()
     assert not (destination / "etc/systemd/system/multi-user.target.wants").exists()
+
+
+def test_apt_source_normalizer_uses_https_for_ubuntu_and_ros(tmp_path):
+    ubuntu = tmp_path / "sources.list"
+    ubuntu.write_text(
+        "deb http://ports.ubuntu.com/ubuntu-ports/ noble main\n")
+    ros = tmp_path / "ros2.sources"
+    ros.write_text(
+        "Types: deb\n"
+        "URIs: http://packages.ros.org/ros2/ubuntu\n"
+        "Suites: noble\n")
+
+    result = subprocess.run(
+        ["bash", str(NORMALIZE_APT), str(ubuntu), str(ros)],
+        capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
+    assert ubuntu.read_text() == (
+        "deb https://ports.ubuntu.com/ubuntu-ports/ noble main\n")
+    assert ros.read_text() == (
+        "Types: deb\n"
+        "URIs: https://packages.ros.org/ros2/ubuntu\n"
+        "Suites: noble\n")

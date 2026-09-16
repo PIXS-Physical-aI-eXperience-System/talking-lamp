@@ -63,6 +63,10 @@ fi
 [[ $("$script_dir/detect-platform.sh") == jazzy ]] || fail "ROS 2 Jazzy platform check failed"
 getent passwd asdf >/dev/null || fail "required user asdf does not exist"
 
+"$script_dir/normalize-apt-sources.sh" \
+    /etc/apt/sources.list \
+    /etc/apt/sources.list.d/ros2.sources \
+    /etc/apt/sources.list.d/ros2.list
 apt-get update
 env DEBIAN_FRONTEND=noninteractive apt-get install -y \
     software-properties-common curl ca-certificates
@@ -74,6 +78,9 @@ ros_source_version=$(curl -fsSL https://api.github.com/repos/ros-infrastructure/
 curl -fsSL -o /tmp/ros2-apt-source.deb \
     "https://github.com/ros-infrastructure/ros-apt-source/releases/download/$ros_source_version/ros2-apt-source_${ros_source_version}.noble_all.deb"
 dpkg -i /tmp/ros2-apt-source.deb
+"$script_dir/normalize-apt-sources.sh" \
+    /etc/apt/sources.list.d/ros2.sources \
+    /etc/apt/sources.list.d/ros2.list
 apt-get update
 env DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-jazzy-ros-base python3-colcon-common-extensions python3-rosdep python3-gi \
