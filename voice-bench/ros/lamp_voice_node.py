@@ -27,7 +27,8 @@ import uuid
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.qos import QoSPresetProfiles
+from rclpy.qos import (HistoryPolicy, QoSPresetProfiles, QoSProfile,
+                       ReliabilityPolicy)
 
 from lamp_interfaces.action import PlayAudio
 from lamp_interfaces.msg import AudioFrame, OrientationStatus
@@ -80,8 +81,17 @@ class LampVoiceNode(Node):
                                  self.on_capture, sensor)
         self.create_subscription(OrientationStatus, "/lamp/orientation_status",
                                  self.on_orientation, 10)
+        # 재생 토픽은 RELIABLE 이어야 한다. SENSOR_DATA(BEST_EFFORT)로 두면
+        # 구독자와 QoS 가 맞지 않아 메시지가 한 개도 나가지 않는다 —
+        # "requesting incompatible QoS. No messages will be sent to it".
+        # 오디오 프레임은 하나만 빠져도 순번이 어긋나 뒤가 통째로 거부되므로
+        # best-effort 로 흘려보낼 성질의 것이 아니다.
+        #
+        # 깊이는 넉넉히 둔다. 합성이 재생보다 빨라(RTF 0.17) 한꺼번에 몰릴 수 있다.
         self.playback = self.create_publisher(
-            AudioFrame, "/lamp/audio/playback_frames", sensor)
+            AudioFrame, "/lamp/audio/playback_frames",
+            QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                       history=HistoryPolicy.KEEP_LAST, depth=200))
         self.play_audio = ActionClient(self, PlayAudio, "/lamp/play_audio")
 
         self.connect()
