@@ -27,6 +27,8 @@ def test_motion_bridge_exposes_exact_ros_names_and_parameters():
 def test_motion_bridge_gives_terminal_motion_results_the_action_timeout():
     text = source("jetson_ws/src/lamp_motion_bridge/lamp_motion_bridge/node.py")
     assert "response_timeout=timeout" in text
+    assert "MOTION_ACTION_TIMEOUT_SECONDS = 240" in text
+    assert "timeout=MOTION_ACTION_TIMEOUT_SECONDS" in text
 
 
 def test_motion_bridge_keeps_commands_responsive_during_looping_idle():

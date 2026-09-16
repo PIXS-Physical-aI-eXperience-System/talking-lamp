@@ -19,6 +19,9 @@ from lamp_device_bridge.runner import AsyncRunner
 from .transport import MotionTransport, TransportError
 
 
+MOTION_ACTION_TIMEOUT_SECONDS = 240
+
+
 class MotionBridgeNode(Node):
     def __init__(self) -> None:
         super().__init__("lamp_motion_bridge")
@@ -74,7 +77,7 @@ class MotionBridgeNode(Node):
             "replace_current": request.replace_current,
             "intensity": float(request.intensity),
             "repeat": int(request.repeat),
-        }, timeout=60)
+        }, timeout=MOTION_ACTION_TIMEOUT_SECONDS)
         result = PlayMotion.Result()
         result.success = response.get("state") == "completed"
         result.code = str(response.get("code", "invalid_response"))
