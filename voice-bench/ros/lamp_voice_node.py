@@ -84,7 +84,7 @@ class LampVoiceNode(Node):
         self.send_lock = threading.Lock()
 
         self.stream_id = ""
-        self.sequence = 0
+        self.sent = 0
         self.goal_handle = None
         self.play_done = threading.Event()
         # 발행은 반드시 한 곳에서만 한다. 모아둔 것을 한 스레드가 내보내는
@@ -231,13 +231,16 @@ class LampVoiceNode(Node):
             if not self.play_done.wait(3.0):
                 self.get_logger().warn("앞 재생이 안 끝난다 — 그대로 진행한다")
         self.stream_id = str(uuid.uuid4())
-        self.sequence = 0
+        self.sent = 0
         self.play_done.clear()
         self.accepted.clear()
         self.cancelled = False
         self.outq = queue.Queue()
         self.play_t0 = time.time()
-        self.pub_thread = threading.Thread(target=self._publisher, daemon=True)
+        # 큐와 스트림 id 를 스레드에 넘긴다. 인스턴스 변수를 함께 쓰면
+        # 이전 스트림의 스레드가 살아 있을 때 섞인다.
+        self.pub_thread = threading.Thread(
+            target=self._publisher, args=(self.stream_id, self.outq), daemon=True)
         self.pub_thread.start()
 
         if not self.play_audio.wait_for_server(timeout_sec=2.0):
@@ -261,37 +264,48 @@ class LampVoiceNode(Node):
 
     def _goal_result(self, fut):
         r = fut.result().result
-        sent_s = self.sequence * 0.02
+        sent_s = self.sent * 0.02
         took = time.time() - self.play_t0
         self.get_logger().info(
-            f"프레임 {self.sequence}개({sent_s:.1f}초 분량)를 {took:.1f}초에 보냈다")
+            f"프레임 {self.sent}개({sent_s:.1f}초 분량)를 {took:.1f}초에 보냈다")
         lvl = self.get_logger().info if r.success else self.get_logger().error
         lvl(f"재생 결과 success={r.success} code={r.code} {r.message}")
         self.goal_handle = None
         self.play_done.set()
 
-    def _publisher(self):
-        """이 스레드만 발행한다. 순서와 순번을 지키는 유일한 방법이다."""
-        # 수락돼도 브리지는 아직 송신기를 안 만들었을 수 있다. 실행 단계에서
-        # 파이에 audio.play.start 를 보내고 나서야 대입하므로, 그 전에 보낸
-        # 것은 sender is None 으로 조용히 버려진다.
+    def _publisher(self, stream_id, q):
+        """이 스레드만 발행한다. 순번과 큐를 스트림마다 따로 둔다.
+
+        앞서 self.sequence 를 공유하다가 이전 스트림의 발행 스레드가 아직
+        살아 있을 때 둘이 같은 카운터를 증가시켰다. 브리지는 순번이 다음 것이
+        아니면 거부하므로 out_of_order 로 전부 버려졌다.
+        """
         if not self.accepted.wait(5.0):
             self.get_logger().error("수락되지 않았다 — 발행하지 않는다")
             return
+        if stream_id != self.stream_id:
+            return                      # 그사이 다음 스트림이 시작됐다
+        # 수락돼도 브리지는 아직 송신기를 안 만들었을 수 있다. 실행 단계에서
+        # 파이에 audio.play.start 를 보내고 나서야 대입하므로, 그 전에 보낸
+        # 것은 sender is None 으로 조용히 버려진다.
         time.sleep(SENDER_READY_S)
-        self.play_t0 = time.time()
+        t0 = time.time()
+        seq = 0
         while True:
-            data = self.outq.get()
-            if self.cancelled:
+            data = q.get()
+            if self.cancelled or stream_id != self.stream_id:
                 return
             if data is None:            # 끝 신호
-                self.playback.publish(self._frame(b"", eos=True))
+                self.playback.publish(self._frame(b"", True, stream_id, seq))
+                self.sent = seq + 1
                 return
             # 합성이 재생보다 빠르다. 파이 버퍼가 넘치지 않게 늦춘다.
-            ahead = self.sequence * 0.02 - (time.time() - self.play_t0)
+            ahead = seq * 0.02 - (time.time() - t0)
             if ahead > MAX_AHEAD_S:
                 time.sleep(ahead - MAX_AHEAD_S)
-            self.playback.publish(self._frame(data, eos=False))
+            self.playback.publish(self._frame(data, False, stream_id, seq))
+            seq += 1
+            self.sent = seq
 
     def publish_frame(self, data):
         if len(data) != FRAME_BYTES:
@@ -302,18 +316,17 @@ class LampVoiceNode(Node):
     def finish_playback(self):
         self.outq.put(None)
 
-    def _frame(self, data, eos):
+    def _frame(self, data, eos, stream_id, seq):
         msg = AudioFrame()
         msg.stamp = self.get_clock().now().to_msg()
-        msg.stream_id = self.stream_id
+        msg.stream_id = stream_id
         msg.speech_id = ""
-        msg.sequence = self.sequence
+        msg.sequence = seq
         msg.sample_rate = RATE
         msg.channels = 1
         msg.encoding = "pcm_s16le"
         msg.data = list(data)
         msg.end_of_stream = eos
-        self.sequence += 1
         return msg
 
     def cancel_playback(self):
