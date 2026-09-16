@@ -381,3 +381,49 @@ def test_vad_edges_publish_one_audio_activity_event_with_shared_speech_id():
         assert events[0]["rtp_timestamp"] < events[1]["rtp_timestamp"]
 
     asyncio.run(scenario())
+
+
+def test_active_playback_suppresses_self_speech_vad_and_orientation():
+    async def scenario():
+        order = []
+        gate = RuntimeDeviceService()
+        server = FakeServer(gate, order)
+        stop = asyncio.Event()
+        ticks = iter(index * 0.05 for index in range(20))
+
+        class PlaybackAudio(FakeAudio):
+            @property
+            def status(self):
+                return AudioStatus(
+                    True, True, "20000000-0000-0000-0000-000000000002",
+                    "playing", "playing", "")
+
+            async def start(self):
+                self.order.append("audio.start")
+                return self.status
+
+        class SelfSpeechXvf(FakeXvf):
+            def read_doa(self):
+                self.order.append("xvf.read")
+                self.reads += 1
+                if self.reads == 10:
+                    stop.set()
+                return type("Doa", (), {
+                    "doa_deg": 90, "speech_detected": True})()
+
+        daemon = DeviceDaemon(
+            config(), server=server, service=gate,
+            coordinator=FakeCoordinator(), stabilizer=DoaStabilizer(),
+            led_factory=lambda: FakeLed(order),
+            audio_factory=lambda: PlaybackAudio(order),
+            xvf_factory=lambda: SelfSpeechXvf(order),
+            clock=lambda: next(ticks), sleep=lambda _delay: asyncio.sleep(0),
+        )
+
+        assert await daemon.run(stop) == 0
+        assert not [
+            event for event in server.events
+            if event[0] in {"audio.activity", "orientation.status"}
+        ]
+
+    asyncio.run(scenario())

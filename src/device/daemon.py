@@ -25,6 +25,7 @@ from .xvf3800 import XVF_PRODUCT_ID, XVF_VENDOR_ID, Xvf3800, XvfError
 
 
 LOG = logging.getLogger("talking_lamp.device")
+PLAYBACK_DOA_GUARD_SECONDS = 0.3
 
 
 class DeviceDaemonError(RuntimeError):
@@ -227,6 +228,8 @@ class DeviceDaemon:
             reconnect_delay = 0.25
             audio_reconnect_delay = 0.25
             vad_active = False
+            playback_suppressed = False
+            doa_resume_at = 0.0
             while not stop.is_set():
                 if not audio.status.capture_running:
                     await self.server.publish_event("audio.status", asdict(audio.status))
@@ -279,13 +282,36 @@ class DeviceDaemon:
                         break
                     continue
                 timestamp = float(self.clock())
+                playback_running = audio.status.playback_running
+                if playback_running:
+                    if not playback_suppressed:
+                        speech_id = self.stabilizer.speech_id or ""
+                        self.stabilizer.reset()
+                        if vad_active:
+                            await self.server.publish_event("audio.activity", {
+                                "active": False,
+                                "speech_id": speech_id,
+                                "rtp_timestamp": int(timestamp * 48_000) & 0xFFFFFFFF,
+                            })
+                        vad_active = False
+                        playback_suppressed = True
+                    doa_resume_at = timestamp + PLAYBACK_DOA_GUARD_SECONDS
+                elif playback_suppressed:
+                    self.stabilizer.reset()
+                    vad_active = False
+                    playback_suppressed = False
+                speech_detected = (
+                    reading.speech_detected
+                    and not playback_running
+                    and timestamp >= doa_resume_at
+                )
                 previous_vad = vad_active
                 decision = self.stabilizer.observe(DoaSample(
                     timestamp=timestamp,
                     doa_deg=reading.doa_deg,
-                    speech_detected=reading.speech_detected,
+                    speech_detected=speech_detected,
                 ))
-                vad_active = reading.speech_detected
+                vad_active = speech_detected
                 if vad_active != previous_vad:
                     await self.server.publish_event("audio.activity", {
                         "active": vad_active,
