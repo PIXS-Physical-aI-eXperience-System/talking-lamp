@@ -33,7 +33,14 @@ from .tts import split_sentences
 IDLE, LISTENING, THINKING, SPEAKING = "대기", "듣기", "생각", "말하기"
 
 FRAME_SAMPLES = 320          # 20 ms @ 16 kHz
-MAX_UTTERANCE_S = 15.0
+# 한 번에 받아쓸 최대 길이. 15초로 뒀더니 조용해지지 않는 방에서 발화가
+# 끝나지 않고 계속 쌓였다. 파이 VAD 표시가 250프레임 중 150~250개에 붙는
+# 환경이라 "표시가 끊기면 끝" 이라는 기준이 성립하지 않는다. 그 결과 15초를
+# 채운 뒤에야 잘렸고, 그 덩어리를 STT 에 넣느라 다시 5초가 걸렸다.
+#
+# 램프에게 하는 말은 짧다. 상한을 낮춰 최악 지연을 묶는다.
+# 근본 해결은 웨이크워드다 — "픽스야" 다음부터만 들으면 이 문제가 사라진다.
+MAX_UTTERANCE_S = 6.0
 END_SILENCE_FRAMES = 25      # 0.5초. 끼어든 직후 우리가 발화 끝을 볼 때 쓴다
 # 파이 VAD 표시가 한 번 끊겼다고 바로 자르면 안 된다. 사람은 말하다 숨을 쉬고,
 # 방에 사람이 있으면 표시가 들쭉날쭉하다. 실기기에서 250프레임 중 150~250개에
@@ -189,6 +196,9 @@ class VoiceAgent:
         if ended or too_long:
             audio = np.concatenate(self._buf) if self._buf else np.zeros(1, np.float32)
             self._buf = []
+            dur = len(self._buf) * FRAME_SAMPLES / link.RATE
+            why = "길이 상한" if too_long else "무음"
+            print(f"  발화 {dur:.1f}초 모음 ({why}로 끊음)")
             # 발화가 끝났다고 판단한 시각. 여기부터 첫 소리까지가 체감 지연이다.
             threading.Thread(target=self._think_and_speak,
                              args=(audio, self.speech_id, time.time()), daemon=True).start()
