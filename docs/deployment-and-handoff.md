@@ -62,6 +62,12 @@ ssh -J asdf@100.79.117.124 pixs@192.168.100.2
 `vcgencmd get_throttled`는 `0x0`이었다. 자동 시작은 LED와 재부팅 복구 시험이
 끝나기 전까지 의도적으로 비활성이다.
 
+같은 날 서비스 실행 중 5~8초 표본에서 Pi 전체 CPU는 약 1~4%, 두 서비스의
+합산 RSS는 약 413 MiB(7.9 GiB RAM의 약 5.1%), 온도는 59.0~59.3°C였다.
+모션 프로세스가 약 369 MiB, device와 GStreamer가 약 44 MiB를 사용했다. 이
+값은 정상 기준선이며 장시간 최대치가 아니다. device 서비스의 systemd 누적
+재시작 횟수는 설치·조정 과정의 2회, motion은 0회였다.
+
 ## 2. 처리 흐름
 
 ```text
@@ -108,17 +114,25 @@ rsync -av --exclude .git \
   pixs@192.168.100.2:/home/pixs/talking-lamp/
 ```
 
-Pi의 LeLamp 하드웨어 환경은 다음과 같이 준비한다.
+Pi의 오디오·USB 시스템 패키지와 LeLamp 하드웨어 환경은 다음과 같이 준비한다.
 
 ```bash
+sudo apt update
+sudo apt install -y alsa-utils usbutils libusb-1.0-0 \
+  gstreamer1.0-tools gstreamer1.0-alsa \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad
+
 cd /home/pixs/talking-lamp/lelamp_runtime
-uv sync --extra hardware
+uv sync
+uv pip install --python .venv pyusb 'ruckig>=0.14'
 ```
 
 `uv`가 없는 현 장비처럼 이미 `.venv`가 준비되어 있으면 재생성하지 말고
 `/home/pixs/talking-lamp/lelamp_runtime/.venv/bin/python`이 실행 가능한지만
-확인한다. 모터 캘리브레이션 절차는 [LeLamp Runtime README](../lelamp_runtime/README.md)를
-따른다.
+확인한다. `rpi-ws281x`는 실제 LED를 승인하기 전에는 필요하지 않으며 현재
+장비에도 설치되어 있지 않다. 모터 캘리브레이션 절차는
+[LeLamp Runtime README](../lelamp_runtime/README.md)를 따른다.
 
 ### 3.3 유선 IP 설정
 
@@ -360,7 +374,8 @@ ROS 인터페이스는 준비되어 있다.
 
 현재 production unit에는 `--enable-led-hardware`가 없으므로 실제 LED는 켜지지
 않는다. [Pi 장치 커미셔닝](pi-device-commissioning.md)의 매핑·전원 단계가 모두
-통과하기 전에는 기본 unit을 변경하지 않는다.
+통과하기 전에는 기본 unit을 변경하지 않는다. 실물 시험을 시작할 때만 Pi에서
+`uv pip install --python lelamp_runtime/.venv rpi-ws281x`로 드라이버를 설치한다.
 
 ## 5. 이번 작업에서 구현한 내용
 
