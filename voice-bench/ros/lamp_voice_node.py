@@ -258,7 +258,6 @@ class LampVoiceNode(Node):
         if not self.play_audio.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("/lamp/play_audio 가 없다")
             return
-        self.get_logger().info(f"목표 전송 stream={self.stream_id[:8]}")
         goal = PlayAudio.Goal(stream_id=self.stream_id, sample_rate=RATE,
                               channels=1, encoding="pcm_s16le")
         fut = self.play_audio.send_goal_async(goal)
@@ -315,7 +314,6 @@ class LampVoiceNode(Node):
             if self.cancelled or stream_id != self.stream_id:
                 return
             if data is None:            # 끝 신호
-                self.get_logger().info(f"발행 EOS seq={seq} stream={stream_id[:8]}")
                 self.playback.publish(self._frame(b"", True, stream_id, seq))
                 self.sent = seq + 1
                 return
@@ -325,11 +323,6 @@ class LampVoiceNode(Node):
             delay = due - time.time()
             if delay > 0:
                 time.sleep(delay)
-            # 무엇을 보내는지 눈으로 확인한다. 검사기는 0 부터 1씩을 기대하는데
-            # out_of_order 가 나므로, 우리가 정말 0 부터 보내는지부터 봐야 한다.
-            if seq < 3:
-                self.get_logger().info(
-                    f"발행 seq={seq} stream={stream_id[:8]} {len(data)}바이트")
             self.playback.publish(self._frame(data, False, stream_id, seq))
             seq += 1
             self.sent = seq
