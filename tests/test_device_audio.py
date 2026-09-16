@@ -34,6 +34,8 @@ def test_playback_pipeline_has_exact_opus_caps_jitter_and_stable_alsa_sink():
     assert "application/x-rtp,media=audio,encoding-name=OPUS,payload=96,clock-rate=48000" in command
     assert "rtpjitterbuffer latency=40 drop-on-latency=true" in command
     assert "rtpopusdepay ! opusdec" in command
+    assert "audio/x-raw,format=S16LE,rate=16000,channels=2" in command
+    assert "audio/x-raw,format=S32LE" not in command
     assert "alsasink device=plughw:CARD=L16K6Ch,DEV=0 sync=true" in command
 
 

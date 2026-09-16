@@ -91,7 +91,7 @@ def playback_pipeline(config: AudioConfig) -> tuple[str, ...]:
         "caps=application/x-rtp,media=audio,encoding-name=OPUS,payload=96,clock-rate=48000",
         "!", "rtpjitterbuffer", f"latency={config.jitter_ms}", "drop-on-latency=true",
         "!", "rtpopusdepay", "!", "opusdec", "!", "audioconvert", "!", "audioresample",
-        "!", "audio/x-raw,format=S32LE,rate=16000,channels=2",
+        "!", "audio/x-raw,format=S16LE,rate=16000,channels=2",
         "!", "alsasink", f"device={device}", "sync=true",
     )
 

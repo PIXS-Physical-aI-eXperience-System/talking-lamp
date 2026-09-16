@@ -107,7 +107,7 @@ def playback_sender_pipeline(
 ) -> tuple[str, ...]:
     return (
         "appsrc", "name=playback", "is-live=true", "format=time",
-        "caps=audio/x-raw,format=S16LE,rate=16000,channels=1",
+        "caps=audio/x-raw,format=S16LE,rate=16000,channels=1,layout=interleaved",
         "!", "queue", "max-size-buffers=10", "leaky=downstream",
         "!", "audioconvert", "!", "audioresample",
         "!", "opusenc", "frame-size=20", "bitrate=32000", "inband-fec=true",

@@ -66,7 +66,7 @@ def test_jetson_gstreamer_pipelines_use_appsink_appsrc_opus_and_wired_addresses(
 
     playback = " ".join(playback_sender_pipeline())
     assert "appsrc name=playback is-live=true format=time" in playback
-    assert "audio/x-raw,format=S16LE,rate=16000,channels=1" in playback
+    assert "audio/x-raw,format=S16LE,rate=16000,channels=1,layout=interleaved" in playback
     assert "opusenc frame-size=20" in playback
     assert "rtpopuspay pt=96" in playback
     assert "udpsink host=192.168.100.2 port=5006 bind-address=192.168.100.1" in playback
