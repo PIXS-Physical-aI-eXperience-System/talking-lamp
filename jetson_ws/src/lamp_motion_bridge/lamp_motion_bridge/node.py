@@ -6,6 +6,8 @@ import os
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from geometry_msgs.msg import PointStamped, Vector3Stamped
@@ -28,6 +30,7 @@ class MotionBridgeNode(Node):
         if not token:
             raise RuntimeError(f"required token environment variable is empty: {token_name}")
         self.runner = AsyncRunner()
+        self.command_group = ReentrantCallbackGroup()
         self.transport = MotionTransport(
             self.get_parameter("pi_host").value,
             int(self.get_parameter("motion_port").value), token)
@@ -37,18 +40,27 @@ class MotionBridgeNode(Node):
         self.status_pub = self.create_publisher(
             MotionStatus, "/lamp/motion_status", latest)
         self.create_subscription(
-            PointStamped, "/lamp/track_point", self._track_point, latest)
+            PointStamped, "/lamp/track_point", self._track_point, latest,
+            callback_group=self.command_group)
         self.create_subscription(
-            Vector3Stamped, "/lamp/track_bearing", self._track_bearing, latest)
-        self.create_service(ListMotions, "/lamp/list_motions", self._list)
-        self.create_service(InterruptMotion, "/lamp/interrupt_motion", self._interrupt)
+            Vector3Stamped, "/lamp/track_bearing", self._track_bearing, latest,
+            callback_group=self.command_group)
+        self.create_service(
+            ListMotions, "/lamp/list_motions", self._list,
+            callback_group=self.command_group)
+        self.create_service(
+            InterruptMotion, "/lamp/interrupt_motion", self._interrupt,
+            callback_group=self.command_group)
         self.play_action = ActionServer(
             self, PlayMotion, "/lamp/play_motion", execute_callback=self._play,
-            cancel_callback=lambda _: CancelResponse.ACCEPT)
+            cancel_callback=lambda _: CancelResponse.ACCEPT,
+            callback_group=self.command_group)
         self.task_action = ActionServer(
             self, PlaceTaskLight, "/lamp/place_task_light", execute_callback=self._task,
-            cancel_callback=lambda _: CancelResponse.ACCEPT)
-        self.create_timer(0.2, self._publish_status)
+            cancel_callback=lambda _: CancelResponse.ACCEPT,
+            callback_group=self.command_group)
+        self.create_timer(
+            0.2, self._publish_status, callback_group=self.command_group)
 
     def _request(self, kind, payload, timeout=8):
         return self.runner.submit(
@@ -131,8 +143,14 @@ class MotionBridgeNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = MotionBridgeNode()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        executor.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()

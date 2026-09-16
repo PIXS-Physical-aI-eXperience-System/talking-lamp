@@ -29,6 +29,14 @@ def test_motion_bridge_gives_terminal_motion_results_the_action_timeout():
     assert "response_timeout=timeout" in text
 
 
+def test_motion_bridge_keeps_commands_responsive_during_looping_idle():
+    text = source("jetson_ws/src/lamp_motion_bridge/lamp_motion_bridge/node.py")
+    assert "ReentrantCallbackGroup()" in text
+    assert text.count("callback_group=self.command_group") == 7
+    assert "MultiThreadedExecutor(num_threads=4)" in text
+    assert "if rclpy.ok():" in text
+
+
 def test_device_bridge_exposes_exact_ros_names_parameters_and_bounded_qos():
     text = source("jetson_ws/src/lamp_device_bridge/lamp_device_bridge/node.py")
     for name in (
