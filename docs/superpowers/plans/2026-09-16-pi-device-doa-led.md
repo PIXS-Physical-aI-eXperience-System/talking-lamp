@@ -349,27 +349,27 @@ git commit -m "feat(device): serve authenticated device control"
 - Consumes: environment token, calibration JSON, motion socket, XVF adapter, optional LED adapter, bind/allowlist arguments.
 - Produces: one supervised device process, disabled by default, with explicit `--enable-led-hardware` commissioning gate.
 
-- [ ] **Step 1: Write daemon startup-order and shutdown tests**
+- [x] **Step 1: Write daemon startup-order and shutdown tests**
 
 Assert config and TCP bind validation occur before USB/GPIO open; polling begins only after the server binds; SIGINT/SIGTERM stop polling, close server, clear/close LED, and dispose XVF in that order; adapter failure returns nonzero without affecting motion service.
 
-- [ ] **Step 2: Implement CLI and 20 Hz poll loop**
+- [x] **Step 2: Implement CLI and 20 Hz poll loop**
 
 Required physical arguments are XVF VID/PID and calibration path. Defaults are bind `192.168.100.2`, port `8766`, allow host `192.168.100.1`, motion socket `/run/talking-lamp/motion-control.sock`, sample rate 20 Hz, GPIO 12, and LED disabled.
 
-- [ ] **Step 3: Write staged installer tests**
+- [x] **Step 3: Write staged installer tests**
 
 Mirror the motion installer contract: preserve existing mode-0600 token/config files, create the `talking-lamp` group, default disabled, never start during install, support `--destdir` and `--dry-run`, and require explicit `--enable` only for boot enablement—not LED hardware enablement.
 
-- [ ] **Step 4: Implement unit and installer**
+- [x] **Step 4: Implement unit and installer**
 
 Use `User=pixs`, `Group=talking-lamp`, `UMask=0007`, `Restart=on-failure`, bounded restart rate, `After=talking-lamp-motion.service`, and no `Requires=` so XVF failure cannot stop motion. Keep the LED hardware flag absent in the installed unit until commissioning approval.
 
-- [ ] **Step 5: Document exact commissioning gates**
+- [x] **Step 5: Document exact commissioning gates**
 
 Record the commissioned XVF identity/version, udev rule, calibration SHA256, dry-run/null LED procedure, single-pixel/row/column/checkerboard order, and the separate 10/25/50/75/100% full-white power test. State that the LED must remain disconnected for software-only verification.
 
-- [ ] **Step 6: Run focused and full regression tests**
+- [x] **Step 6: Run focused and full regression tests**
 
 ```bash
 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_device_*.py tests/test_xvf3800.py -q
