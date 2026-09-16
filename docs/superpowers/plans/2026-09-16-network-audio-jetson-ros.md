@@ -262,11 +262,11 @@ Document topic/action examples, failure policy, token locations, launch commands
 - Consumes: Ubuntu/L4T facts, official ROS 2 repository, colcon workspace, two Pi token files.
 - Produces: disabled-by-default Jetson service and recorded E2E acceptance evidence.
 
-- [ ] **Step 1: Write failing platform/installer tests**
+- [x] **Step 1: Write failing platform/installer tests**
 
 Map Ubuntu 24.04 plus L4T 39.x to Jazzy and reject unknown combinations. Staged install preserves mode-0600 token files, never starts services, and requires explicit `--enable`. Unit binds to the wired Pi addresses and sources `/opt/ros/jazzy/setup.bash` plus workspace install.
 
-- [ ] **Step 2: Implement installer using official ROS Jazzy apt procedure**
+- [x] **Step 2: Implement installer using official ROS Jazzy apt procedure**
 
 Install `ros-jazzy-ros-base`, `python3-colcon-common-extensions`, `python3-rosdep`, GStreamer GI/plugins, initialize rosdep only when needed, run rosdep and `colcon build --symlink-install`. Do not install ROS desktop.
 
