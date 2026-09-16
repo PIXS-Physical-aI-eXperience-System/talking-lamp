@@ -19,6 +19,14 @@
 Pi만 실물 장치를 연다. Jetson은 서보 레지스터, USB 제어 전송 또는 GPIO를
 직접 다루지 않고 ROS API만 사용한다. Pi에는 ROS를 설치하지 않는다.
 
+XVF3800 하나를 사용하지만 **방향성과 음성은 소프트웨어 경로가 분리**되어 있다.
+Pi는 USB control의 VAD/DOA만 읽어 로컬 `base_yaw` 정렬에 사용하고 방향 메타데이터를
+`/lamp/orientation_status`로 보낸다. 별도의 ALSA/GStreamer 경로는 실제 음성을
+Jetson으로 전송해 `/lamp/audio/capture`로 발행한다. STT·대화 작업자는 오디오
+topic만 구독하면 되며 Pi의 DOA나 모터 코드를 호출하지 않는다. 두 경로는 같은
+발화를 연결하는 canonical `speech_id`만 공유한다. 캡처가 재시작되면 Jetson은
+오디오 `stream_id`를 교체하고 sequence와 남아 있던 발화 상관관계를 초기화한다.
+
 ### 실물과 연결
 
 - Raspberry Pi 5 + 정품 전원 어댑터

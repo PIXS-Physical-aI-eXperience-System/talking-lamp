@@ -6,7 +6,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass
 import threading
 from typing import Mapping
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 FRAME_BYTES = 640
@@ -60,6 +60,16 @@ class CaptureChunk:
     pts: int
     rtp_timestamp: int
     speech_id: str
+
+
+@dataclass(frozen=True)
+class SessionCaptureChunk:
+    data: bytes
+    pts: int
+    rtp_timestamp: int
+    speech_id: str
+    stream_id: str
+    sequence: int
 
 
 def _rtp_delta(value: int, reference: int) -> int:
@@ -128,6 +138,76 @@ class CaptureSpeechCorrelator:
             payload, frame_pts, frame_timestamp = self._pending.popleft()
             return [CaptureChunk(
                 payload, frame_pts, frame_timestamp, self._speech_id(frame_timestamp))]
+
+
+class CaptureSession:
+    """Atomically scopes capture correlation and sequence to one Pi RTP run."""
+
+    def __init__(self, *, pre_roll_frames: int = 10) -> None:
+        self.pre_roll_frames = pre_roll_frames
+        self._lock = threading.Lock()
+        self._device_session_id: str | None = None
+        self._accepting = True
+        self._stream_id = str(uuid4())
+        self._sequence = 0
+        self._correlator = CaptureSpeechCorrelator(pre_roll_frames=pre_roll_frames)
+
+    @property
+    def stream_id(self) -> str:
+        with self._lock:
+            return self._stream_id
+
+    def _rotate_locked(self) -> None:
+        self._stream_id = str(uuid4())
+        self._sequence = 0
+        self._correlator = CaptureSpeechCorrelator(
+            pre_roll_frames=self.pre_roll_frames)
+
+    def observe_device_session(self, session_id: str) -> None:
+        if not _uuid(session_id):
+            raise AudioFrameError(
+                "invalid_capture", "device session must be a canonical UUID")
+        with self._lock:
+            if self._device_session_id is not None and session_id != self._device_session_id:
+                self._rotate_locked()
+                # A new Pi device process does not emit a redundant healthy
+                # startup status.  Its first validated event establishes a
+                # fresh source that may publish capture frames immediately.
+                self._accepting = True
+            self._device_session_id = session_id
+
+    def observe_capture_status(self, capture_running: bool) -> None:
+        if not isinstance(capture_running, bool):
+            raise AudioFrameError(
+                "invalid_capture", "capture status must be boolean")
+        with self._lock:
+            if not capture_running and self._accepting:
+                self._rotate_locked()
+            self._accepting = capture_running
+
+    def activity(self, active: bool, speech_id: str, *, rtp_timestamp: int) -> None:
+        with self._lock:
+            if not self._accepting:
+                return
+            self._correlator.activity(
+                active, speech_id, rtp_timestamp=rtp_timestamp)
+
+    def push(
+        self, data: bytes, *, pts: int, rtp_timestamp: int,
+    ) -> list[SessionCaptureChunk]:
+        with self._lock:
+            if not self._accepting:
+                return []
+            chunks = self._correlator.push(
+                data, pts=pts, rtp_timestamp=rtp_timestamp)
+            result = []
+            for chunk in chunks:
+                result.append(SessionCaptureChunk(
+                    chunk.data, chunk.pts, chunk.rtp_timestamp, chunk.speech_id,
+                    self._stream_id, self._sequence,
+                ))
+                self._sequence += 1
+            return result
 
 
 @dataclass(frozen=True)

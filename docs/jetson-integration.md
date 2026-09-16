@@ -22,6 +22,16 @@ The direct wired link is fixed:
 TCP sessions are independent and each permits one authenticated Jetson owner.
 The device bridge must never connect to the motion port and vice versa.
 
+Microphone audio and direction are separate software paths even though they
+come from the same physical XVF3800. Pi USB control reads VAD/DOA for local
+`base_yaw` alignment and publishes only orientation metadata. Independently,
+ALSA/GStreamer sends microphone audio to Jetson, where it becomes
+`/lamp/audio/capture`. STT/application developers consume that audio topic and
+do not need to call Pi DOA or motor code. The paths share only the canonical
+`speech_id` used to associate one utterance with its orientation. A capture
+restart rotates the ROS audio `stream_id`, resets sequence to zero and clears
+all pending `speech_id` correlation state.
+
 ## Jetson platform
 
 The commissioned Jetson reports Ubuntu 24.04.4, L4T 39.2, aarch64 and Python

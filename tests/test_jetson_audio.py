@@ -117,3 +117,41 @@ def test_capture_correlator_tags_delayed_preroll_and_clears_after_vad_end():
 
     assert [(item.data, item.speech_id) for item in after_end] == [(b"c", speech_id)]
     assert [(item.data, item.speech_id) for item in final] == [(b"d", "")]
+
+
+def test_capture_session_rotates_stream_and_correlation_across_pi_restart():
+    session = audio_module.CaptureSession(pre_roll_frames=1)
+    speech_id = str(uuid4())
+    pi_session = str(uuid4())
+
+    session.observe_device_session(pi_session)
+    session.activity(True, speech_id, rtp_timestamp=0)
+    assert session.push(b"old-0", pts=0, rtp_timestamp=0) == []
+    old = session.push(b"old-1", pts=20_000_000, rtp_timestamp=960)
+    assert [(item.sequence, item.speech_id) for item in old] == [(0, speech_id)]
+    old_stream = old[0].stream_id
+
+    session.observe_capture_status(False)
+    assert session.push(b"stale", pts=40_000_000, rtp_timestamp=1920) == []
+    session.observe_capture_status(True)
+    assert session.push(b"new-0", pts=0, rtp_timestamp=0) == []
+    new = session.push(b"new-1", pts=20_000_000, rtp_timestamp=960)
+
+    assert new[0].stream_id != old_stream
+    assert new[0].sequence == 0
+    assert new[0].speech_id == ""
+
+
+def test_capture_session_rotates_when_pi_device_session_changes():
+    session = audio_module.CaptureSession(pre_roll_frames=1)
+    session.observe_device_session(str(uuid4()))
+    session.push(b"first", pts=0, rtp_timestamp=0)
+    before = session.stream_id
+    session.observe_capture_status(False)
+
+    session.observe_device_session(str(uuid4()))
+
+    assert session.stream_id != before
+    assert session.push(b"second", pts=0, rtp_timestamp=0) == []
+    fresh = session.push(b"third", pts=20_000_000, rtp_timestamp=960)
+    assert fresh[0].sequence == 0

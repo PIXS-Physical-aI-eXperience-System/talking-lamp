@@ -232,7 +232,13 @@ class DeviceDaemon:
             doa_resume_at = 0.0
             while not stop.is_set():
                 if not audio.status.capture_running:
-                    await self.server.publish_event("audio.status", asdict(audio.status))
+                    await self.server.publish_event("audio.status", {
+                        "capture_running": False,
+                        "playback_running": audio.status.playback_running,
+                        "stream_id": audio.status.stream_id,
+                        "state": "fault", "code": "capture_exited",
+                        "message": "capture pipeline exited",
+                    })
                     await self.sleep(audio_reconnect_delay)
                     if stop.is_set():
                         continue
@@ -248,6 +254,8 @@ class DeviceDaemon:
                         audio_reconnect_delay = min(audio_reconnect_delay * 2.0, 5.0)
                         continue
                     audio_reconnect_delay = 0.25
+                    self.stabilizer.reset()
+                    vad_active = False
                     await self.server.publish_event("audio.status", asdict(status))
                 try:
                     reading = xvf.read_doa()
@@ -282,6 +290,19 @@ class DeviceDaemon:
                         break
                     continue
                 timestamp = float(self.clock())
+                try:
+                    rtp_timestamp = audio.capture_rtp_timestamp(timestamp)
+                except AudioError as exc:
+                    if exc.code != "capture_not_running":
+                        raise
+                    # GStreamer is alive but its first wire packet has not
+                    # reached the local probe yet.  Do not let an immediate
+                    # XVF VAD edge create an uncorrelatable speech interval or
+                    # terminate the device owner.
+                    self.stabilizer.reset()
+                    vad_active = False
+                    await self.sleep(interval)
+                    continue
                 playback_running = audio.status.playback_running
                 if playback_running:
                     if not playback_suppressed:
@@ -291,7 +312,7 @@ class DeviceDaemon:
                             await self.server.publish_event("audio.activity", {
                                 "active": False,
                                 "speech_id": speech_id,
-                                "rtp_timestamp": audio.capture_rtp_timestamp(timestamp),
+                                "rtp_timestamp": rtp_timestamp,
                             })
                         vad_active = False
                         playback_suppressed = True
@@ -316,7 +337,7 @@ class DeviceDaemon:
                     await self.server.publish_event("audio.activity", {
                         "active": vad_active,
                         "speech_id": self.stabilizer.speech_id or "",
-                        "rtp_timestamp": audio.capture_rtp_timestamp(timestamp),
+                        "rtp_timestamp": rtp_timestamp,
                     })
                 if decision is not None:
                     try:

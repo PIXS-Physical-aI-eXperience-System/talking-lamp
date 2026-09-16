@@ -11,7 +11,7 @@ from device.daemon import (
     RuntimeDeviceService,
     load_calibration,
 )
-from device.audio import AudioStatus
+from device.audio import AudioError, AudioStatus
 from device.doa import DoaCalibration, DoaStabilizer
 from device.xvf3800 import XvfError
 
@@ -383,6 +383,52 @@ def test_vad_edges_publish_one_audio_activity_event_with_shared_speech_id():
         assert [event["active"] for event in events] == [True, False]
         assert events[0]["speech_id"] == events[1]["speech_id"]
         assert events[0]["rtp_timestamp"] < events[1]["rtp_timestamp"]
+
+    asyncio.run(scenario())
+
+
+def test_vad_is_deferred_until_capture_has_a_wire_rtp_anchor():
+    async def scenario():
+        order = []
+        gate = RuntimeDeviceService()
+        server = FakeServer(gate, order)
+        stop = asyncio.Event()
+        states = iter((True, True, False))
+        ticks = iter((0.0, 0.05, 0.10))
+
+        class ImmediateVadXvf(FakeXvf):
+            def read_doa(self):
+                state = next(states)
+                self.order.append("xvf.read")
+                if self.reads == 2:
+                    stop.set()
+                self.reads += 1
+                return type("Doa", (), {"doa_deg": 90, "speech_detected": state})()
+
+        class DelayedAnchorAudio(FakeAudio):
+            def __init__(self, order):
+                super().__init__(order)
+                self.timestamps = 0
+
+            def capture_rtp_timestamp(self, now):
+                self.timestamps += 1
+                if self.timestamps == 1:
+                    raise AudioError(
+                        "capture_not_running", "capture RTP clock has no packet anchor")
+                return int(now * 48_000) & 0xFFFFFFFF
+
+        daemon = DeviceDaemon(
+            config(), server=server, service=gate,
+            coordinator=FakeCoordinator(), stabilizer=DoaStabilizer(),
+            led_factory=lambda: FakeLed(order), audio_factory=lambda: DelayedAnchorAudio(order),
+            xvf_factory=lambda: ImmediateVadXvf(order), clock=lambda: next(ticks),
+            sleep=lambda _delay: asyncio.sleep(0),
+        )
+
+        assert await daemon.run(stop) == 0
+        events = [data for name, data in server.events if name == "audio.activity"]
+        assert [event["active"] for event in events] == [True, False]
+        assert events[0]["speech_id"] == events[1]["speech_id"]
 
     asyncio.run(scenario())
 

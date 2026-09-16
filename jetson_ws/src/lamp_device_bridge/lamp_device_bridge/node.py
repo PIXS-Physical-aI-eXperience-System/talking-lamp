@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import threading
 import time
-from uuid import uuid4
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse
@@ -22,7 +21,7 @@ from lamp_interfaces.srv import SetLedSolid
 from .audio import (
     AudioFrameError,
     CaptureReceiver,
-    CaptureSpeechCorrelator,
+    CaptureSession,
     PlaybackSender,
     PlaybackSession,
 )
@@ -82,9 +81,7 @@ class DeviceBridgeNode(Node):
             cancel_callback=lambda _: CancelResponse.REJECT,
             callback_group=self.command_group)
 
-        self._capture_stream = str(uuid4())
-        self._capture_sequence = 0
-        self._capture_correlator = CaptureSpeechCorrelator(pre_roll_frames=10)
+        self._capture_session = CaptureSession(pre_roll_frames=10)
         self._playback_lock = threading.Lock()
         self._playback_sender = None
         self._playback_stream = None
@@ -106,43 +103,53 @@ class DeviceBridgeNode(Node):
         if len(data) != 640:
             return
         try:
-            chunks = self._capture_correlator.push(
+            chunks = self._capture_session.push(
                 data, pts=pts, rtp_timestamp=rtp_timestamp)
         except AudioFrameError as exc:
             self.get_logger().error(str(exc))
             return
         for chunk in chunks:
-            self._publish_capture(chunk.data, chunk.speech_id)
+            self._publish_capture(chunk)
 
-    def _publish_capture(self, data: bytes, speech_id: str):
+    def _publish_capture(self, chunk):
         message = AudioFrame()
         message.stamp = self.get_clock().now().to_msg()
-        message.stream_id = self._capture_stream
-        message.speech_id = speech_id
-        message.sequence = self._capture_sequence
+        message.stream_id = chunk.stream_id
+        message.speech_id = chunk.speech_id
+        message.sequence = chunk.sequence
         message.sample_rate = 16000
         message.channels = 1
         message.encoding = "pcm_s16le"
-        message.data = list(data)
+        message.data = list(chunk.data)
         message.end_of_stream = False
-        self._capture_sequence += 1
         self.capture_pub.publish(message)
 
     async def _event_loop(self):
         while True:
             event = await self.transport.next_event()
             name, data = event["event"], event["data"]
+            try:
+                self._capture_session.observe_device_session(
+                    str(event.get("session_id", "")))
+            except AudioFrameError as exc:
+                self.get_logger().error(str(exc))
+                continue
             if name == "orientation.status":
                 self._publish_orientation(data)
             elif name == "audio.activity":
                 try:
-                    self._capture_correlator.activity(
+                    self._capture_session.activity(
                         data.get("active"), str(data.get("speech_id", "")),
                         rtp_timestamp=data.get("rtp_timestamp"),
                     )
                 except AudioFrameError as exc:
                     self.get_logger().error(str(exc))
             elif name == "audio.status":
+                try:
+                    self._capture_session.observe_capture_status(
+                        data.get("capture_running", False))
+                except AudioFrameError as exc:
+                    self.get_logger().error(str(exc))
                 self._publish_audio_status(data)
             elif name == "led.status":
                 self._publish_led_status(data)
