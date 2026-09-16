@@ -165,20 +165,50 @@ def cmd_echo(args):
     res["speech_db"] = db(speech)
     print(f"   사용자 발화 {res['speech_db']:.1f} dBFS")
 
+    # ④ 동시 발화 — 여기가 barge-in 이 실제로 놓이는 상황이다.
+    #
+    # ②와 ③을 따로 재서 뺀 값은 barge-in 을 보장하지 않는다. XVF3800 같은
+    # 스피커폰 DSP 는 원단(far-end)이 울리는 동안 마이크를 억제하는 경우가
+    # 많고, 그 억제는 램프 목소리만 골라서 하지 않는다. 사용자 목소리도 같이
+    # 눌리면 끼어들어도 들리지 않는다.
+    print("\n④ 동시 발화 — 램프가 말하는 동안 같이 말하세요")
+    print("   (이게 barge-in 상황이다. 재생이 시작되면 평소 목소리로 말할 것)")
+    input(f"   Enter → {dur:.1f}초간 재생하며 동시 녹음 ")
+    both = sd.playrec(audio, samplerate=SR, channels=1, dtype="float32",
+                      device=(ins, outs))
+    sd.wait()
+    both = both[:, 0] if getattr(both, "ndim", 1) > 1 else both
+    both = _finite(both, "동시 발화 녹음")
+    res["doubletalk_db"] = db(both)
+    print(f"   동시 발화 {res['doubletalk_db']:.1f} dBFS")
+
+    # 판정 ──────────────────────────────────────────────────
     margin = res["speech_db"] - res["echo_db"]
     res["margin_db"] = margin
-    print(f"\n여유 {margin:+.1f} dB  (사용자 발화 − 잔향)")
-    if margin >= 15:
-        print("  ✔ 충분. 내장 AEC 만으로 간다")
-    elif margin >= 6:
-        print("  △ 빠듯하다. 스피커 음량을 낮추거나 이격을 늘릴 것")
+    # 동시에 말했을 때 사용자 목소리가 얼마나 살아남았는가.
+    # 0 dB 면 혼자 말할 때와 같고, 크게 음수면 눌린 것이다.
+    survive = res["doubletalk_db"] - res["speech_db"]
+    res["survive_db"] = survive
+
+    print(f"\n잔향 여유 {margin:+.1f} dB  (사용자 발화 − 램프 잔향)")
+    if res["echo_db"] < res["quiet_db"] - 3:
+        print("  ※ 잔향이 배경소음보다도 낮다. AEC 가 지운 것이 아니라 보드가")
+        print("    마이크를 억제했을 가능성이 크다 — ④ 값으로 판단할 것")
+
+    print(f"동시 발화 생존 {survive:+.1f} dB  (동시 − 혼자 말할 때)")
+    if survive >= -6:
+        print("  ✔ 램프가 말하는 중에도 사용자 목소리가 살아 있다. barge-in 가능")
+    elif survive >= -15:
+        print("  △ 눌리지만 남아 있다. VAD 임계값을 낮춰야 하고, 오작동이 늘 수 있다")
     else:
-        print("  ✗ 부족. 잔향이 사용자 목소리에 묻힌다.")
-        print("    → 이격 확대 / 음량 축소 / 소프트웨어 AEC 보강 검토")
+        print("  ✗ 사용자 목소리가 억제된다. 이 경로로는 barge-in 이 안 된다.")
+        print("    → 재생 중 XVF 억제를 끄는 설정이 있는지 확인,")
+        print("      없으면 '말 끝나고 듣기' 로 설계를 바꿔야 한다")
 
     os.makedirs(OUT, exist_ok=True)
     json.dump(res, open(os.path.join(OUT, "aec_echo.json"), "w"), indent=2)
-    for name, a in (("quiet", quiet), ("echo", rec), ("speech", speech)):
+    for name, a in (("quiet", quiet), ("echo", rec), ("speech", speech),
+                    ("doubletalk", both)):
         write_wav(os.path.join(OUT, f"aec_{name}.wav"), a, SR)
     print(f"저장: {OUT}/aec_echo.json + wav 3개")
     return 0
