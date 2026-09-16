@@ -39,6 +39,19 @@ FRAME_BYTES = 640          # 20ms @ 16kHz 모노 s16le. 이 크기가 아니면 
 # 재생 파이프라인이 죽었다(playback exited with 1, 또는 -2). 지터 버퍼가
 # 감당할 만큼만 앞서가게 좁힌다.
 MAX_AHEAD_S = 0.5
+
+# 목표가 수락된 뒤에도 브리지가 곧바로 프레임을 받을 수 있는 것은 아니다.
+# 브리지는 실행 단계에서 파이에 audio.play.start 를 보내고 GStreamer 송신기를
+# 만든 다음에야 _playback_sender 를 대입한다. 그 전에 도착한 프레임은
+#     if sender is None or message.stream_id != self._playback_stream: return
+# 으로 조용히 버려진다. 수락은 실행보다 먼저이므로, 수락 직후 쏟아부으면
+# 전부 사라진다. 실제로 그래서 파이가 RTP 를 한 개도 못 받았고, 파이프라인이
+# 재생 상태에 도달하지 못해 SIGINT 에 그대로 죽었다(playback exited with -2).
+#
+# 브리지가 준비됐다는 신호가 없어서 기다리는 수밖에 없다. 되돌려 받는 피드백
+# (received_sequence)이 오면 그때부터 보내는 것이 더 낫지만, 그 피드백은
+# 프레임이 도착해야 나오므로 순환이다. E 에게 알릴 사항이다.
+SENDER_READY_S = 0.8
 RATE = 16000
 HDR_LEN = 8
 
@@ -240,14 +253,20 @@ class LampVoiceNode(Node):
             return
         self.goal_handle = handle
         handle.get_result_async().add_done_callback(self._goal_result)
-        # 들고 있던 프레임을 순서대로 내보낸다.
+        # 수락됐다고 바로 보내면 안 된다. 브리지가 송신기를 만들 때까지 기다린다.
+        threading.Thread(target=self._flush_when_ready, daemon=True).start()
+
+    def _flush_when_ready(self):
+        time.sleep(SENDER_READY_S)
+        self.play_t0 = time.time()      # 페이싱 기준도 실제로 보내기 시작한 시점으로
         with self.frame_lock:
             held, self.pending = self.pending, []
         self.accepted.set()
         for data in held:
             self._publish(data)
         if held:
-            self.get_logger().info(f"수락 전 프레임 {len(held)}개를 내보냈다")
+            self.get_logger().info(
+                f"{SENDER_READY_S}초 대기 후 프레임 {len(held)}개를 내보냈다")
 
     def _goal_result(self, fut):
         r = fut.result().result
@@ -289,7 +308,7 @@ class LampVoiceNode(Node):
         # 수락보다 먼저 도착한다. 실제 TTS 는 문장당 0.6초쯤 걸려 우연히
         # 시간이 맞았을 뿐이고, 빨라지면 그대로 깨진다. 기다렸다가 보낸다.
         if not self.accepted.is_set():
-            if not self.accepted.wait(3.0):
+            if not self.accepted.wait(3.0 + SENDER_READY_S):
                 with self.frame_lock:
                     n, self.pending = len(self.pending), []
                 self.get_logger().error(
@@ -325,10 +344,12 @@ class LampVoiceNode(Node):
 
 
 def main() -> int:
-    global MAX_AHEAD_S      # 이 이름을 쓰기 전에 선언해야 한다
+    global MAX_AHEAD_S, SENDER_READY_S   # 이 이름들을 쓰기 전에 선언해야 한다
     ap = argparse.ArgumentParser()
     ap.add_argument("--agent", default="127.0.0.1:5150",
                     help="판단부 주소 (bench/voice_agent.py 가 띄운다)")
+    ap.add_argument("--ready-wait", type=float, default=SENDER_READY_S,
+                    help="목표 수락 후 브리지 송신기가 준비될 때까지 기다리는 초")
     ap.add_argument("--max-ahead", type=float, default=MAX_AHEAD_S,
                     help="재생 시각보다 몇 초까지 앞서 보낼지. 파이 버퍼가 "
                          "넘치면 줄일 것")
@@ -336,6 +357,7 @@ def main() -> int:
     host, _, port = args.agent.partition(":")
 
     MAX_AHEAD_S = args.max_ahead
+    SENDER_READY_S = args.ready_wait
 
     rclpy.init(args=ros_args)
     node = LampVoiceNode(host, int(port or 5150))
