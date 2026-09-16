@@ -226,37 +226,37 @@ git commit -m "feat(device): read XVF3800 version and DOA"
 - Consumes: terminal `DoaDecision`, `DoaCalibration`, motion `orientation.status`, and the local socket `/run/talking-lamp/motion-control.sock`.
 - Produces: correlated `orientation.acquire`, `orientation.return_center`, and `orientation.status` calls plus immutable device-level orientation events.
 
-- [ ] **Step 1: Write failing motion-boundary tests**
+- [x] **Step 1: Write failing motion-boundary tests**
 
 Extend the orientation snapshot contract with `center_yaw`, `safe_yaw_min`, and
 `safe_yaw_max`. Assert that `orientation.status` and normal controller status
 publish the same finite values, that `center_yaw` is inside the safe interval,
 and that `orientation.return_center` targets the published `center_yaw`.
 
-- [ ] **Step 2: Expose motion-owned centre and safe limits**
+- [x] **Step 2: Expose motion-owned centre and safe limits**
 
 Add the three immutable fields to `OrientationSnapshot`, sourcing them from
 `OrientationConfig.center_yaw` and `BaseYawOrientationLayer.safe_yaw_limits`.
 Continue using `asdict()` in controller responses so the local status boundary
 gains the fields without a second configuration source.
 
-- [ ] **Step 3: Write failing Unix client tests**
+- [x] **Step 3: Write failing Unix client tests**
 
 Use a temporary asyncio Unix server. Assert exact five-field token-free envelopes, canonical request UUIDs, fresh request IDs, receive-time TTL, accepted then terminal correlation, response size limit, timeout, EOF, and no automatic replay.
 
-- [ ] **Step 4: Implement `MotionUnixClient`**
+- [x] **Step 4: Implement `MotionUnixClient`**
 
 Expose `request(kind, payload, ttl_ms=1000) -> list[dict]`; open one local connection per logical call, cap lines at 16 KiB, and close on terminal response or error.
 
-- [ ] **Step 5: Write coordinator tests**
+- [x] **Step 5: Write coordinator tests**
 
 Assert stable DOA reads the motion status boundary, converts using returned `center_yaw`/safe limits, sends one acquire with the same speech UUID, preserves motion's `clamped` result, rejects rear/unstable input without motion calls, and forwards explicit return-center only after requested by Jetson policy.
 
-- [ ] **Step 6: Implement `DirectionCoordinator`**
+- [x] **Step 6: Implement `DirectionCoordinator`**
 
 The coordinator owns no motor state. It maps collector states to `collecting`, `rejected`, `orienting`, `aligned`, `timeout`, `returning`, and `centered`, retaining raw DOA, relative direction, target/current yaw, clamp flag, code, message, and timestamp.
 
-- [ ] **Step 7: Run tests and commit**
+- [x] **Step 7: Run tests and commit**
 
 ```bash
 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_orientation.py tests/test_motion_controller.py tests/test_device_motion_client.py tests/test_device_coordinator.py -q

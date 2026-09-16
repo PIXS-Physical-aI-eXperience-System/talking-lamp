@@ -543,12 +543,20 @@ def test_orientation_status_and_motion_result_expose_yaw_scale(controller):
 
     assert acquired.accepted.result().state == "accepted"
     assert status.completed.result().data["state"] == "orienting"
+    center_yaw = controller.runtime.orientation.cfg.center_yaw
+    safe_min, safe_max = controller.runtime.orientation_safe_yaw_limits()
+    assert status.completed.result().data["center_yaw"] == pytest.approx(center_yaw)
+    assert status.completed.result().data["safe_yaw_min"] == pytest.approx(safe_min)
+    assert status.completed.result().data["safe_yaw_max"] == pytest.approx(safe_max)
     snapshot = controller.snapshot()
     assert snapshot.orientation_state == "orienting"
     assert snapshot.orientation_speech_id == "speech-1"
     assert snapshot.orientation_target_yaw == pytest.approx(target_yaw)
     assert snapshot.orientation_current_yaw == pytest.approx(controller.runtime.traj.pos[0])
     assert snapshot.orientation_clamped is False
+    assert snapshot.orientation_center_yaw == pytest.approx(center_yaw)
+    assert snapshot.orientation_safe_yaw_min == pytest.approx(safe_min)
+    assert snapshot.orientation_safe_yaw_max == pytest.approx(safe_max)
     assert snapshot.primitive_yaw_scale < 1.0
     for index in range(3000):
         controller.tick_once(now=1.03 + index / 100)

@@ -39,6 +39,9 @@ class ControllerStatus:
     orientation_target_yaw: float | None = None
     orientation_current_yaw: float = 0.0
     orientation_clamped: bool = False
+    orientation_center_yaw: float = 0.0
+    orientation_safe_yaw_min: float = 0.0
+    orientation_safe_yaw_max: float = 0.0
     primitive_yaw_scale: float = 1.0
 
 
@@ -472,7 +475,9 @@ class MotionController:
                 state, self.runtime.primitive.active_name, busy, self._fault,
                 self._sent_ticks, self._deadline_misses, progress,
                 orientation.state, orientation.speech_id, orientation.target_yaw,
-                orientation.current_yaw, orientation.clamped, self._primitive_yaw_scale,
+                orientation.current_yaw, orientation.clamped, orientation.center_yaw,
+                orientation.safe_yaw_min, orientation.safe_yaw_max,
+                self._primitive_yaw_scale,
             )
 
     def _shutdown(self) -> None:

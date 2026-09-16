@@ -44,6 +44,18 @@ def test_orientation_layer_release_returns_inactive_output():
     assert out.additive is True
 
 
+def test_orientation_snapshot_exposes_motion_owned_center_and_safe_limits():
+    cfg = OrientationConfig(center_yaw=0.25, yaw_margin=0.1)
+    coordinator = OrientationCoordinator(BaseYawOrientationLayer(cfg, LIMITS), cfg)
+
+    snapshot = coordinator.release()
+
+    assert snapshot.center_yaw == pytest.approx(0.25)
+    assert snapshot.safe_yaw_min == pytest.approx(-0.9)
+    assert snapshot.safe_yaw_max == pytest.approx(0.9)
+    assert snapshot.safe_yaw_min < snapshot.center_yaw < snapshot.safe_yaw_max
+
+
 @pytest.mark.parametrize(
     ("config_values", "limits"),
     [

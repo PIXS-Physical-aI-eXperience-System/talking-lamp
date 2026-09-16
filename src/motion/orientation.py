@@ -30,6 +30,9 @@ class OrientationSnapshot:
     current_yaw: float
     clamped: bool
     code: str
+    center_yaw: float
+    safe_yaw_min: float
+    safe_yaw_max: float
 
 
 class OrientationError(ValueError):
@@ -137,6 +140,7 @@ class OrientationCoordinator:
         self._disconnected_at: float | None = None
 
     def _snapshot(self, *, code: str | None = None) -> OrientationSnapshot:
+        safe_yaw_min, safe_yaw_max = self.layer.safe_yaw_limits
         return OrientationSnapshot(
             state=self._state,
             speech_id=self._speech_id,
@@ -144,6 +148,9 @@ class OrientationCoordinator:
             current_yaw=self._current_yaw,
             clamped=self._clamped,
             code=self._code if code is None else code,
+            center_yaw=self.cfg.center_yaw,
+            safe_yaw_min=safe_yaw_min,
+            safe_yaw_max=safe_yaw_max,
         )
 
     @staticmethod
