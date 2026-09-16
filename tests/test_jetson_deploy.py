@@ -35,8 +35,18 @@ def test_bridge_unit_uses_ros_jazzy_wired_config_and_two_protected_env_files():
     unit.read(UNIT)
     service = unit["Service"]
     assert service["User"] == "asdf"
-    assert service["EnvironmentFile"].splitlines() == [
-        "/etc/talking-lamp/motion-bridge.env", "/etc/talking-lamp/device-bridge.env"]
+    environment_files = [
+        line.removeprefix("EnvironmentFile=")
+        for line in UNIT.read_text().splitlines()
+        if line.startswith("EnvironmentFile=")
+    ]
+    assert environment_files == [
+        "/etc/talking-lamp/motion-bridge.env",
+        "/etc/talking-lamp/device-bridge.env",
+    ]
+    verified = subprocess.run(
+        ["systemd-analyze", "verify", str(UNIT)], capture_output=True, text=True)
+    assert "Missing '='" not in verified.stderr
     assert "/opt/ros/jazzy/setup.bash" in service["ExecStart"]
     assert "192.168.100.2" in service["ExecStart"]
     assert service["Restart"] == "on-failure"

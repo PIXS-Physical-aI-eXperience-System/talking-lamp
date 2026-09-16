@@ -10,7 +10,7 @@ Type=simple
 User=asdf
 WorkingDirectory=/home/asdf/talking-lamp
 EnvironmentFile=/etc/talking-lamp/motion-bridge.env
-    /etc/talking-lamp/device-bridge.env
+EnvironmentFile=/etc/talking-lamp/device-bridge.env
 Environment=TALKING_LAMP_REPO=/home/asdf/talking-lamp
 ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && exec /home/asdf/talking-lamp/deploy/jetson/run-bridges.sh --pi-host 192.168.100.2'
 Restart=on-failure
