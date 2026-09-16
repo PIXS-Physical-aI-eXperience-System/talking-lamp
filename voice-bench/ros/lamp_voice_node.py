@@ -71,6 +71,8 @@ class LampVoiceNode(Node):
         self.play_done = threading.Event()
         # 목표가 수락되기 전에 발행한 프레임은 파이가 거부한다. 수락될 때까지
         # 들고 있다가 한꺼번에 내보낸다.
+        self.cancelled = False
+        self.play_done.set()          # 처음에는 기다릴 재생이 없다
         self.accepted = threading.Event()
         self.pending = []
         self.frame_lock = threading.Lock()
@@ -204,10 +206,16 @@ class LampVoiceNode(Node):
             self.cancel_playback()
 
     def start_playback(self):
+        # 앞 재생이 아직 끝나지 않았으면 기다린다. 겹쳐서 시작하면 파이가
+        # audio_busy 로 거부한다 — 취소 직후 새로 말할 때 실제로 그랬다.
+        if self.goal_handle is not None or not self.play_done.is_set():
+            if not self.play_done.wait(3.0):
+                self.get_logger().warn("앞 재생이 안 끝난다 — 그대로 진행한다")
         self.stream_id = str(uuid.uuid4())
         self.sequence = 0
         self.play_done.clear()
         self.accepted.clear()
+        self.cancelled = False
         with self.frame_lock:
             self.pending = []
         self.play_t0 = time.time()
@@ -263,6 +271,12 @@ class LampVoiceNode(Node):
         self.playback.publish(self._frame(data, eos=False))
 
     def finish_playback(self):
+        if self.cancelled:
+            # 취소된 스트림에 EOS 를 보내면 안 된다. 파이는 이미 그 스트림을
+            # 접었고, 늦게 온 프레임은 거부 대상이다.
+            with self.frame_lock:
+                self.pending = []
+            return
         # 수락을 못 받은 채 끝났다면 들고 있던 것은 버린다. 다음 재생과
         # 섞이면 순번이 어긋나 통째로 거부된다.
         if not self.accepted.is_set():
@@ -290,9 +304,14 @@ class LampVoiceNode(Node):
         return msg
 
     def cancel_playback(self):
+        self.cancelled = True
+        with self.frame_lock:
+            self.pending = []
         if self.goal_handle is not None:
             self.get_logger().info("barge-in — 재생 취소")
             self.goal_handle.cancel_goal_async()
+        else:
+            self.play_done.set()
 
 
 def main() -> int:

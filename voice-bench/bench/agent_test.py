@@ -109,7 +109,25 @@ def main() -> int:
                        send=lambda k, p: sent2.append((k, p)),
                        on_state=states2.append)
     agent.state = SPEAKING
-    for _ in range(12):                      # 바닥을 잡는 구간
+
+    # ④-0 말하기 시작 직후에는 끼어듦으로 보지 않는다 ─────────────────
+    #    소리가 아직 스피커에 닿지 않았다(RTP·지터 버퍼·드레인). 그 무음을
+    #    바닥으로 삼으면 램프가 말하기 시작할 때 자기 목소리에 끊는다.
+    #    실기기에서 실제로 0.66초 만에 스스로 끊었다.
+    agent.barge.reset()                      # hold_s 만큼 판정하지 않는다
+    for _ in range(30):                      # 소리가 닿기 전 구간 — 조용하다
+        agent.on_capture("", frame(-55))
+    for _ in range(10):                      # 램프가 말하기 시작 — 레벨이 오른다
+        agent.on_capture("", frame(-30))
+    early = [k for k, _ in sent2]
+    print(f"  ④-0 시작 직후        보낸 것 {[k.decode() for k in early] or '없음'}")
+    if link.BARGE_IN in early:
+        fails.append("말하기 시작 직후 자기 목소리를 끼어듦으로 오인했다")
+
+    # 이제 대기가 끝난 상태로 만들어 바닥을 잡게 한다
+    agent.barge.hold_s = 0.0
+    agent.barge.reset()
+    for _ in range(20):                      # 바닥을 잡는 구간
         agent.on_capture("", frame(-55))
     before = [k for k, _ in sent2]
     for _ in range(5):                       # 갑자기 크게 — 끼어듦

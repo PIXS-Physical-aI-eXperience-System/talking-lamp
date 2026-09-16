@@ -49,22 +49,30 @@ class BargeInDetector:
     회차에 통째로 틀린다. 재생 중 바닥은 매번 새로 재면 된다.
     """
 
-    def __init__(self, rise_db=12.0, need_frames=3, floor_frames=10):
+    def __init__(self, rise_db=12.0, need_frames=3, floor_frames=15,
+                 hold_s=1.0):
         self.rise_db = rise_db
         self.need_frames = need_frames
         self.floor_frames = floor_frames
+        # 말하기 시작 직후에는 바닥을 잡지 않는다. 소리가 아직 스피커에
+        # 닿지 않았기 때문이다 — RTP 전송과 지터 버퍼, 드레인이 끼어 있다.
+        # 그 무음을 바닥으로 삼으면, 램프가 실제로 말하기 시작할 때 레벨이
+        # 올라가 자기 목소리를 끼어듦으로 오인한다. 실제로 그렇게 됐다.
+        self.hold_s = hold_s
         self.reset()
 
     def reset(self):
         self._floor = []
         self._hits = 0
+        self._hold_until = time.time() + self.hold_s
 
     def update(self, frame):
         """(끼어들었나, 현재 dB, 바닥 dB)."""
         v = _db(frame)
+        if time.time() < self._hold_until:
+            return False, v, None       # 소리가 닿기를 기다리는 중
         if len(self._floor) < self.floor_frames:
-            # 재생 시작 직후 몇 프레임으로 바닥을 잡는다. 이 구간은 판정하지
-            # 않는다 — 하드웨어 AEC 가 자리를 잡기 전이다.
+            # 램프가 실제로 말하고 있는 동안의 레벨로 바닥을 잡는다.
             self._floor.append(v)
             return False, v, None
         floor = float(np.median(self._floor))
