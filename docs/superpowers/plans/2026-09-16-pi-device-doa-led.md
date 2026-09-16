@@ -38,7 +38,7 @@
 - Consumes: raw DOA degrees, `DoaCalibration`, motion-owned `center_yaw` and safe yaw limits.
 - Produces: `circular_distance_deg(a, b) -> float`, `circular_medoid_deg(samples) -> float`, `circular_mad_deg(samples, center) -> float`, and `calibrate_target(doa_deg, calibration, center_yaw, safe_limits) -> DoaTarget`.
 
-- [ ] **Step 1: Write failing circular-statistics tests**
+- [x] **Step 1: Write failing circular-statistics tests**
 
 ```python
 def test_circular_medoid_does_not_average_across_180():
@@ -48,12 +48,12 @@ def test_circular_medoid_does_not_average_across_180():
     assert circular_mad_deg(samples, center) == 1.0
 ```
 
-- [ ] **Step 2: Run the new test and verify it fails**
+- [x] **Step 2: Run the new test and verify it fails**
 
 Run: `PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_device_doa.py -q`
 Expected: FAIL during collection because `device.doa` does not exist.
 
-- [ ] **Step 3: Implement finite input validation and circular statistics**
+- [x] **Step 3: Implement finite input validation and circular statistics**
 
 ```python
 def circular_distance_deg(a: float, b: float) -> float:
@@ -69,11 +69,11 @@ def circular_mad_deg(samples: Sequence[float], center: float) -> float:
     return statistics.median(distances)
 ```
 
-- [ ] **Step 4: Add calibrated-transform tests**
+- [x] **Step 4: Add calibrated-transform tests**
 
 Cover zero offset, both direction signs, wrap at 359/1 degrees, front-half rejection, exact safe-limit clamping, non-finite values, invalid signs, inverted limits, and the commissioned nonzero `center_yaw=math.radians(15)`.
 
-- [ ] **Step 5: Implement immutable calibration and target records**
+- [x] **Step 5: Implement immutable calibration and target records**
 
 ```python
 @dataclass(frozen=True)
@@ -100,13 +100,13 @@ def calibrate_target(doa_deg: float, calibration: DoaCalibration, *,
                      not math.isclose(target, unclamped, abs_tol=1e-12))
 ```
 
-- [ ] **Step 6: Export the package and run focused tests**
+- [x] **Step 6: Export the package and run focused tests**
 
 Add `src/device` to the Hatch wheel package list, then run:
 `PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_device_doa.py -q`
 Expected: all Task 1 tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add pyproject.toml src/device tests/test_device_doa.py
@@ -123,7 +123,7 @@ git commit -m "feat(device): add calibrated circular DOA math"
 - Consumes: `DoaSample(timestamp: float, doa_deg: float, speech_detected: bool)` at nominal 20 Hz.
 - Produces: `DoaStabilizer.observe(sample) -> DoaDecision | None`, with terminal `ready` or `rejected` emitted once per rising-edge speech UUID.
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [x] **Step 1: Write failing lifecycle tests**
 
 ```python
 def test_stabilizer_waits_400_ms_then_emits_one_stable_direction():
@@ -139,19 +139,19 @@ def test_stabilizer_waits_400_ms_then_emits_one_stable_direction():
     assert result.sample_count == 9
 ```
 
-- [ ] **Step 2: Run the focused lifecycle tests and verify red**
+- [x] **Step 2: Run the focused lifecycle tests and verify red**
 
 Expected: FAIL because `DoaStabilizer` is undefined.
 
-- [ ] **Step 3: Implement rising-edge ownership and collection timing**
+- [x] **Step 3: Implement rising-edge ownership and collection timing**
 
 `DoaStabilizer` validates monotonic finite timestamps, creates a UUID only on `False -> True`, keeps only samples observed while speech is true, waits until `min_window_sec`, and closes the utterance after one terminal decision. It does not retarget after `ready`.
 
-- [ ] **Step 4: Add rejection and reset tests**
+- [x] **Step 4: Add rejection and reset tests**
 
 Cover fewer than 6 valid samples at 1.0 s, MAD above 12 degrees through 1.0 s, early speech falling edge, repeated true samples without a new UUID, falling then rising creating a new UUID, out-of-order time, and invalid DOA outside 0 through 359.
 
-- [ ] **Step 5: Implement deterministic decisions**
+- [x] **Step 5: Implement deterministic decisions**
 
 ```python
 @dataclass(frozen=True)
@@ -167,7 +167,7 @@ class DoaDecision:
 
 At or after 400 ms, emit `ready/stable` when count and MAD pass. At or after 1.0 s, emit `rejected/insufficient_samples` or `rejected/unstable`. Never emit two terminal decisions for the same speech ID.
 
-- [ ] **Step 6: Run Task 1-2 tests and commit**
+- [x] **Step 6: Run Task 1-2 tests and commit**
 
 ```bash
 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_device_doa.py -q
@@ -186,23 +186,23 @@ git commit -m "feat(device): stabilize one DOA per utterance"
 - Consumes: an injected object exposing `ctrl_transfer`, or PyUSB discovery for VID `0x2886`, PID `0x0022`.
 - Produces: `Xvf3800.read_version() -> tuple[int, int, int]`, `Xvf3800.read_doa() -> XvfDoa(doa_deg, speech_detected)`, and idempotent `close()`.
 
-- [ ] **Step 1: Write failing USB framing tests**
+- [x] **Step 1: Write failing USB framing tests**
 
 Assert VERSION uses IN vendor request, command `0x80`, resource 48, length 4; DOA uses command `0x92`, resource 20, length 5; `[0,126,0,1,0]` decodes to `(126, True)`; status 64 retries at most 100 times; any other status raises `XvfError("device_status", ...)`.
 
-- [ ] **Step 2: Verify tests fail, then implement the injected adapter**
+- [x] **Step 2: Verify tests fail, then implement the injected adapter**
 
 Use only stdlib in module import scope. Import `usb.core` and `usb.util` inside `discover()`/`close()` so unit tests and non-Pi installs do not require PyUSB.
 
-- [ ] **Step 3: Add discovery and firmware-validation tests**
+- [x] **Step 3: Add discovery and firmware-validation tests**
 
 Require the exact commissioned USB identity `2886:0022`, reject missing/multiple matches, and expose version without writing firmware. Confirm no write control transfer is available from this adapter.
 
-- [ ] **Step 4: Implement discovery and validate on fake USB**
+- [x] **Step 4: Implement discovery and validate on fake USB**
 
 The production factory accepts optional bus/address selectors, claims no audio interface, and disposes only resources it opened. It never resets or flashes the device.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```bash
 PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.venv/bin/pytest tests/test_xvf3800.py -q
