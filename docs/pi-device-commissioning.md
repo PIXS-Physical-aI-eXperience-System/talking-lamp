@@ -56,8 +56,8 @@ sha256sum /home/pixs/talking-lamp/voice-bench/out/doa/calibration.json
 Commissioning record:
 
 ```text
-calibration SHA256: PENDING_ON_PI
-measured zero/sign/date/operator: PENDING_ON_PI
+calibration SHA256: acaec65d96d31137d27a58beab947f1b75fdfc35529a328458797d940d5fe797
+measured zero/sign/date/operator: offset=90.49852890666492, sign=1, 2026-09-16
 ```
 
 ## Software-only install and test
@@ -134,7 +134,7 @@ uses an official adapter.
 
 ```text
 XVF identity/version: 2886:0022 / 1.0.3
-Null-sink SIGTERM clear: PENDING
+Null-sink SIGTERM clear: PASS (2026-09-16; service exited cleanly and remained disabled)
 pixel mapping: PENDING (LED disconnected)
 10/25/50/75/100% power results: PENDING (LED disconnected)
 approved max brightness: 0.10 unverified default

@@ -378,11 +378,11 @@ PYTHONPATH="$PWD/src:$PWD/lelamp_runtime" /home/slihump/projects/talking-lamp/.v
 
 Expected: all device tests and every existing motion regression pass.
 
-- [ ] **Step 7: Pi software-only commissioning**
+- [x] **Step 7: Pi software-only commissioning**
 
 Deploy with LED hardware disabled. Verify XVF version `(1, 0, 3)`, observe live DOA without moving motors, run the device server against a fake LED sink, and confirm SIGTERM clears the fake sink. Do not connect or power the WS2812B in this task.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add pyproject.toml src/device/daemon.py deploy/pi tests/test_device_daemon.py tests/test_device_deploy.py docs/pi-device-commissioning.md
