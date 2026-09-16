@@ -325,6 +325,7 @@ class LampVoiceNode(Node):
 
 
 def main() -> int:
+    global MAX_AHEAD_S      # 이 이름을 쓰기 전에 선언해야 한다
     ap = argparse.ArgumentParser()
     ap.add_argument("--agent", default="127.0.0.1:5150",
                     help="판단부 주소 (bench/voice_agent.py 가 띄운다)")
@@ -334,7 +335,6 @@ def main() -> int:
     args, ros_args = ap.parse_known_args()
     host, _, port = args.agent.partition(":")
 
-    global MAX_AHEAD_S
     MAX_AHEAD_S = args.max_ahead
 
     rclpy.init(args=ros_args)
