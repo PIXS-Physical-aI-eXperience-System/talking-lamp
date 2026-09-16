@@ -15,6 +15,9 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+
+from wake_data import people  # noqa: E402
 
 
 def load(path):
@@ -58,8 +61,8 @@ def check(path):
 
 def main() -> int:
     base = os.path.join(ROOT, "wake-data")
-    people = sorted(d for d in glob.glob(f"{base}/*") if os.path.isdir(d))
-    if not people:
+    everyone = people(base)
+    if not everyone:
         print(f"{base} 에 아무것도 없다")
         return 1
 
@@ -67,11 +70,7 @@ def main() -> int:
     problems = []
     print(f"{'사람':<14}{'긍정':>6}{'부정':>6}{'잡음':>6}   문제")
     print("-" * 56)
-    for d in people:
-        name = os.path.basename(d)
-        pos = sorted(glob.glob(f"{d}/pos/*.wav"))
-        neg = sorted(glob.glob(f"{d}/neg/*.wav"))
-        noise = sorted(glob.glob(f"{d}/noise.wav"))
+    for name, pos, neg, noise in everyone:
         bad_here = []
         for f in pos + neg + noise:
             bad, _ = check(f)
@@ -85,7 +84,7 @@ def main() -> int:
         print(f"{name:<14}{len(pos):>6}{len(neg):>6}{len(noise):>6}   {mark}")
         problems += bad_here
 
-    print(f"\n합계 긍정 {total_pos}개, 부정 {total_neg}개, 사람 {len(people)}명")
+    print(f"\n합계 긍정 {total_pos}개, 부정 {total_neg}개, 사람 {len(everyone)}명")
     if problems:
         print(f"\n문제 {len(problems)}건:")
         for p in problems[:20]:
@@ -96,8 +95,8 @@ def main() -> int:
     print()
     if total_pos < 100:
         print(f"  · 긍정 {total_pos}개는 적다. 사람이 늘수록 다른 목소리에 반응한다.")
-    if len(people) < 3:
-        print(f"  · {len(people)}명 분량이다. 이 목소리들에만 반응할 가능성이 크다.")
+    if len(everyone) < 3:
+        print(f"  · {len(everyone)}명 분량이다. 이 목소리들에만 반응할 가능성이 크다.")
     return 1 if problems else 0
 
 
