@@ -224,6 +224,60 @@ def cmd_echo(args):
     return 0
 
 
+def cmd_levels(args):
+    """마이크 레벨을 실시간으로 본다. 측정 전에 장치가 성한지 가리는 단계다.
+
+    세 번 잰 값이 서로 60 dB 씩 어긋났다. 조용할 때가 발화보다 크게 나오고
+    (-20.4 vs -46.6), 다음 회차에는 조용할 때가 -83.4 — 실제 방에서 나올 수
+    없는 완전한 디지털 무음이었다. 보드가 게인을 자동으로 바꾸는 것인지
+    측정 조건이 달랐던 것인지는 숫자만으로 가릴 수 없다.
+
+    가만히 두고 레벨이 흘러가는지 보면 갈린다. 조용한 채로 두는데도 값이
+    계속 움직이면 보드가 게인을 조절하는 것이고, 그러면 절대 dB 임계값은
+    쓸 수 없다 — barge-in 판정을 상대값으로 바꿔야 한다.
+    """
+    import sounddevice as sd
+
+    ins, _ = pick_devices(sd)
+    if ins is None:
+        print("XVF3800 입력 장치를 못 찾았다. bench/mic_check.py 먼저 실행")
+        return 1
+
+    print("마이크 레벨 (Ctrl+C 로 종료)")
+    print("  ① 20초쯤 아무 말 없이 두고 값이 흘러가는지 볼 것")
+    print("  ② 그다음 말했다 멈췄다 해보며 얼마나 따라 움직이는지 볼 것\n")
+
+    lo, hi, vals = 999.0, -999.0, []
+    block = int(SR * 0.1)
+    try:
+        with sd.InputStream(samplerate=SR, channels=1, device=ins,
+                            dtype="float32", blocksize=block) as st:
+            t0 = time.time()
+            while True:
+                x, over = st.read(block)
+                v = db(x[:, 0])
+                vals.append(v)
+                lo, hi = min(lo, v), max(hi, v)
+                # -80 ~ 0 dB 를 40칸으로
+                n = max(0, min(40, int((v + 80) / 2)))
+                bar = "█" * n
+                print(f"  {time.time()-t0:5.1f}s  {v:7.1f} dB  {bar:<40}│ "
+                      f"범위 {lo:.0f}~{hi:.0f}{'  ! 넘침' if over else ''}",
+                      end="\r", flush=True)
+                time.sleep(0.02)
+    except KeyboardInterrupt:
+        print("\n")
+
+    if len(vals) < 10:
+        print("표본이 너무 적다")
+        return 1
+    print(f"표본 {len(vals)}개   최저 {min(vals):.1f}   최고 {max(vals):.1f} dB")
+    if min(vals) < -75:
+        print("  ! -75 dB 아래는 실제 방 소리가 아니라 무음이다.")
+        print("    마이크가 죽어 있거나 다른 프로세스가 잡고 있는지 확인할 것")
+    return 0
+
+
 def cmd_bargein(args):
     """끼어들기 감지 지연.
 
@@ -300,9 +354,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("echo"); e.add_argument("--tts")
+    common = sub.add_parser("levels")
     b = sub.add_parser("bargein"); b.add_argument("--tts"); b.add_argument("--trials", type=int, default=5)
     args = ap.parse_args()
-    return {"echo": cmd_echo, "bargein": cmd_bargein}[args.cmd](args)
+    return {"echo": cmd_echo, "levels": cmd_levels,
+            "bargein": cmd_bargein}[args.cmd](args)
 
 
 if __name__ == "__main__":
