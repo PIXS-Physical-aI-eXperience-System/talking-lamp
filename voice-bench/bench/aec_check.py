@@ -120,21 +120,31 @@ def cmd_echo(args):
     input("   Enter → 3초 녹음 ")
     quiet = sd.rec(int(3 * SR), samplerate=SR, channels=1, device=ins, dtype="float32")
     sd.wait()
+    quiet = _finite(quiet, "조용할 때 녹음")
     res["quiet_db"] = db(quiet)
     print(f"   배경소음 {res['quiet_db']:.1f} dBFS")
 
     print("\n② 램프만 말하는 중 — 사용자는 조용히")
     input("   Enter → 재생하며 녹음 ")
-    rec = sd.rec(int((dur + 0.5) * SR), samplerate=SR, channels=1, device=ins, dtype="float32")
-    sd.play(audio, sr, device=outs) if outs is not None else sd.play(audio, sr)
+    # sd.rec 로 녹음을 걸어둔 뒤 sd.play 를 부르면 안 된다. 둘이 같은 전역
+    # 스트림을 쓰기 때문에 녹음 스트림이 교체되고 버퍼가 채워지지 않은 채
+    # 남는다. 그 쓰레기 값으로 +710 dBFS 가 나왔다. 동시 입출력은 playrec 다.
+    kw = {"input_device": ins}
+    if outs is not None:
+        kw["output_device"] = outs
+    rec = sd.playrec(audio, samplerate=SR, channels=1, dtype="float32", **kw)
     sd.wait()
+    rec = rec[:, 0] if getattr(rec, "ndim", 1) > 1 else rec
+    rec = _finite(rec, "램프 발화 중 녹음")
     res["echo_db"] = db(rec)
-    print(f"   AEC 통과 후 남은 잔향 {res['echo_db']:.1f} dBFS")
+    print(f"   AEC 통과 후 남은 잔향 {res['echo_db']:.1f} dBFS"
+          f"   (조용할 때 {res['quiet_db']:.1f})")
 
     print("\n③ 사용자 발화 기준 — 평소 위치(1 m)에서 3초간 말하세요")
     input("   Enter → 3초 녹음 ")
     speech = sd.rec(int(3 * SR), samplerate=SR, channels=1, device=ins, dtype="float32")
     sd.wait()
+    speech = _finite(speech, "사용자 발화 녹음")
     res["speech_db"] = db(speech)
     print(f"   사용자 발화 {res['speech_db']:.1f} dBFS")
 
