@@ -17,7 +17,12 @@ wheels/
 
 # voice-bench — 산출물·가중치·환경은 커밋하지 않는다
 voice-bench/venvs/
-voice-bench/models/
+# models/ 자체가 아니라 그 안의 것들을 막는다. 디렉터리를 막으면 git 이 안을
+# 들여다보지 않아서 아래 예외가 먹지 않는다.
+voice-bench/models/*
+# 예외: 우리가 학습한 웨이크워드 모델(801 KB)은 올린다. 받아서 다시 만들 수
+# 없다 — 학습에 쓴 녹음이 개인 목소리라 저장소에 없다.
+!voice-bench/models/wake/
 voice-bench/out/
 voice-bench/ref/*.wav
 voice-bench/tools/

@@ -27,7 +27,8 @@ from voice.agent import VoiceAgent        # noqa: E402
 from voice.stt import Stt                 # noqa: E402
 from voice.tts import Tts                 # noqa: E402
 from voice.llm import load_llm          # noqa: E402
-from voice.wake import PHRASE, load_wake  # noqa: E402
+from voice.wake import (NEED_FRAMES as WAKE_NEED_FRAMES,  # noqa: E402
+                        PHRASE, THRESHOLD as WAKE_THRESHOLD, load_wake)
 
 
 class ToneTts:
@@ -97,6 +98,11 @@ def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=5150)
     ap.add_argument("--wake-model", default="models/wake/pixs-ya.onnx")
+    ap.add_argument("--wake-threshold", type=float, default=WAKE_THRESHOLD,
+                    help="낮추면 잘 깨어나고 헛깨움도 는다. 실측표는 "
+                         "results/wake-2026-09-17.md")
+    ap.add_argument("--wake-frames", type=int, default=WAKE_NEED_FRAMES,
+                    help="연속 몇 창이 임계를 넘어야 깨울지(1창 = 80ms)")
     ap.add_argument("--stt-device", default="cuda", choices=["cuda", "cpu"])
     ap.add_argument("--providers", default="CUDAExecutionProvider,CPUExecutionProvider")
     ap.add_argument("--tone", action="store_true",
@@ -117,7 +123,8 @@ def main() -> int:
     tts = ToneTts() if args.tone else Tts(providers=args.providers)
     stt = Stt(device=args.stt_device)
     wake_path = os.path.join(ROOT, args.wake_model)
-    wake = load_wake(wake_path if os.path.exists(wake_path) else None)
+    wake = load_wake(wake_path if os.path.exists(wake_path) else None,
+                     args.wake_threshold, args.wake_frames)
     print(f"  TTS {tts.providers}  {tts.load_s}s"
           + ("   ← 순음 시험 모드" if args.tone else ""))
     print(f"  STT {stt.name}")

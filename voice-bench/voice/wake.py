@@ -38,36 +38,68 @@ class StubWake:
         pass
 
 
+CHUNK = 1280        # openWakeWord 가 한 걸음에 먹는 표본 수(80 ms)
+THRESHOLD = 0.7     # bench/wake_eval.py 실측에서 고른 자리
+NEED_FRAMES = 2     # 연속 2창
+
+
 class OpenWakeWord:
     """openWakeWord (Apache-2.0, ONNX, torch 불필요).
 
     사전학습된 음성 임베딩 위에 작은 분류기를 얹는 구조라 한국어 호출어를
     직접 학습시킬 수 있다. 실측 RTF 0.021.
+
+    **연속 두 창을 요구한다.** 한 창만 넘어도 깨우면 스치는 소리에 깨어난다.
+    학습에 없던 목소리로 잰 실측(bench/wake_eval.py):
+
+        연속 1창, 임계 0.5 — 깨어남 99%, 평범한 문장에 헛깨움 23%
+        연속 2창, 임계 0.7 — 깨어남 96%, 평범한 문장에 헛깨움 13%
+
+    **80 ms 단위로 모은 뒤에 넣는다.** openWakeWord 는 1280 표본이 차기
+    전에는 새로 계산하지 않고 직전 점수를 그대로 돌려준다. 20 ms 프레임을
+    그냥 넣으면 같은 점수가 네 번 나와서 "연속 2창"이 저절로 충족된다 —
+    연속을 요구한 의미가 사라진다.
     """
 
     ready = True
 
-    def __init__(self, model_path, threshold=0.5, samplerate=16000):
+    def __init__(self, model_path, threshold=THRESHOLD,
+                 need_frames=NEED_FRAMES, samplerate=16000):
         from openwakeword.model import Model
         self.m = Model(wakeword_models=[model_path], inference_framework="onnx")
         self.threshold = threshold
+        self.need = need_frames
         self.key = os.path.splitext(os.path.basename(model_path))[0]
-        self.name = f"openWakeWord({self.key}, 임계 {threshold})"
+        self.name = (f"openWakeWord({self.key}, 임계 {threshold}, "
+                     f"연속 {need_frames}창)")
+        self._buf = np.empty(0, dtype=np.int16)
+        self._run = 0
 
     def detect(self, frame):
         x = (np.clip(frame, -1, 1) * 32767).astype(np.int16)
-        scores = self.m.predict(x)
-        return max(scores.values()) >= self.threshold if scores else False
+        self._buf = np.concatenate([self._buf, x])
+        hit = False
+        while len(self._buf) >= CHUNK:
+            chunk, self._buf = self._buf[:CHUNK], self._buf[CHUNK:]
+            scores = self.m.predict(chunk)
+            s = max(scores.values()) if scores else 0.0
+            self._run = self._run + 1 if s >= self.threshold else 0
+            if self._run >= self.need:
+                hit = True
+        return hit
 
     def reset(self):
         self.m.reset()
+        self._buf = np.empty(0, dtype=np.int16)
+        self._run = 0
 
 
-def load_wake(model_path=None, threshold=0.5, samplerate=16000):
+def load_wake(model_path=None, threshold=THRESHOLD,
+              need_frames=NEED_FRAMES, samplerate=16000):
     """모델이 있으면 쓰고, 없으면 대역을 돌려준다. 어느 쪽인지 알려준다."""
     if model_path and os.path.exists(model_path):
         try:
-            return OpenWakeWord(model_path, threshold, samplerate)
+            return OpenWakeWord(model_path, threshold, need_frames, samplerate)
         except Exception as e:
             print(f"  ! 웨이크워드 모델을 못 열었다({type(e).__name__}). 대역으로 진행한다")
     return StubWake(samplerate)
