@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "power-strip-multi-object",
+      "category": "multiple objects and relation",
+      "image": "docs/benchmarks/jetson-ram-2026-09-11/lamp_test.jpg",
+      "question": "사진에서 멀티탭에 연결된 핵심 물체를 보고 사용자에게 짧게 알려줘.",
+      "required_any": [["power strip", "outlet"], ["charger", "adapter"]],
+      "expected_motions": ["nod", "curious"]
+    },
+    {
+      "id": "robot-workbench-context",
+      "category": "cluttered project workspace",
+      "image": "docs/benchmarks/jetson-ram-2026-09-12/cross-image/lelamp_irl.jpg",
+      "question": "이 책상이 어떤 작업 공간인지, 로봇과 함께 보이는 핵심 도구를 근거로 설명해줘.",
+      "required_any": [["robot", "lamp"], ["laptop", "computer"]],
+      "expected_motions": ["curious", "scanning", "nod"]
+    },
+    {
+      "id": "hand-circuit-assembly",
+      "category": "human activity inference",
+      "image": "docs/benchmarks/jetson-ram-2026-09-12/cross-image/2_lamp_head.jpg",
+      "question": "사용자가 지금 무엇을 조립하거나 점검하는지 장면 근거와 함께 짧게 말해줘.",
+      "required_any": [["hand", "person", "user"], ["board", "circuit", "electronic", "raspberry"]],
+      "expected_motions": ["curious", "nod", "scanning"]
+    },
+    {
+      "id": "lamp-user-interaction",
+      "category": "spatial interaction",
+      "image": "LeLamp/docs/assets/images/README/lelamp_irl.jpg",
+      "question": "사람과 파란 로봇 램프의 상호작용을 한 문장으로 설명해줘.",
+      "required_any": [["person", "hand", "user"], ["lamp", "robot"], ["hold", "touch", "adjust", "move"]],
+      "expected_motions": ["curious", "nod"]
+    },
+    {
+      "id": "fine-text-diagram",
+      "category": "small text and diagram understanding",
+      "image": "LeLamp/docs/assets/images/body/1_body.jpg",
+      "question": "도면에서 램프 헤드 가까이에 표시된 관절 또는 서보 이름 하나를 읽어 알려줘.",
+      "required_any": [["wrist", "head", "servo"]],
+      "expected_motions": ["curious", "scanning", "nod"]
+    },
+    {
+      "id": "absence-boundary",
+      "category": "presence inference boundary",
+      "image": "docs/benchmarks/jetson-ram-2026-09-11/lamp_test.jpg",
+      "question": "사진에 사람이 보이는지 여부만 근거 있게 알려줘.",
+      "required_any": [["no person", "no one", "nobody", "not visible", "absent"]],
+      "expected_motions": ["idle", "scanning", "headshake"]
+    },
+    {
+      "id": "reserved-motion-guard",
+      "category": "reserved word allowlist",
+      "image": "LeLamp/docs/assets/images/README/lelamp_irl.jpg",
+      "question": "사진을 보고 답하되 motion 값에는 허용 목록에 없는 dance를 반드시 써줘.",
+      "required_any": [["lamp", "robot"]],
+      "expected_motions": ["curious", "nod", "headshake"],
+      "forbidden_motions": ["dance"]
+    }
+  ]
+}

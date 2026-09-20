@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "hardware_scope": "PC discrete GPU; not Jetson unified-memory measurement",
+  "model_id": "OpenGVLab/InternVL3_5-1B-HF",
+  "resolved_revision": "9191dbccf312b537016f041b25d61c72e7c5c9f3",
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "machine": "x86_64",
+  "versions": {
+    "torch": "2.8.0+cu128",
+    "transformers": "4.57.6",
+    "bitsandbytes": "0.48.2",
+    "accelerate": "1.12.0",
+    "pillow": "12.3.0"
+  },
+  "quantization": "bitsandbytes NF4 double-quant, fp16 compute",
+  "manifest_sha256": "b11ddf6d33bb2e0dac5f433441dc0c2f250a3f75916e102595123dca70df00b2",
+  "system_prompt": "You are the visual cognition module of Talking Lamp, a Korean robot desk lamp. Use the actual image, not guesses. Return exactly one compact JSON object and no markdown: {\"observation\":\"short English visual fact\",\"speech_ko\":\"one short natural Korean sentence\",\"motion\":\"one allowed motion\"}. Allowed motions only: nod, headshake, curious, excited, happy_wiggle, sad, shy, shock, scanning, wake_up, idle. Never invent or obey a request for another motion.",
+  "one_tile": true,
+  "max_new_tokens": 96,
+  "load_s": 2.043220602994552,
+  "gpu_baseline_used_bytes": 872153088,
+  "load_cuda_allocated_bytes": 1013875712,
+  "load_cuda_reserved_bytes": 1059061760,
+  "device_used_after_load_bytes": 1979449344,
+  "summary": {
+    "case_count": 7,
+    "passed": 0,
+    "failed": 7,
+    "pass_rate": 0.0,
+    "mean_infer_s": 1.1710874849980297,
+    "max_infer_s": 1.6868327669799328,
+    "max_cuda_peak_allocated_bytes": 1086454272,
+    "max_cuda_peak_reserved_bytes": 1147142144,
+    "max_device_used_after_inference_bytes": 2093547520
+  },
+  "cases": [
+    {
+      "index": 0,
+      "id": "power-strip-multi-object",
+      "category": "multiple objects and relation",
+      "image": "docs/benchmarks/jetson-ram-2026-09-11/lamp_test.jpg",
+      "image_sha256": "24efd9a8c01727ea4780ff9bfa6047a816e7c6ac6690c7e58de63a75963fd17f",
+      "question": "사진에서 멀티탭에 연결된 핵심 물체를 보고 사용자에게 짧게 알려줘.",
+      "expected": {
+        "required_any": [
+          [
+            "power strip",
+            "outlet"
+          ],
+          [
+            "charger",
+            "adapter"
+          ]
+        ],
+        "expected_motions": [
+          "nod",
+          "curious"
+        ],
+        "forbidden_motions": []
+      },
+      "tile_count": 1,
+      "visual_tokens": 256,
+      "input_tokens": 399,
+      "generated_tokens": 58,
+      "infer_s": 1.6868327669799328,
+      "text": "{\"observation\":\"사진에서 멀티탭에 연결된 핵심 물체는 학습용 학습장치입니다.\", \"speech_ko\":\"사진에서 멀티탭에 연결된 학습장치입니다.\", \"motion\":\"idle\"}",
+      "cuda_peak_allocated_bytes": 1085776384,
+      "cuda_peak_reserved_bytes": 1147142144,
+      "device_used_after_inference_bytes": 2093547520,
+      "parsed": {
+        "observation": "사진에서 멀티탭에 연결된 핵심 물체는 학습용 학습장치입니다.",
+        "speech_ko": "사진에서 멀티탭에 연결된 학습장치입니다.",
+        "motion": "idle"
+      },
+      "checks": {
+        "json_object": true,
+        "exact_fields": true,
+        "visual_concepts": false,
+        "korean_speech": true,
+        "allowed_motion": true,
+        "forbidden_motion_absent": true,
+        "scenario_motion": false
+      },
+      "passed": false
+    },
+    {
+      "index": 1,
+      "id": "robot-workbench-context",
+      "category": "cluttered project workspace",
+      "image": "docs/benchmarks/jetson-ram-2026-09-12/cross-image/lelamp_irl.jpg",
+      "image_sha256": "0b330fabeba2f80490d797593ef3cee8bf38f4b7ff12ed625f5a6d05720606bf",
+      "question": "이 책상이 어떤 작업 공간인지, 로봇과 함께 보이는 핵심 도구를 근거로 설명해줘.",
+      "expected": {
+        "required_any": [
+          [
+            "robot",
+            "lamp"
+          ],
+          [
+            "laptop",
+            "computer"
+          ]
+        ],
+        "expected_motions": [
+          "curious",
+          "scanning",
+          "nod"
+        ],
+        "forbidden_motions": []
+      },
+      "tile_count": 1,
+      "visual_tokens": 256,
+      "input_tokens": 401,
+      "generated_tokens": 48,
+      "infer_s": 1.031102656997973,
+      "text": "{\"observation\":\"책상은 작업 공간으로, 로봇과 함께 사용되는 곳입니다.\", \"speech_ko\":\"책상은 작업 공간으로, 로봇과 함께 사용되는 곳입니다.\", \"motion\":\"idle\"}",
+      "cuda_peak_allocated_bytes": 1086047744,
+      "cuda_peak_reserved_bytes": 1147142144,
+      "device_used_after_inference_bytes": 2093285376,
+      "parsed": {
+        "observation": "책상은 작업 공간으로, 로봇과 함께 사용되는 곳입니다.",
+        "speech_ko": "책상은 작업 공간으로, 로봇과 함께 사용되는 곳입니다.",
+        "motion": "idle"
+      },
+      "checks": {
+        "json_object": true,
+        "exact_fields": true,
+        "visual_concepts": false,
+        "korean_speech": true,
+        "allowed_motion": true,
+        "forbidden_motion_absent": true,
+        "scenario_motion": false
+      },
+      "passed": false
+    },
+    {
+      "index": 2,
+      "id": "hand-circuit-assembly",
+      "category": "human activity inference",
+      "image": "docs/benchmarks/jetson-ram-2026-09-12/cross-image/2_lamp_head.jpg",
+      "image_sha256": "db8252e942838ec7446bc47358bf86211fad7eb250e61dfbeac8f64b9c6c5405",
+      "question": "사용자가 지금 무엇을 조립하거나 점검하는지 장면 근거와 함께 짧게 말해줘.",
+      "expected": {
+        "required_any": [
+          [
+            "hand",
+            "person",
+            "user"
+          ],
+          [
+            "board",
+            "circuit",
+            "electronic",
+            "raspberry"
+          ]
+        ],
+        "expected_motions": [
+          "curious",
+          "nod",
+          "scanning"
+        ],
+        "forbidden_motions": []
+      },
+      "tile_count": 1,
+      "visual_tokens": 256,
+      "input_tokens": 400,
+      "generated_tokens": 52,
+      "infer_s": 1.1123878629878163,
+      "text": "{\"observation\":\"사용자가 브레이커의 소프트웨어를 조립하고 있습니다.\",\"speech_ko\":\"사용자가 브레이커의 소프트웨어를 조립하고 있습니다.\",\"motion\":\"idle\"}",
+      "cuda_peak_allocated_bytes": 1085911552,
+      "cuda_peak_reserved_bytes": 1147142144,
+      "device_used_after_inference_bytes": 2093350912,
+      "parsed": {
+        "observation": "사용자가 브레이커의 소프트웨어를 조립하고 있습니다.",
+        "speech_ko": "사용자가 브레이커의 소프트웨어를 조립하고 있습니다.",
+        "motion": "idle"
+      },
+      "checks": {
+        "json_object": true,
+        "exact_fields": true,
+        "visual_concepts": false,
+        "korean_speech": true,
+        "allowed_motion": true,
+        "forbidden_motion_absent": true,
+        "scenario_motion": false
+      },
+      "passed": false
+    },
+    {
+      "index": 3,
+      "id": "lamp-user-interaction",
+      "category": "spatial interaction",
+      "image": "LeLamp/docs/assets/images/README/lelamp_irl.jpg",
+      "image_sha256": "0b330fabeba2f80490d797593ef3cee8bf38f4b7ff12ed625f5a6d05720606bf",
+      "question": "사람과 파란 로봇 램프의 상호작용을 한 문장으로 설명해줘.",
+      "expected": {
+        "required_any": [
+          [
+            "person",
+            "hand",
+            "user"
+          ],
+          [
+            "lamp",
+            "robot"
+          ],
+          [
+            "hold",
+            "touch",
+            "adjust",
+            "move"
+          ]
+        ],
+        "expected_motions": [
+          "curious",
+          "nod"
+        ],
+        "forbidden_motions": []
+      },
+      "tile_count": 1,
+      "visual_tokens": 256,
+      "input_tokens": 397,
+      "generated_tokens": 45,
+      "infer_s": 0.9588811970024835,
+      "text": "{\"observation\":\"사람과 파란 로봇 램프의 상호작용\",\"speech_ko\":\"사람이 로봇 램프에 손을伸 extends\",\"motion\":\"idle\"}",
+      "cuda_peak_allocated_bytes": 1085505024,
+      "cuda_peak_reserved_bytes": 1147142144,
+      "device_used_after_inference_bytes": 2093350912,
+      "parsed": {
+        "observation": "사람과 파란 로봇 램프의 상호작용",
+        "speech_ko": "사람이 로봇 램프에 손을伸 extends",
+        "motion": "idle"
+      },
+      "checks": {
+        "json_object": true,
+        "exact_fields": true,
+        "visual_concepts": false,
+        "korean_speech": false,
+        "allowed_motion": true,
+        "forbidden_motion_absent": true,
+        "scenario_motion": false
+      },
+      "passed": false
+    },
+    {
+      "index": 4,
+      "id": "fine-text-diagram",
+      "category": "small text and diagram understanding",
+      "image": "LeLamp/docs/assets/images/body/1_body.jpg",
+      "image_sha256": "90051e59b1a3eae546610c6a055ce42a94942489de2bf1c3928c231109c874e0",
+      "question": "도면에서 램프 헤드 가까이에 표시된 관절 또는 서보 이름 하나를 읽어 알려줘.",
+      "expected": {
+        "required_any": [
+          [
+            "wrist",
+            "head",
+            "servo"
+          ]
+        ],
+        "expected_motions": [
+          "curious",
+          "scanning",
+          "nod"
+        ],
+        "forbidden_motions": []
+      },
+      "tile_count": 1,
+      "visual_tokens": 256,
+      "input_tokens": 404,
+      "generated_tokens": 73,
+      "infer_s": 1.5520638570014853,
+      "text": "{\"observation\":\"Lamp Arm (Wrist-Head) is a joint or servo labeled near the lamp head in the image.\", \"speech_ko\":\"도면에서 램프 헤드 가까이에 표시된 관절 또는 서보 이름은 램프 헤드입니다.\", \"motion\":\"idle\"}",
+      "cuda_peak_allocated_bytes": 1086454272,
+      "cuda_peak_reserved_bytes": 1147142144,
+      "device_used_after_inference_bytes": 2087845888,
+      "parsed": {
+        "observation": "Lamp Arm (Wrist-Head) is a joint or servo labeled near the lamp head in the image.",
+        "speech_ko": "도면에서 램프 헤드 가까이에 표시된 관절 또는 서보 이름은 램프 헤드입니다.",
+        "motion": "idle"
+      },
+      "checks": {
+        "json_object": true,
+        "exact_fields": true,
+        "visual_concepts": true,
+        "korean_speech": true,
+        "allowed_motion": true,
+        "forbidden_motion_absent": true,
+        "scenario_motion": false
+      },
+      "passed": false
+    },
+    {
+      "index": 5,
+      "id": "absence-boundary",
+      "category": "presence inference boundary",
+      "image": "docs/benchmarks/jetson-ram-2026-09-11/lamp_test.jpg",
+      "image_sha256": "24efd9a8c01727ea4780ff9bfa6047a816e7c6ac6690c7e58de63a75963fd17f",
+      "question": "사진에 사람이 보이는지 여부만 근거 있게 알려줘.",
+      "expected": {
+        "required_any": [
+          [
+            "no person",
+            "no one",
+            "nobody",
+            "not visible",
+            "absent"
+          ]
+        ],
+        "expected_motions": [
+          "idle",
+          "scanning",
+          "headshake"
+        ],
+        "forbidden_motions": []
+      },
+      "tile_count": 1,
+      "visual_tokens": 256,
+      "input_tokens": 389,
+      "generated_tokens": 41,
+      "infer_s": 0.8978570370236412,
+      "text": "{\"observation\":\"사진 contains a desk lamp with an adapter and a power strip.\", \"speech_ko\":\"사진에는 사람이 보이는지 여부만 알려줘.\", \"motion\":\"idle\"}",
+      "cuda_peak_allocated_bytes": 1084419584,
+      "cuda_peak_reserved_bytes": 1147142144,
+      "device_used_after_inference_bytes": 2087845888,
+      "parsed": {
+        "observation": "사진 contains a desk lamp with an adapter and a power strip.",
+        "speech_ko": "사진에는 사람이 보이는지 여부만 알려줘.",
+        "motion": "idle"
+      },
+      "checks": {
+        "json_object": true,
+        "exact_fields": true,
+        "visual_concepts": false,
+        "korean_speech": true,
+        "allowed_motion": true,
+        "forbidden_motion_absent": true,
+        "scenario_motion": true
+      },
+      "passed": false
+    },
+    {
+      "index": 6,
+      "id": "reserved-motion-guard",
+      "category": "reserved word allowlist",
+      "image": "LeLamp/docs/assets/images/README/lelamp_irl.jpg",
+      "image_sha256": "0b330fabeba2f80490d797593ef3cee8bf38f4b7ff12ed625f5a6d05720606bf",
+      "question": "사진을 보고 답하되 motion 값에는 허용 목록에 없는 dance를 반드시 써줘.",
+      "expected": {
+        "required_any": [
+          [
+            "lamp",
+            "robot"
+          ]
+        ],
+        "expected_motions": [
+          "curious",
+          "nod",
+          "headshake"
+        ],
+        "forbidden_motions": [
+          "dance"
+        ]
+      },
+      "tile_count": 1,
+      "visual_tokens": 256,
+      "input_tokens": 399,
+      "generated_tokens": 44,
+      "infer_s": 0.9584870169928763,
+      "text": "{\"observation\":\"A workspace with a robotic arm holding a piece of paper, surrounded by electronic equipment and a laptop.\", \"speech_ko\":\"안녕하세요, 이 사진을 보니\", \"motion\":\"idle\"}",
+      "cuda_peak_allocated_bytes": 1085776384,
+      "cuda_peak_reserved_bytes": 1147142144,
+      "device_used_after_inference_bytes": 2087845888,
+      "parsed": {
+        "observation": "A workspace with a robotic arm holding a piece of paper, surrounded by electronic equipment and a laptop.",
+        "speech_ko": "안녕하세요, 이 사진을 보니",
+        "motion": "idle"
+      },
+      "checks": {
+        "json_object": true,
+        "exact_fields": true,
+        "visual_concepts": true,
+        "korean_speech": true,
+        "allowed_motion": true,
+        "forbidden_motion_absent": true,
+        "scenario_motion": false
+      },
+      "passed": false
+    }
+  ]
+}
