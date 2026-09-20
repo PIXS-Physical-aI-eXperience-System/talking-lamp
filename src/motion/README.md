@@ -113,6 +113,27 @@ blend trace used for that command; logging should read it without calling
 `blender.compute()` again. Explicit primitive `sign`, `scale`, and `loop` options
 reload the clip and leave the cached default unchanged.
 
+## Pi-local base-yaw orientation
+
+The motion daemon now has a **local-only**, token-free Unix control surface for
+the Pi device service: `/run/talking-lamp/motion-control.sock`. The systemd
+unit creates its parent runtime directory and serves the socket as group-readable
+and group-writable (`0660`); this is not part of the authenticated Jetson TCP
+protocol. The only local orientation messages are `orientation.acquire`,
+`orientation.return_center`, `orientation.status`, and `system.heartbeat`.
+
+`orientation.acquire` accepts a canonical UUID `speech_id` and a finite,
+absolute `target_yaw` in radians (`-pi` through `pi`). It does **not** accept
+DOA degrees. A later Pi device service must stabilize/calibrate DOA and convert
+it before making this request. Motion clamps a valid target to its calibrated
+safe yaw range and reports that decision as `clamped`.
+
+See [the base-yaw operator guide](../../docs/base-yaw-orientation.md) for exact
+NDJSON requests, replies, state fields, task-light and disconnect behavior,
+calibration handoff, and the separate real-microphone bench prerequisite. This
+milestone implements only the simulated/local motion control path; XVF3800 DOA,
+audio, LED, and Jetson ROS integrations remain later plans.
+
 ## Known limitations / TODO
 
 - **Kinematics is the `build_arm.py` stopgap model**, not a CAD re-export -

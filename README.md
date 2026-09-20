@@ -10,7 +10,7 @@
 
 Talking Lamp는 카메라와 마이크로 주변 상황을 인식해 스스로 판단하고 움직이는 관절형 AI 로봇 스탠드입니다. 책이나 키보드를 놓으면 그 위치를 알아보고 조명 각도를 맞추고, 이름을 부르면 고개를 돌려 한국어로 대화합니다.
 
-**모든 AI 추론이 Jetson Orin Nano 8GB 보드 위에서 단독 처리됩니다.** 인터넷 연결이나 외부 서버 없이 완전히 독립적으로 동작하며, 영상·음성이 기기 밖으로 나가지 않습니다.
+**AI 추론은 Jetson Orin Nano 8GB가, 실물 장치는 Raspberry Pi 5가 담당합니다.** Pi는 5축 모션·서보뿐 아니라 마이크·스피커·LED와 소리 방향 정렬을 소유합니다. 두 보드는 유선 로컬 네트워크로 연결되며, Jetson은 ROS 2로 행동·오디오·표정 명령만 보내고 Pi가 100 Hz 궤적과 안전 정지를 책임집니다. 인터넷 연결이나 외부 서버 없이 완전히 독립적으로 동작하며, 영상·음성이 기기 밖으로 나가지 않습니다.
 
 기구·서보 기반은 [LeLamp](https://github.com/humancomputerlab/LeLamp) 오픈소스를 가져다 쓰고, 그 위에 온보드 AI·비전·모션 지능을 새로 구현합니다. 기구는 원본 그대로 출력하고 제어 코드만 개조합니다.
 
@@ -51,15 +51,18 @@ Jetson의 8GB는 CPU와 GPU가 함께 씁니다. 그래서 모델 파일 크기�
 
 | 구분 | 사양 |
 | --- | --- |
-| AI 보드 | Jetson Orin Nano 8GB Developer Kit (VLM·STT·TTS·검출기·3D 타겟점 계산) |
-| 실시간 제어 보드 | Raspberry Pi 5 (서보·100Hz 궤적·모션 블렌더·IK·LED). Jetson과 Ethernet 직결 |
+| AI 보드 | Jetson Orin Nano 8GB Developer Kit — VLM·STT·TTS·검출기·3D 타겟점 계산 |
+| 모션·장치 보드 | Raspberry Pi 5 + 정품 어댑터 — IK·100 Hz 궤적·Feetech·마이크·스피커·LED |
 | 서보 | Feetech STS3215 **12V** 5축 (Base Yaw / Base Pitch / Elbow Pitch / Wrist Roll / Wrist Pitch) |
-| 카메라 | 단안(렌즈 1개) 광각. 깊이 카메라 불필요 |
-| 마이크 | XMOS XVF3800 원형 4마이크 어레이. 하드웨어 AEC·빔포밍·DOA 내장 |
+| 카메라 | 단안(렌즈 1개) 광각 — 깊이 카메라 불필요 |
+| 마이크 | reSpeaker Flex XVF3800 Linear-4, L16K6Ch 1.0.3 — Pi USB-C 연결, 전면 180° DOA |
+| 스피커 | XVF3800 재생 장치를 통해 Pi에서 출력. Jetson TTS는 유선 LAN으로 전송 |
+| 표정 LED | WS2812B-64 8×8 — Pi GPIO 12(물리 32번)·5 V(4번)·GND(34번), 실물 점등·전원 시험 완료, 180° 보정·운영 상한 8% |
 | 서보 드라이버 | 기성 버스 서보 드라이버 보드 (USB 연결) |
-| 전원 | Jetson 19V + Pi 5 + 서보 12V, 계통 분리 (기성품) |
-| 서브 MCU | STM32 / ESP32 (LED 제어, 안전 정지 검토) |
-| 기구 | LeLamp `.3mf` 원본 그대로 FDM 3D 프린터 출력. 보드는 외부 유닛으로 분리 |
+| 네트워크 | Jetson `192.168.100.1` ↔ Pi `192.168.100.2` 전용 유선 LAN |
+| 전원 | Jetson 19 V, Raspberry Pi 정품 5 V, 서보 12 V 계통 분리 |
+| 서브 MCU | STM32 / ESP32 (LED 확장 시 선택) |
+| 기구 | LeLamp `.3mf` 개조, FDM 3D 프린터 출력 |
 
 **AI 보드와 제어 보드를 나눈 이유**
 
@@ -131,9 +134,12 @@ LeLamp 원본은 **AI를 전부 OpenAI 클라우드로 호출**하고(`main.py`)
 
 ## 문서
 
-- **[계획서](docs/계획서.md)** : 프로젝트 개요, 핵심기술, LeLamp 기반 전환 상세
-- **[설계 사양서 (파트-분배)](docs/파트-분배.md)** : 아키텍처, 시나리오 정의, 파트별 담당 범위
-- **[진행 순서](docs/진행-순서.md)** : 작업 순서, 파트 간 인수인계, 통합 순서
+- **[구축·사용·인수인계 가이드](docs/deployment-and-handoff.md)** — 현재 실물 상태 재현, 운영, ROS 사용법, 장애 진단, 후속 작업
+- **[Jetson 통합 가이드](docs/jetson-integration.md)** — Jetson/Pi 경계, ROS API, 대화 응답 순서, 실기 검증 기록
+- **[Pi 장치 커미셔닝](docs/pi-device-commissioning.md)** — XVF3800·WS2812B-64 설치와 전원 시험 절차
+- **[계획서](docs/계획서.md)** — 프로젝트 개요, 핵심기술, LeLamp 기반 전환 상세
+- **[설계 사양서 (파트-분배)](docs/파트-분배.md)** — 아키텍처, 시나리오 정의, 파트별 담당 범위
+- **[진행 순서](docs/진행-순서.md)** — 작업 순서, 파트 간 인수인계, 통합 순서
 
 ## 라이선스 및 출처
 
@@ -146,3 +152,9 @@ LeLamp 원본은 **AI를 전부 OpenAI 클라우드로 호출**하고(`main.py`)
 LeLamp은 Apple의 [ELEGNT](https://machinelearning.apple.com/research/elegnt-expressive-functional-movement) 연구를 기반으로 제작되었습니다.
 
 > `lelamp_runtime` 저장소에는 LICENSE 파일이 없고 README가 "메인 LeLamp 저장소의 라이선스를 확인하라"고 안내하고 있어, GPL-3.0을 따르는 것으로 간주했습니다.
+
+Raspberry Pi 5 LED 실물 시험에는 별도 설치한
+`Adafruit-Blinka-Raspberry-Pi5-Neopixel`(GPL-2.0-only)을 사용한다. 이 저장소에는
+해당 코드를 포함하지 않는다. 현재 구성은 내부 프로토타입 평가용이며, 두 라이선스가
+결합된 배포 이미지·제품을 외부 배포하기 전에는 호환성 검토 또는 호환 드라이버
+교체를 필수 release gate로 둔다.

@@ -1,0 +1,1056 @@
+"""Real loopback TCP and controller coverage without an asyncio pytest plugin."""
+import asyncio
+from contextlib import asynccontextmanager, suppress
+import json
+import os
+from pathlib import Path
+import socket
+import stat
+import threading
+import time
+from uuid import uuid4
+
+import pytest
+
+from motion.catalog import MotionCatalog
+from motion.config import RECORDINGS_DIR
+from motion.controller import MotionController
+from motion.idle import IdleConfig
+from motion.local_control import MotionUnixServer
+from motion.middleware_server import MotionTcpServer
+from motion.protocol import MAX_LINE_BYTES, encode_message
+from motion.remote_client import MotionClient, build_parser, main
+from motion.runtime import MotionRuntime
+
+TOKEN = "test-secret"
+PLAY = dict(name="nod", replace_current=True, intensity=0., repeat=1)
+
+
+def envelope(kind="motion.status", *, ident=None, token=TOKEN, payload=None):
+    return encode_message(dict(version=1, id=ident or str(uuid4()), type=kind,
+                               ttl_ms=1000, token=token, payload=payload or {}))
+
+
+LOCAL_SPEECH_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def local_wire(kind="orientation.status", *, ident=None, ttl_ms=1000, payload=None,
+               speech_id=LOCAL_SPEECH_ID, target_yaw=.2):
+    if payload is None:
+        payload = ({"speech_id": speech_id, "target_yaw": target_yaw}
+                   if kind == "orientation.acquire" else {})
+    return encode_message(dict(version=1, id=ident or str(uuid4()), type=kind,
+                               ttl_ms=ttl_ms, payload=payload))
+
+
+async def eventually(predicate, timeout=2):
+    async with asyncio.timeout(timeout):
+        while not predicate():
+            await asyncio.sleep(.005)
+
+
+async def receive(reader):
+    return json.loads(await asyncio.wait_for(reader.readline(), 2))
+
+
+@asynccontextmanager
+async def running_server(**options):
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                  idle_cfg=IdleConfig(enabled=False)), catalog)
+    disconnects = []
+    disconnect = controller.remote_disconnected
+    def record_disconnect():
+        disconnects.append(True)
+        disconnect()
+    controller.remote_disconnected = record_disconnect
+    server = MotionTcpServer(controller, token=TOKEN, host="127.0.0.1", port=0, **options)
+    await server.start()
+    async def tick():
+        while True:
+            for _ in range(20):
+                controller.tick_once(now=time.monotonic())
+            await asyncio.sleep(.001)
+    ticker = asyncio.create_task(tick())
+    try:
+        yield server, server.sockets[0].getsockname()[1], disconnects
+    finally:
+        await server.close()
+        ticker.cancel()
+        with suppress(asyncio.CancelledError):
+            await ticker
+
+
+@asynccontextmanager
+async def running_local_server(tmp_path):
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                  idle_cfg=IdleConfig(enabled=False)), catalog)
+    server = MotionUnixServer(controller, tmp_path / "motion.sock")
+    await server.start()
+
+    async def tick():
+        while True:
+            controller.tick_once(now=time.monotonic())
+            await asyncio.sleep(.001)
+
+    ticker = asyncio.create_task(tick())
+    try:
+        yield server, controller
+    finally:
+        await server.close()
+        ticker.cancel()
+        with suppress(asyncio.CancelledError):
+            await ticker
+
+
+def test_play_ack_terminal_and_concurrent_status():
+    async def scenario():
+        async with running_server() as (server, port, _):
+            async with MotionClient("127.0.0.1", port, token=TOKEN) as client:
+                playing = asyncio.create_task(client.request("motion.play", PLAY))
+                await eventually(lambda: server.controller.snapshot().busy)
+                status = await client.request("motion.status", {})
+                assert status[0]["state"] == "accepted"
+                assert status[-1]["data"]["busy"] is True
+                events = await playing
+                assert [e["state"] for e in events] == ["accepted", "completed"]
+                assert events[0]["id"] == events[1]["id"]
+    asyncio.run(scenario())
+
+
+def test_disconnect_invokes_safe_wait_exactly_once():
+    async def scenario():
+        async with running_server() as (server, port, disconnects):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(envelope("motion.play", payload=PLAY))
+            await writer.drain()
+            assert (await receive(reader))["state"] == "accepted"
+            writer.close()
+            await writer.wait_closed()
+            await eventually(lambda: server.controller.snapshot().state == "safe_wait")
+            await server.close()
+            assert len(disconnects) == 1
+    asyncio.run(scenario())
+
+
+def test_duplicate_request_id_reuses_completed_controller_ticket():
+    async def scenario():
+        async with running_server() as (server, port, _):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            line = envelope("motion.play", payload=PLAY)
+            writer.write(line)
+            first = [await receive(reader), await receive(reader)]
+            started_at = server.controller.runtime.primitive.started_at
+            writer.write(line)
+            assert [await receive(reader), await receive(reader)] == first
+            assert server.controller.runtime.primitive.started_at == started_at
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("line, code", [(envelope(token="wrong"), "unauthorized"),
+    (b"x" * (MAX_LINE_BYTES + 2) + b"\n", "line_too_long"),
+    (b"x" * (MAX_LINE_BYTES + 2), "line_too_long")])
+def test_invalid_connections_are_rejected_without_claiming_controller(line, code):
+    async def scenario():
+        async with running_server() as (_, port, disconnects):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(line)
+            await writer.drain()
+            assert (await receive(reader))["code"] == code
+            assert await asyncio.wait_for(reader.read(), 1) == b""
+            writer.close()
+            await writer.wait_closed()
+            assert not disconnects
+    asyncio.run(scenario())
+
+
+def test_second_authenticated_connection_cannot_disrupt_first():
+    async def scenario():
+        async with running_server() as (_, port, disconnects):
+            async with MotionClient("127.0.0.1", port, token=TOKEN) as first:
+                await first.request("motion.status", {})
+                reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.write(envelope())
+                assert (await receive(reader))["code"] == "controller_connected"
+                assert await asyncio.wait_for(reader.read(), 1) == b""
+                writer.close()
+                await writer.wait_closed()
+                assert not disconnects
+                assert (await first.request("motion.list", {}))[-1]["data"]["motions"]
+    asyncio.run(scenario())
+
+
+def test_heartbeat_timeout_and_client_keepalive():
+    async def scenario():
+        async with running_server(heartbeat_timeout=.12) as (server, port, disconnects):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(envelope())
+            await receive(reader)
+            await receive(reader)
+            await eventually(lambda: len(disconnects) == 1)
+            assert await reader.read() == b""
+            writer.close()
+            await writer.wait_closed()
+            async with MotionClient("127.0.0.1", port, token=TOKEN, heartbeat_interval=.025) as client:
+                await client.request("motion.status", {})
+                await asyncio.sleep(.25)
+                assert len(disconnects) == 1
+                assert (await client.request("motion.status", {}))[-1]["state"] == "completed"
+    asyncio.run(scenario())
+
+
+def test_disconnect_fails_inflight_request_reconnects_without_replay():
+    async def scenario():
+        plays = []
+        connections = []
+        async def peer(reader, writer):
+            connections.append(writer)
+            try:
+                while line := await reader.readline():
+                    req = json.loads(line)
+                    if req["type"] == "motion.play":
+                        plays.append(req["id"])
+                        writer.close()
+                        return
+                    for state in ("accepted", "completed"):
+                        writer.write(encode_message(dict(id=req["id"], state=state, code=state)))
+                    await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        server = await asyncio.start_server(peer, "127.0.0.1", 0)
+        try:
+            async with MotionClient("127.0.0.1", server.sockets[0].getsockname()[1], token=TOKEN) as client:
+                with pytest.raises(ConnectionError):
+                    await client.request("motion.play", PLAY)
+                await eventually(lambda: len(connections) >= 2)
+                assert (await client.request("motion.status", {}))[-1]["state"] == "completed"
+                assert len(plays) == 1
+        finally:
+            server.close()
+            await server.wait_closed()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("args", [["play", "nod", "--intensity", "nan"],
+    ["play", "nod", "--repeat", "4"], ["track-point", "3", "0", "0"],
+    ["--token", "secret", "list"], ["--port", "0", "status"]])
+def test_cli_rejects_invalid_arguments(args):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(args)
+    assert exc.value.code == 2
+
+
+def test_cli_requires_environment_token(monkeypatch, capsys):
+    monkeypatch.delenv("TALKING_LAMP_TOKEN", raising=False)
+    assert main(["list"]) == 2
+    assert "TALKING_LAMP_TOKEN" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("args", [["list"], ["status"], ["play", "nod"], ["interrupt"],
+                                  ["track-point", ".2", "0", ".3"], ["task-light", ".2", "0", ".3"]])
+def test_cli_accepts_subcommands(args):
+    assert build_parser().parse_args(args).command == args[0]
+
+
+def test_cli_imports_without_third_party_dependencies():
+    from pathlib import Path
+    import subprocess
+    import sys
+    source = str(Path(__file__).resolve().parents[1] / "src")
+    result = subprocess.run([sys.executable, "-S", "-c",
+        f"import sys; sys.path.insert(0, {source!r}); "
+        "from motion.remote_client import build_parser; build_parser().parse_args(['status'])"],
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_malformed_response_fails_request_and_reconnects():
+    async def scenario():
+        connections = []
+        async def peer(reader, writer):
+            connections.append(True)
+            try:
+                request = json.loads(await reader.readline())
+                writer.write(encode_message(dict(id=request["id"], state=[])))
+                await writer.drain()
+                await reader.read()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        server = await asyncio.start_server(peer, "127.0.0.1", 0)
+        try:
+            async with MotionClient("127.0.0.1", server.sockets[0].getsockname()[1], token=TOKEN) as client:
+                with pytest.raises(ConnectionError):
+                    await client.request("motion.status", {})
+                await eventually(lambda: len(connections) >= 2)
+        finally:
+            server.close()
+            await server.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_allowlist_rejects_peer_before_controller_submission():
+    async def scenario():
+        async with running_server(allowed_hosts={"192.0.2.1"}) as (_, port, disconnects):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            assert (await receive(reader))["code"] == "host_not_allowed"
+            assert await reader.read() == b""
+            assert not disconnects
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_repeated_parse_errors_close_authenticated_connection():
+    async def scenario():
+        async with running_server() as (_, port, disconnects):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(envelope())
+            await receive(reader)
+            await receive(reader)
+            writer.write(b"{\n" * 3)
+            for _ in range(3):
+                assert (await receive(reader))["code"] == "invalid_json"
+            assert await reader.read() == b""
+            assert len(disconnects) == 1
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_transport_close_does_not_cancel_shared_controller_futures():
+    from motion.controller import CommandTicket
+    async def scenario():
+        tickets = []
+        class Mailbox:
+            def submit(self, request):
+                ticket = CommandTicket(request.id)
+                tickets.append(ticket)
+                return ticket
+            def remote_disconnected(self):
+                pass
+        server = MotionTcpServer(Mailbox(), token=TOKEN, port=0)
+        await server.start()
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        try:
+            writer.write(envelope())
+            await eventually(lambda: len(tickets) == 1)
+            # An unresolved accepted future cannot block subsequent reads.
+            writer.write(envelope("motion.interrupt"))
+            await eventually(lambda: len(tickets) == 2)
+            await server.close()
+            assert all(not t.accepted.cancelled() and not t.completed.cancelled() for t in tickets)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_lazy_package_exports_preserve_public_api():
+    import motion
+    from importlib import import_module
+    modules = ("config", "blender", "idle", "ik", "kalman", "kinematics", "layers",
+               "primitives", "runtime", "trajectory")
+    for name in motion.__all__:
+        expected = next(getattr(import_module(f"motion.{module}"), name) for module in modules
+                        if hasattr(import_module(f"motion.{module}"), name))
+        assert getattr(motion, name) is expected
+    assert set(motion.__all__) <= set(dir(motion))
+    with pytest.raises(AttributeError):
+        motion.missing_export
+
+
+def test_reconnect_backoff_is_capped(monkeypatch):
+    from motion import remote_client
+    delays = []
+    async def unavailable(*args, **kwargs):
+        raise ConnectionRefusedError("test unavailable")
+    async def record_delay(delay):
+        delays.append(delay)
+        if len(delays) == 7:
+            raise asyncio.CancelledError
+    monkeypatch.setattr(remote_client.asyncio, "open_connection", unavailable)
+    monkeypatch.setattr(remote_client.asyncio, "sleep", record_delay)
+    async def scenario():
+        client = MotionClient("127.0.0.1", token=TOKEN)
+        with pytest.raises(asyncio.CancelledError):
+            await client._run()
+    asyncio.run(scenario())
+    assert delays == [.25, .5, 1., 2., 5., 5., 5.]
+
+
+def test_cli_list_runs_over_tcp(monkeypatch, capsys):
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    async def scenario():
+        async with running_server() as (_, port, _):
+            return await asyncio.to_thread(main, ["--host", "127.0.0.1", "--port", str(port), "list"])
+    assert asyncio.run(scenario()) == 0
+    messages = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [message["state"] for message in messages] == ["accepted", "completed"]
+    assert "nod" in messages[-1]["data"]["motions"]
+
+
+def test_controller_rejection_is_single_terminal_event():
+    async def scenario():
+        async with running_server() as (_, port, _):
+            async with MotionClient("127.0.0.1", port, token=TOKEN) as client:
+                events = await client.request("motion.play", {**PLAY, "name": "missing_motion"})
+                assert len(events) == 1
+                assert events[0]["state"] == "failed"
+                assert events[0]["code"] == "unknown_motion"
+    asyncio.run(scenario())
+
+
+def test_invalid_catalog_prevents_backend_construction(monkeypatch, tmp_path, capsys):
+    from motion import hardware_backend, middleware_server as server
+    opened = []
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", lambda **kw: opened.append(kw))
+    catalog = tmp_path / "catalog.toml"
+    catalog.write_text('[motions.bad]\nfile="missing.csv"\nenabled=true\n')
+    assert server.main(["--catalog", str(catalog), "--port", "/dev/ttyACM0",
+                        "--lamp-id", "lelamp"]) == 2
+    assert not opened
+    assert "missing.csv" in capsys.readouterr().err
+
+
+def test_daemon_requires_token_before_catalog_or_hardware(monkeypatch, capsys):
+    from motion import middleware_server as server
+    monkeypatch.delenv("TALKING_LAMP_TOKEN", raising=False)
+    assert server.main(["--catalog", "/missing/catalog.toml", "--null-backend"]) == 2
+    assert "TALKING_LAMP_TOKEN" in capsys.readouterr().err
+
+
+def test_daemon_requires_ruckig_before_hardware(monkeypatch, capsys):
+    from motion import hardware_backend, middleware_server as server, trajectory
+    opened = []
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(trajectory, "_HAVE_RUCKIG", False)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", lambda **kw: opened.append(kw))
+    assert server.main(["--port", "/dev/ttyACM0", "--lamp-id", "lelamp"]) == 2
+    assert not opened
+    assert "Ruckig" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("args", [[], ["--null-backend", "--port", "/dev/ttyACM0"],
+    ["--null-backend", "--lamp-id", "lelamp"], ["--port", "/dev/ttyACM0"],
+    ["--null-backend", "--tcp-port", "0"], ["--null-backend", "--tcp-port", "65536"],
+    ["--null-backend", "--heartbeat-timeout", "nan"],
+    ["--port", "/dev/ttyACM0", "--lamp-id", "lelamp", "--feedback-hz", "101"]])
+def test_daemon_rejects_ambiguous_or_invalid_config(args):
+    from motion import middleware_server as server
+    with pytest.raises(SystemExit) as exc:
+        server.main(args)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("failure", ["runtime", "controller", "normal", "park"])
+def test_daemon_closes_backend_after_owner_stops(monkeypatch, failure, capsys):
+    from motion import hardware_backend, middleware_server as server
+    from motion.local_control import MotionUnixServer
+    from motion.runtime import NullBackend
+    events = []
+    class Backend(NullBackend):
+        def __init__(self, **kwargs):
+            super().__init__()
+            assert kwargs == dict(port="/dev/ttyACM0", lamp_id="lelamp", feedback_hz=20.)
+        def close(self):
+            events.append("park")
+            if failure == "park":
+                raise RuntimeError("park failed")
+    runtime_type = MotionRuntime
+    def runtime(**kwargs):
+        if failure == "runtime":
+            raise RuntimeError("runtime failed")
+        return runtime_type(**kwargs)
+    def run(controller):
+        events.append("owner started")
+        if failure == "controller":
+            controller.runtime.step = lambda: (_ for _ in ()).throw(RuntimeError("motor failed"))
+            controller.tick_once(now=time.monotonic())
+        else:
+            controller._stop_event.wait(2)
+        events.append("owner stopped")
+    async def serve(tcp):
+        await eventually(lambda: "owner started" in events)
+        if failure == "controller":
+            await asyncio.Future()
+    async def start_tcp(tcp):
+        events.append("tcp bound")
+    async def start_local(local):
+        events.append("local bound")
+    async def close_tcp(tcp):
+        events.append("transport closed")
+    async def close_local(local):
+        events.append("local socket removed")
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", Backend)
+    monkeypatch.setattr(server, "MotionRuntime", runtime, raising=False)
+    monkeypatch.setattr(MotionController, "run", run)
+    monkeypatch.setattr(MotionTcpServer, "start", start_tcp)
+    monkeypatch.setattr(MotionTcpServer, "serve_forever", serve)
+    monkeypatch.setattr(MotionTcpServer, "close", close_tcp)
+    monkeypatch.setattr(MotionUnixServer, "start", start_local)
+    monkeypatch.setattr(MotionUnixServer, "serve_forever", serve)
+    monkeypatch.setattr(MotionUnixServer, "close", close_local)
+    assert server.main(["--port", "/dev/ttyACM0", "--lamp-id", "lelamp"]) == (0 if failure == "normal" else 1)
+    assert events[-1] == "park"
+    assert events.count("park") == 1
+    if failure != "runtime":
+        assert events.index("owner stopped") < events.index("park")
+        assert events.index("transport closed") < events.index("park")
+        assert events.index("local socket removed") < events.index("park")
+    if failure != "normal":
+        assert "failed" in capsys.readouterr().err
+
+
+def test_null_backend_close_is_idempotent():
+    from motion.runtime import NullBackend
+    backend = NullBackend()
+    backend.close()
+    backend.close()
+
+
+def test_daemon_reports_fault_that_occurs_while_stopping(monkeypatch, capsys):
+    from motion import middleware_server as server
+    from motion.local_control import MotionUnixServer
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    def run(controller):
+        controller._stop_event.wait(2)
+        controller.runtime.step = lambda: (_ for _ in ()).throw(RuntimeError("late motor failed"))
+        controller._stop_event.clear()
+        controller.tick_once(now=time.monotonic())
+    async def serve(tcp):
+        return
+    async def start(listener):
+        return
+    monkeypatch.setattr(MotionController, "run", run)
+    monkeypatch.setattr(MotionTcpServer, "start", start)
+    monkeypatch.setattr(MotionTcpServer, "serve_forever", serve)
+    monkeypatch.setattr(MotionUnixServer, "start", start)
+    monkeypatch.setattr(MotionUnixServer, "serve_forever", serve)
+    assert server.main(["--null-backend"]) == 1
+    assert "late motor failed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("signum", ["SIGINT", "SIGTERM"])
+def test_signal_during_runtime_startup_parks_without_sending(monkeypatch, signum):
+    import signal
+    from motion import hardware_backend, middleware_server as server
+    from motion.runtime import NullBackend
+    events = []
+    shutdown_signal = getattr(signal, signum)
+    previous = signal.getsignal(shutdown_signal)
+    class Backend(NullBackend):
+        def __init__(self, **kwargs):
+            super().__init__()
+        def send(self, command):
+            events.append("sent")
+            super().send(command)
+        def close(self):
+            events.append("parked")
+            # Repeated signals cannot interrupt parking or cause a second close.
+            signal.raise_signal(shutdown_signal)
+    def runtime(**kwargs):
+        result = MotionRuntime(**kwargs)
+        signal.raise_signal(shutdown_signal)
+        return result
+    monkeypatch.setenv("TALKING_LAMP_TOKEN", TOKEN)
+    monkeypatch.setattr(hardware_backend, "FeetechBackend", Backend)
+    monkeypatch.setattr(server, "MotionRuntime", runtime)
+    assert server.main(["--port", "/dev/ttyACM0", "--lamp-id", "lelamp"]) == 0
+    assert events == ["parked"]
+    assert signal.getsignal(shutdown_signal) == previous
+
+
+def test_repeated_sigterm_while_event_lock_is_held_reaches_backend_close():
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    code = '''
+import os
+import signal
+import threading
+from motion import middleware_server as server
+from motion.runtime import MotionRuntime, NullBackend
+
+original_set = threading.Event.set
+injected = False
+def set_with_repeated_signal(event):
+    global injected
+    with event._cond:
+        if not injected:
+            injected = True
+            print("second SIGTERM while Event lock held", flush=True)
+            os.kill(os.getpid(), signal.SIGTERM)
+    original_set(event)
+threading.Event.set = set_with_repeated_signal
+
+class RecordingBackend(NullBackend):
+    def close(self):
+        print("backend closed", flush=True)
+server.NullBackend = RecordingBackend
+def runtime(**kwargs):
+    result = MotionRuntime(**kwargs)
+    print("first SIGTERM during startup", flush=True)
+    os.kill(os.getpid(), signal.SIGTERM)
+    return result
+server.MotionRuntime = runtime
+raise SystemExit(server.main(["--null-backend"]))
+'''
+    env = {**os.environ, "TALKING_LAMP_TOKEN": TOKEN,
+           "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+    process = subprocess.Popen([sys.executable, "-c", code], env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        stdout, stderr = process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+        pytest.fail(f"Repeated SIGTERM deadlocked before backend close: {stdout!r} {stderr!r}")
+    assert process.returncode == 0, (stdout, stderr)
+    assert stdout.splitlines() == ["first SIGTERM during startup",
+        "second SIGTERM while Event lock held", "backend closed"]
+
+
+@pytest.mark.parametrize("signum", ["SIGINT", "SIGTERM"])
+def test_null_daemon_roundtrip_signal_exit_and_no_hardware_import(tmp_path, signum):
+    import os
+    from pathlib import Path
+    import signal
+    import socket
+    import subprocess
+    import sys
+    # A fresh process forbids even indirect imports of the physical backend.
+    guard = tmp_path / "sitecustomize.py"
+    guard.write_text('''import sys
+class Guard:
+    def find_spec(self, fullname, *args):
+        if fullname in {"motion.hardware_backend", "motion.hardware_run", "serial"} or fullname.startswith("lelamp."):
+            raise AssertionError("hardware import in null mode: " + fullname)
+sys.meta_path.insert(0, Guard())
+def audit(event, args):
+    if event == "open" and args[0] == "/dev/ttyACM0":
+        raise AssertionError("serial device opened in null mode")
+sys.addaudithook(audit)
+''')
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    env = {**os.environ, "TALKING_LAMP_TOKEN": TOKEN,
+           "PYTHONPATH": f"{tmp_path}:{Path(__file__).resolve().parents[1] / 'src'}"}
+    process = subprocess.Popen([sys.executable, "-m", "motion.middleware_server", "--null-backend",
+        "--bind", "127.0.0.1", "--tcp-port", str(port), "--local-socket",
+        str(tmp_path / "motion.sock")], env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=.2) as connection:
+                    connection.settimeout(2)
+                    connection.sendall(envelope("motion.list"))
+                    with connection.makefile("rb") as stream:
+                        assert json.loads(stream.readline())["state"] == "accepted"
+                        assert "nod" in json.loads(stream.readline())["data"]["motions"]
+                process.send_signal(getattr(signal, signum))
+                break
+            except ConnectionRefusedError:
+                time.sleep(.02)
+        stdout, stderr = process.communicate(timeout=5)
+        assert process.returncode == 0, (stdout, stderr)
+        assert "hardware import" not in stderr
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
+
+
+def test_unix_server_uses_protected_default_socket_path():
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+
+    assert MotionUnixServer(controller).path == Path("/run/talking-lamp/motion-control.sock")
+
+
+def test_daemon_parser_defaults_to_runtime_unix_socket():
+    from motion.middleware_server import build_parser
+
+    assert build_parser().parse_args(["--null-backend"]).local_socket == Path(
+        "/run/talking-lamp/motion-control.sock")
+
+
+def test_daemon_binds_both_listeners_before_starting_motion_owner():
+    from motion import middleware_server as daemon
+
+    events = []
+    owner_started = threading.Event()
+
+    class Controller:
+        def run(self):
+            events.append("owner started")
+            owner_started.set()
+            while not stopped.is_set():
+                time.sleep(.001)
+
+        def stop(self, reason):
+            events.append(f"stopped: {reason}")
+            stopped.set()
+
+        def snapshot(self):
+            return type("Snapshot", (), {"fault": None})()
+
+    class Listener:
+        def __init__(self, name):
+            self.name = name
+
+        async def start(self):
+            events.append(f"{self.name} bound")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append(f"{self.name} closed")
+
+    stopped = threading.Event()
+    controller = Controller()
+    tcp, local = Listener("tcp"), Listener("local")
+
+    asyncio.run(daemon._serve(controller, tcp, local, owner_started.is_set))
+
+    assert events[:3] == ["tcp bound", "local bound", "owner started"]
+    assert events.index("tcp closed") > events.index("owner started")
+    assert events.index("local closed") > events.index("owner started")
+
+
+def test_daemon_closes_started_listener_when_other_listener_fails_to_bind():
+    from motion import middleware_server as daemon
+
+    events = []
+
+    class Controller:
+        def run(self):
+            events.append("owner started")
+
+        def stop(self, reason):
+            events.append(f"stopped: {reason}")
+
+        def snapshot(self):
+            return type("Snapshot", (), {"fault": None})()
+
+    class Tcp:
+        async def start(self):
+            events.append("tcp bound")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("tcp closed")
+
+    class Local:
+        async def start(self):
+            events.append("local bind failed")
+            raise OSError("cannot bind local socket")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("local closed")
+
+    with pytest.raises(OSError, match="cannot bind local socket"):
+        asyncio.run(daemon._serve(Controller(), Tcp(), Local(), lambda: False))
+
+    assert events == ["tcp bound", "local bind failed", "stopped: daemon shutdown", "tcp closed", "local closed"]
+
+
+def test_daemon_does_not_start_local_listener_or_owner_when_tcp_bind_fails():
+    from motion import middleware_server as daemon
+
+    events = []
+
+    class Controller:
+        def run(self):
+            events.append("owner started")
+
+        def stop(self, reason):
+            events.append(f"stopped: {reason}")
+
+        def snapshot(self):
+            return type("Snapshot", (), {"fault": None})()
+
+    class Tcp:
+        async def start(self):
+            events.append("tcp bind failed")
+            raise OSError("cannot bind TCP listener")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("tcp closed")
+
+    class Local:
+        async def start(self):
+            events.append("local bound")
+
+        async def serve_forever(self):
+            await asyncio.Future()
+
+        async def close(self):
+            events.append("local closed")
+
+    with pytest.raises(OSError, match="cannot bind TCP listener"):
+        asyncio.run(daemon._serve(Controller(), Tcp(), Local(), lambda: False))
+
+    assert events == ["tcp bind failed", "stopped: daemon shutdown", "tcp closed", "local closed"]
+
+
+def test_unix_server_returns_accepted_then_aligned(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(local_wire("orientation.acquire", target_yaw=.2))
+            await writer.drain()
+            assert (await receive(reader))["state"] == "accepted"
+            assert (await receive(reader))["code"] == "aligned"
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_socket_mode_is_group_read_write(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            assert stat.S_IMODE(os.stat(server.path).st_mode) == 0o660
+    asyncio.run(scenario())
+
+
+def test_unix_server_replaces_only_a_stale_socket(tmp_path):
+    async def scenario():
+        path = tmp_path / "motion.sock"
+        stale = socket.socket(socket.AF_UNIX)
+        stale.bind(str(path))
+        stale.close()
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+        server = MotionUnixServer(controller, path)
+        await server.start()
+        try:
+            assert stat.S_ISSOCK(os.lstat(path).st_mode)
+        finally:
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_unix_server_refuses_to_replace_regular_file(tmp_path):
+    async def scenario():
+        path = tmp_path / "motion.sock"
+        path.write_text("do not unlink")
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+        with pytest.raises(FileExistsError):
+            await MotionUnixServer(controller, path).start()
+        assert path.read_text() == "do not unlink"
+    asyncio.run(scenario())
+
+
+def test_unix_server_rejects_oversized_line_and_closes(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(b"x" * (MAX_LINE_BYTES + 2) + b"\n")
+            await writer.drain()
+            assert (await receive(reader))["code"] == "line_too_long"
+            assert await reader.read() == b""
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_closes_after_three_schema_errors(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(b"{\n" * 3)
+            await writer.drain()
+            assert [(await receive(reader))["code"] for _ in range(3)] == ["invalid_json"] * 3
+            assert await reader.read() == b""
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_forwards_expired_request_to_controller(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        server = MotionUnixServer(controller, tmp_path / "motion.sock")
+        await server.start()
+        try:
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(local_wire("orientation.status", ttl_ms=1))
+            await writer.drain()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            assert (await receive(reader))["code"] == "expired"
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_unix_server_duplicate_id_reuses_controller_ticket(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            ident = str(uuid4())
+            line = local_wire("orientation.status", ident=ident)
+            writer.write(line)
+            await writer.drain()
+            first = [await receive(reader), await receive(reader)]
+            writer.write(line)
+            await writer.drain()
+            assert [await receive(reader), await receive(reader)] == first
+            writer.close()
+            await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_close_removes_its_socket(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library()), catalog)
+        path = tmp_path / "motion.sock"
+        server = MotionUnixServer(controller, path)
+        await server.start()
+        assert path.exists()
+        await server.close()
+        assert not path.exists()
+    asyncio.run(scenario())
+
+
+def test_unix_disconnect_invalidates_unstarted_orientation_request(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        server = MotionUnixServer(controller, tmp_path / "motion.sock")
+        await server.start()
+        try:
+            _, writer = await asyncio.open_unix_connection(server.path)
+            writer.write(local_wire("orientation.acquire", target_yaw=.2))
+            await writer.drain()
+            await asyncio.sleep(.02)
+            writer.close()
+            await writer.wait_closed()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            snapshot = controller.runtime.orientation_snapshot()
+            assert snapshot.state == "idle"
+            assert snapshot.speech_id is None
+        finally:
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_unix_disconnect_does_not_invalidate_other_local_client_request(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        server = MotionUnixServer(controller, tmp_path / "motion.sock")
+        await server.start()
+        try:
+            _, disconnected = await asyncio.open_unix_connection(server.path)
+            reader, connected = await asyncio.open_unix_connection(server.path)
+            disconnected.write(local_wire("orientation.acquire", target_yaw=.2))
+            connected.write(local_wire("orientation.status"))
+            await disconnected.drain()
+            await connected.drain()
+            await asyncio.sleep(.02)
+            disconnected.close()
+            await disconnected.wait_closed()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            controller.tick_once(now=time.monotonic())
+            await asyncio.sleep(.01)
+            status = [await receive(reader), await receive(reader)]
+            assert status[-1]["code"] == "completed"
+            assert status[-1]["data"]["state"] == "idle"
+            connected.close()
+            await connected.wait_closed()
+        finally:
+            await server.close()
+    asyncio.run(scenario())
+
+
+def test_persistent_local_client_releases_completed_ticket_holders(tmp_path):
+    async def scenario():
+        async with running_local_server(tmp_path) as (server, _):
+            reader, writer = await asyncio.open_unix_connection(server.path)
+            try:
+                for _ in range(20):
+                    writer.write(local_wire("orientation.status"))
+                    await writer.drain()
+                    assert (await receive(reader))["state"] == "accepted"
+                    assert (await receive(reader))["code"] == "completed"
+                assert not server._ticket_holders
+            finally:
+                writer.close()
+                await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_local_eof_cannot_cancel_colliding_remote_ticket(tmp_path):
+    async def scenario():
+        catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+        controller = MotionController(MotionRuntime(primitives=catalog.library(),
+                                      idle_cfg=IdleConfig(enabled=False)), catalog)
+        local = MotionUnixServer(controller, tmp_path / "motion.sock")
+        remote = MotionTcpServer(controller, token=TOKEN, host="127.0.0.1", port=0)
+        await local.start()
+        await remote.start()
+        try:
+            remote_reader, remote_writer = await asyncio.open_connection(
+                "127.0.0.1", remote.sockets[0].getsockname()[1]
+            )
+            _, local_writer = await asyncio.open_unix_connection(local.path)
+            ident = str(uuid4())
+            remote_writer.write(envelope("motion.status", ident=ident))
+            await remote_writer.drain()
+            await eventually(lambda: ident in controller._pending)
+            local_writer.write(local_wire("orientation.acquire", ident=ident, target_yaw=.2))
+            await local_writer.drain()
+            await asyncio.sleep(.02)
+            local_writer.close()
+            await local_writer.wait_closed()
+            await asyncio.sleep(.02)
+            controller.tick_once(now=time.monotonic())
+            await asyncio.sleep(.01)
+            accepted = await receive(remote_reader)
+            assert (accepted["state"], accepted["code"], accepted["id"]) == (
+                "accepted", "accepted", ident,
+            )
+            completed = await receive(remote_reader)
+            assert (completed["state"], completed["code"], completed["id"]) == (
+                "completed", "completed", ident,
+            )
+            remote_writer.close()
+            await remote_writer.wait_closed()
+        finally:
+            await local.close()
+            await remote.close()
+    asyncio.run(scenario())

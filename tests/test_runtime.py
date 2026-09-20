@@ -103,11 +103,97 @@ def test_reach_puts_head_on_the_point(rt):
     assert np.linalg.norm(rt.kin.head_position(rt.traj.pos) - point) < 0.03
 
 
-def test_reflex_overrides_idle_but_yields_to_task_light(rt):
-    # priorities: idle(0) < track(10) < primitive(20) < task_light(30)
-    prios = [ly.priority for ly in rt.blender.layers]
-    assert prios == sorted(prios)
-    assert rt.blender.layers[-1].name == "task_light"
+def test_orientation_anchor_overrides_tracking_yaw_but_not_other_tracking_joints(rt):
+    """Removing the yaw-only anchor must let tracking control base yaw again."""
+    rt.observe_point([.4, .3, .3])
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+
+    states = rt.run(1.5)
+
+    assert states[-1].trace.per_layer["orientation"][0] == 1.0
+    assert states[-1].trace.per_layer["orientation"][1:].sum() == 0.0
+    assert states[-1].q_cmd[0] == pytest.approx(.5, abs=.06)
+
+
+def test_orientation_layer_order_keeps_task_light_yaw_authority(rt):
+    """Moving TaskLight below orientation would prevent its full pose from winning."""
+    assert [layer.name for layer in rt.blender.layers] == [
+        "idle", "track", "orientation", "primitive", "task_light",
+    ]
+
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+    result = rt.place_task_light([.24, .1, 0.0])
+    assert result.pos_err < .04
+    states = rt.run(.6)
+
+    assert abs(rt.task_light.q_hold[0] - .5) > .1
+    assert states[-1].trace.per_layer["orientation"][0] == 1.0
+    assert states[-1].trace.per_layer["task_light"][0] == 1.0
+    assert states[-1].q_blend[0] == pytest.approx(rt.task_light.q_hold[0])
+
+
+def test_anchored_motion_scales_only_yaw_to_fit_safe_range(rt):
+    """Unscaled positive headshake yaw would cross the speaker-safe upper bound."""
+    rt.acquire_orientation(
+        "speech-1", rt.traj.position_limits[0, 1] - np.deg2rad(6), now=0.0,
+    )
+
+    info = rt.play_primitive("headshake")
+
+    assert 0.0 <= info.yaw_scale < 1.0
+    for state in rt.run(4.0):
+        assert state.q_blend[0] <= rt.traj.position_limits[0, 1] - np.deg2rad(5) + 1e-9
+
+
+def test_unanchored_motion_keeps_existing_commands_and_reports_full_yaw_scale(rt):
+    """Adding anchor support must leave unanchored primitive playback byte-identical."""
+    reference = MotionRuntime(dt=CONTROL_DT)
+
+    info = rt.play_primitive("headshake")
+    reference.play_primitive("headshake")
+
+    assert info.yaw_scale == 1.0
+    for _ in range(400):
+        np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+
+
+def test_primitive_layer_requires_a_complete_yaw_anchor_context(rt):
+    """Supplying only one half of the safety context would make scaling ambiguous."""
+    with pytest.raises(ValueError, match="provided together"):
+        rt.primitive.play("headshake", t=0.0, yaw_anchor=.1)
+    with pytest.raises(ValueError, match="provided together"):
+        rt.primitive.play("headshake", t=0.0, yaw_limits=(-.5, .5))
+
+
+def test_releasing_orientation_restores_tracking_behavior(rt):
+    """Leaving the anchor active after release would continue suppressing tracking yaw."""
+    reference = MotionRuntime()
+    for runtime in (rt, reference):
+        runtime.observe_point([.4, .1, .3])
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+    rt.release_orientation()
+
+    for _ in range(120):
+        np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+
+
+def test_releasing_orientation_resets_snapshot_and_reacquires_same_speech_id(rt):
+    """A stale coordinator session would reject this same-ID orientation retry."""
+    rt.acquire_orientation("speech-1", .5, now=0.0)
+
+    rt.release_orientation()
+
+    released = rt.orientation_snapshot()
+    assert released.state == "idle"
+    assert released.speech_id is None
+    assert released.target_yaw is None
+    assert released.clamped is False
+    assert released.code == "idle"
+
+    reacquired = rt.acquire_orientation("speech-1", -.4, now=.1)
+    assert reacquired.state == "orienting"
+    assert reacquired.target_yaw == pytest.approx(-.4)
+    assert rt.step().trace.per_layer["orientation"][0] == 1.0
 
 
 def test_initial_pose_outside_calibration_is_rejected_without_sending():
@@ -164,3 +250,86 @@ def test_reading_step_trace_keeps_commands_envelopes_and_filter_unchanged(rt):
         np.testing.assert_array_equal(rt.track.track.x, unlogged.track.track.x)
         np.testing.assert_array_equal(rt.track.track.P, unlogged.track.track.P)
     assert any(entry.get("primitive", 0) > 0 for entry in logged_authority)
+
+
+def test_primitive_progress_is_read_only_and_does_not_change_commands(rt):
+    reference = MotionRuntime()
+    assert rt.primitive.active_name is None
+    assert rt.primitive.started_at is None
+    assert rt.primitive.progress(rt.t) == 0.
+    for runtime in (rt, reference):
+        runtime.play_primitive("nod")
+    assert rt.primitive.active_name == "nod"
+    assert rt.primitive.started_at == 0.
+    duration = rt.primitive.clip.duration
+    assert rt.primitive.progress(-1.) == 0.
+    assert rt.primitive.progress(duration / 2) == pytest.approx(.5)
+    assert rt.primitive.progress(duration * 2) == 1.
+    with pytest.raises(AttributeError):
+        rt.primitive.active_name = "other"
+    for i in range(900):
+        assert 0. <= rt.primitive.progress(rt.t) <= 1.
+        np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+    assert rt.primitive.active_name is None
+    assert rt.primitive.started_at is None
+
+
+def test_runtime_tracking_controls_preserve_layer_behavior(rt):
+    reference = MotionRuntime()
+    rt.observe_point([.4, .1, .3])
+    reference.track.observe_point([.4, .1, .3])
+    np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+    rt.observe_bearing([1., .2, .1])
+    reference.track.observe_bearing([0., 0., 0.], [1., .2, .1])
+    np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+    rt.clear_tracking()
+    reference.track.clear()
+    np.testing.assert_array_equal(rt.step().q_cmd, reference.step().q_cmd)
+
+
+def test_anchor_refits_release_tail_without_restarting_or_scaling_body(rt):
+    """An interrupted clip still contributes yaw while its envelope releases."""
+    rt.play_primitive("headshake")
+    rt.run(1.5)
+    original_body = rt.primitive.clip.offsets[:, 1:].copy()
+    started = rt.primitive.started_at
+    rt.barge_in()
+    lo, hi = rt.orientation_safe_yaw_limits()
+    rt.acquire_orientation("tail", hi - .001, now=1.)
+    for _ in range(10):
+        state = rt.step()
+        assert lo - 1e-9 <= state.q_blend[0] <= hi + 1e-9
+        assert lo - 1e-9 <= state.q_cmd[0] <= hi + 1e-9
+    assert rt.primitive.started_at == started
+    np.testing.assert_array_equal(rt.primitive.clip.offsets[:, 1:], original_body)
+
+
+def test_anchor_refit_restores_original_yaw_when_room_returns(rt):
+    """Refitting an already scaled source would permanently shrink expression."""
+    rt.play_primitive("headshake")
+    original = rt.primitive.clip.offsets.copy()
+    rt.acquire_orientation("edge", rt.orientation_safe_yaw_limits()[1] - .001, now=0.)
+    rt.step()
+    assert np.max(np.abs(rt.primitive.clip.offsets[:, 0])) < .01
+    rt.acquire_orientation("middle", .5, now=.01)
+    state = rt.step()
+    np.testing.assert_array_equal(rt.primitive.clip.offsets, original)
+    assert state.q_blend[0] < .5
+
+
+def test_autonomous_return_refits_primitive_release_before_next_blend():
+    """The coordinator can change the absolute target after the previous hardware tick."""
+    from motion.orientation import OrientationConfig
+    hi = HardwareAlignment.load().joint_limits[0, 1] - np.deg2rad(5)
+    rt = MotionRuntime(orientation_cfg=OrientationConfig(center_yaw=hi - .001, disconnect_hold=.01))
+    rt.acquire_orientation("old", .5, now=0.)
+    rt.play_primitive("headshake")
+    rt.run(1.5)
+    rt.barge_in()
+    rt.orientation_control.disconnected(now=2.)
+    snapshot = rt.orientation_control.observe(now=2.02, current_yaw=rt.traj.pos[0], velocity=rt.traj.vel[0])
+    assert snapshot.state == "returning"
+    for _ in range(10):
+        state = rt.step()
+        assert state.q_blend[0] <= hi + 1e-9
+        assert state.q_cmd[0] <= hi + 1e-9
