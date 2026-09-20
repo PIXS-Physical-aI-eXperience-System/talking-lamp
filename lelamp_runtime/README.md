@@ -147,27 +147,29 @@ the motor bus. After recalibration, update both
 `lelamp/motor_tuning.py::EXPECTED_FOLLOWER_CALIBRATION` and
 `sim/hardware_alignment.json` from the new saved calibration before replaying.
 
-### 2. Unit Testing
+### 2. Manual Hardware Checks
 
-The runtime includes comprehensive testing modules to verify all hardware components:
+The modules under `lelamp/test/` are interactive hardware checks. They are not
+part of the automated pytest suite and must only be run with the intended device
+connected. The repository-level automated tests live under `../tests/`.
 
 #### RGB LEDs
 
 ```bash
 # Run with sudo for hardware access
-sudo uv run -m lelamp.test.test_rgb
+sudo uv run -m lelamp.test.check_rgb
 ```
 
 #### Audio System (Microphone and Speaker)
 
 ```bash
-uv run -m lelamp.test.test_audio
+uv run -m lelamp.test.check_audio
 ```
 
 #### Motors
 
 ```bash
-uv run -m lelamp.test.test_motors \
+uv run -m lelamp.test.check_motors \
   --id lelamp --port the_port_found_in_previous_step \
   --recording movement_sequence_name
 ```
@@ -177,7 +179,7 @@ named motion except the long `idle` loop. Add `--hold` to keep the service and
 motor torque active after the last motion:
 
 ```bash
-uv run -m lelamp.test.test_motors \
+uv run -m lelamp.test.check_motors \
   --id lelamp --port the_port_found_in_previous_step \
   --all --speed 0.6 --pause-seconds 2 --hold
 ```
@@ -267,7 +269,7 @@ You can tune these:
 To verify recordings before movement, run:
 
 ```bash
-uv run -m lelamp.test.analyze_recordings \
+uv run -m lelamp.tools.analyze_recordings \
   --recording movement_sequence_name --max-step 3.0
 ```
 

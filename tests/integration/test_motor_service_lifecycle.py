@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lelamp_runtime"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lelamp_runtime"))
 
 from lelamp.playback import HOME_POSE, SLEEP_POSE, park_and_disconnect  # noqa: E402
 

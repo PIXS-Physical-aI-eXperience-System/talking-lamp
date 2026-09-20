@@ -15,7 +15,7 @@ def select_recordings(requested, available, *, play_all):
         )
     return list(requested)
 
-def test_motors_service():
+def main():
     from lelamp.service.motors import MotorsService
 
     parser = argparse.ArgumentParser(description="Test Motors Service")
@@ -88,9 +88,9 @@ def test_motors_service():
         help="Keep the motors connected and holding the final pose until Ctrl-C.",
     )
     args = parser.parse_args()
-    
+
     print("Testing Motors Service...")
-    
+
     motors_service = MotorsService(
         port=args.port,
         lamp_id=args.id,
@@ -133,4 +133,4 @@ def test_motors_service():
         print("Motors Service test completed!")
 
 if __name__ == "__main__":
-    test_motors_service()
+    main()

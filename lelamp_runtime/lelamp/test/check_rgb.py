@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from service.rgb import RGBService
 from service.base import Priority
 
-def test_rgb_service():
+def main():
     print("Testing RGB Service...")
     
     rgb_service = RGBService()
@@ -52,4 +52,4 @@ def test_rgb_service():
         print("RGB Service test completed!")
 
 if __name__ == "__main__":
-    test_rgb_service()
+    main()
