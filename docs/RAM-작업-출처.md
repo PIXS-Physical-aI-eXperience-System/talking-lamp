@@ -11,7 +11,7 @@ Jetson VLM RAM 경량화 작업(`feat/ram-lightweight`)에서 어디까지 새�
 | 한국어 정규화 `normalize` | `voice-bench/ko_normalize.py` | 팀원 작업 |
 | BERT ONNX, VITS ONNX 모델 | `voice-bench/models/melo-ko-onnx/` | 팀원이 변환한 모델 파일 |
 
-`tools/tts_single.py`는 위 함수 import해서 호출만 함. TTS 로직 재구현 안 함.
+음성 팀의 TTS 구현과 이를 호출하는 러너는 이 브랜치에 포함하지 않음.
 
 ## 설정값만 따라간 것
 
@@ -19,8 +19,8 @@ Jetson VLM RAM 경량화 작업(`feat/ram-lightweight`)에서 어디까지 새�
 |---|---|
 | STT 모델 구성 | `faster-whisper small`, `cuda`, `int8_float16` — voice-bench 최종 확정값과 동일 |
 
-`tools/stt_quick.py`는 코드 import 안 하고 `faster_whisper` 라이브러리 직접 호출.
-모델/디바이스/양자화 설정만 voice-bench 결정 따라감.
+STT 실행 러너도 이 브랜치에 포함하지 않음. 통합 시에는 음성 팀이
+제공하는 인터페이스를 사용해야 함.
 
 ## 새로 만든 것
 
@@ -30,7 +30,6 @@ Jetson VLM RAM 경량화 작업(`feat/ram-lightweight`)에서 어디까지 새�
 | 한국어 닫힌 라벨 렌더러 | `tools/render_scene_ko.py` |
 | RAM 측정 하네스 | `tools/ram_probe.py`, `tools/repeat_ram_experiment.py` |
 | VLM 품질·파이프라인 통합 판정 | `tools/evaluate_vlm_quality.py`, `tools/evaluate_pipeline_run.py` |
-| STT→VLM→렌더러→TTS 직렬 오케스트레이션 | `tools/run_dialogue_memory.sh` |
 
 ## 결론
 

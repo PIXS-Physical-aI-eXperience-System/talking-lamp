@@ -22,7 +22,7 @@ JSON이며, 한국어 발화는 200자 이하, 행동은 기존 CSV 목록으로
 JSON 규약 통과는 시각적 사실의 정확성을 보증하지 않는다.
 
 벤치 결과에는 `checks.runtime_contract`와 `handoff`가 추가된다.
-`handoff.tts`는 `tools/tts_single.py --input`의 `{"text": ...}` 형식이다.
+`handoff.tts`는 음성 팀 어댑터에 넘길 `{"text": ...}` 형식이다.
 `handoff.motion`은 미들웨어 `MotionClient.request(type, payload)` 인자이며,
 인증 토큰·UUID·TTL을 담은 전송 패킷 자체가 아니다.
 
@@ -62,8 +62,8 @@ python tools/replay_vlm_scenarios.py \
 
 통과한 케이스만 NullBackend 모션 런타임으로 100 tick 진행하고 TTS 입력을
 저장한다. 실제 모터나 스피커는 구동하지 않는다. 실패한 케이스가 있으면
-보고서를 남기고 종료 코드 1을 반환한다. 오디오 합성은 음성 브랜치의 모델과
-런타임을 준비한 뒤 생성된 `NNN-tts.json`을 `tools/tts_single.py`에 전달한다.
+보고서를 남기고 종료 코드 1을 반환한다. 오디오 합성은 음성 브랜치가
+제공하는 TTS 어댑터에 생성된 `NNN-tts.json`의 `text`를 전달한다.
 
 기존 9월 15일 결과는 1B 0/7, 2B 1/7 통과다. 영어 관찰 키워드 검사에
 한국어 관찰이 실패하는 평가 언어 문제도 있으므로 전체 실패를 그대로
