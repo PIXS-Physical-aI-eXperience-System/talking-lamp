@@ -20,3 +20,6 @@ wheels/
 
 # 협의 문서는 md만 커밋 (pdf는 md와 중복되고 곧 낡음)
 docs/협의/*.pdf
+
+# Superpowers local state
+.superpowers/

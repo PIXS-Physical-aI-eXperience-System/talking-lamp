@@ -30,6 +30,11 @@ from lerobot.motors.feetech import (
 from lerobot.robots import Robot
 from lerobot.robots.utils import ensure_safe_goal_position
 from .config_lelamp_follower import LeLampFollowerConfig
+from lelamp.motor_tuning import (
+    position_p_coefficient,
+    require_motor_calibration_match,
+    validate_calibration_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,17 +98,36 @@ class LeLampFollower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        self.bus.connect()
-        if not self.is_calibrated and calibrate:
-            logger.info(
-                "Mismatch between calibration values in the motor and the calibration file or no calibration file found"
-            )
-            self.calibrate()
+        if self.config.enforce_calibration_profile:
+            # Validate before opening the bus: configure() enables torque and
+            # every motion/sleep pose is bound to this exact calibration.
+            validate_calibration_profile(self.id, self.calibration)
+        try:
+            self.bus.connect()
+            if self.config.enforce_calibration_profile:
+                # Read motor EEPROM after the port opens, then fail before
+                # configure() can enable torque if a servo was reset/replaced.
+                require_motor_calibration_match(self.is_calibrated)
+            elif not self.is_calibrated and calibrate:
+                logger.info(
+                    "Mismatch between calibration values in the motor and the "
+                    "calibration file or no calibration file found"
+                )
+                self.calibrate()
 
-        for cam in self.cameras.values():
-            cam.connect()
+            for cam in self.cameras.values():
+                cam.connect()
 
-        self.configure()
+            self.configure()
+        except BaseException:
+            for cam in self.cameras.values():
+                if cam.is_connected:
+                    cam.disconnect()
+            if self.bus.is_connected:
+                # configure() enables torque only in its success branch; this
+                # also makes an EEPROM mismatch close without motion.
+                self.bus.disconnect(disable_torque=True)
+            raise
         logger.info(f"{self} connected.")
 
     @property
@@ -150,15 +174,31 @@ class LeLampFollower(Robot):
         print("Calibration saved to", self.calibration_fpath)
 
     def configure(self) -> None:
-        with self.bus.torque_disabled():
+        self.bus.disable_torque()
+        try:
             self.bus.configure_motors()
             for motor in self.bus.motors:
                 self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
-                # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-                self.bus.write("P_Coefficient", motor, 16)
+                # Loaded pitch joints need the factory gain to overcome gravity;
+                # keep the lower gain on lightly loaded joints to avoid shakiness.
+                self.bus.write(
+                    "P_Coefficient", motor, position_p_coefficient(motor)
+                )
                 # Set I_Coefficient and D_Coefficient to default value 0 and 32
                 self.bus.write("I_Coefficient", motor, 0)
                 self.bus.write("D_Coefficient", motor, 32)
+            # Seed every goal with its present raw encoder position before
+            # enabling torque. Otherwise a stale Goal_Position can make the
+            # arm jump as soon as the connection finishes configuring.
+            present_raw = self.bus.sync_read("Present_Position", normalize=False)
+            self.bus.sync_write("Goal_Position", present_raw, normalize=False)
+            time.sleep(0.05)
+        except Exception:
+            # A partial configuration must remain limp rather than enabling
+            # torque with an unknown goal position.
+            raise
+        else:
+            self.bus.enable_torque(num_retry=3)
 
     def setup_motors(self) -> None:
         for motor in reversed(self.bus.motors):
