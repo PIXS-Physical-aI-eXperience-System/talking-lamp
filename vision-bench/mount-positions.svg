@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 560" width="100%" role="img"
+     aria-label="LeLamp 측면도. 휴식 자세에서 베이스 0cm, 어깨 8.3cm, 팔꿈치 29.3cm, 헤드 34.7cm. 팔꿈치는 뒤쪽으로 12cm 젖혀진 지점이며 카메라 마운트 후보 구간이다.">
+  <style>
+    .bg    { fill:#ffffff }
+    .desk  { stroke:#8a8a8a; stroke-width:2 }
+    .deskf { fill:#f0f0f2 }
+    .link  { stroke:#5a5a62; stroke-width:9; stroke-linecap:round; fill:none }
+    .zone  { stroke:#16a34a; stroke-width:15; stroke-linecap:round; fill:none; opacity:.30 }
+    .joint { fill:#ffffff; stroke:#4a4a52; stroke-width:2.5 }
+    .head  { fill:#e8613c; stroke:#b2462a; stroke-width:2 }
+    .gl    { stroke:#c8c8ce; stroke-width:1; stroke-dasharray:4 4 }
+    .thr   { stroke:#16a34a; stroke-width:1.5; stroke-dasharray:7 4 }
+    .bad   { stroke:#dc2626; stroke-width:1.5; stroke-dasharray:7 4 }
+    .t     { fill:#1a1a1a; font-size:13px }
+    .ts    { fill:#5c5c5c; font-size:11.5px }
+    .tb    { fill:#1a1a1a; font-size:13px; font-weight:600 }
+    .ok    { fill:#15803d; font-size:12px; font-weight:600 }
+    .no    { fill:#b91c1c; font-size:12px; font-weight:600 }
+    text   { font-family:'Pretendard','Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif }
+    @media (prefers-color-scheme: dark) {
+      .bg{fill:#1b1b1d} .deskf{fill:#2a2a2e} .desk{stroke:#7a7a84}
+      .link{stroke:#b4b4be} .joint{fill:#2b2b30;stroke:#b4b4be}
+      .gl{stroke:#44444c} .t{fill:#f0f0f2} .ts{fill:#b2b2ba} .tb{fill:#f0f0f2}
+      .ok{fill:#4ade80} .no{fill:#f87171} .thr{stroke:#4ade80} .bad{stroke:#f87171}
+    }
+  </style>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#5c5c5c"/>
+  </marker>
+  <rect class="bg" x="0" y="0" width="700" height="560"/>
+
+  <!-- 높이 눈금 -->
+  <g>
+    <line class="gl" x1="95" y1="480" x2="620" y2="480"/>
+    <line class="bad" x1="95" y1="434" x2="620" y2="434"/>
+    <line class="gl" x1="95" y1="389" x2="620" y2="389"/>
+    <line class="thr" x1="95" y1="205" x2="620" y2="205"/>
+    <line class="gl" x1="95" y1="158" x2="620" y2="158"/>
+    <line class="gl" x1="95" y1="98"  x2="620" y2="98"/>
+    <text class="ts" x="88" y="484" text-anchor="end">0 cm · 책상면</text>
+    <text class="ts" x="88" y="438" text-anchor="end">4.2 cm</text>
+    <text class="ts" x="88" y="393" text-anchor="end">8.3 cm</text>
+    <text class="ok" x="88" y="209" text-anchor="end">25 cm · 최소 필요 높이</text>
+    <text class="ts" x="88" y="162" text-anchor="end">29.3 cm</text>
+    <text class="ts" x="88" y="102" text-anchor="end">34.7 cm</text>
+  </g>
+
+  <!-- 책상 -->
+  <rect class="deskf" x="95" y="480" width="525" height="42"/>
+  <line class="desk" x1="95" y1="480" x2="620" y2="480"/>
+  <text class="ts" x="500" y="503">사용자 · 작업 영역 →</text>
+
+  <!-- 팔 링크 -->
+  <path class="link" d="M258,480 L258,434 L257,389 L124,158"/>
+  <path class="link" d="M124,158 L326,130 L374,136 L460,98"/>
+
+  <!-- 마운트 후보 구간 (Base-Elbow 링크의 60~100%) -->
+  <path class="zone" d="M178,250 L124,158"/>
+
+  <!-- 관절 -->
+  <circle class="joint" cx="258" cy="480" r="7"/>
+  <circle class="joint" cx="258" cy="434" r="7"/>
+  <circle class="joint" cx="257" cy="389" r="8"/>
+  <circle class="joint" cx="124" cy="158" r="10"/>
+  <circle class="joint" cx="326" cy="130" r="7"/>
+  <circle class="joint" cx="374" cy="136" r="7"/>
+  <path class="head" d="M460,98 L505,78 L516,108 L471,128 z"/>
+
+  <!-- 관절 이름 -->
+  <text class="ts" x="272" y="484">베이스</text>
+  <text class="ts" x="272" y="428">base_yaw</text>
+  <text class="ts" x="272" y="383">base_pitch · 어깨</text>
+  <text class="tb" x="108" y="140" text-anchor="end">elbow_pitch</text>
+  <text class="tb" x="108" y="156" text-anchor="end">← 팔꿈치</text>
+  <text class="ts" x="330" y="118">손목</text>
+  <text class="ts" x="500" y="66">헤드 (조명 · 네오픽셀)</text>
+
+  <!-- 링크 이름 -->
+  <text class="ts" x="150" y="300" transform="rotate(-60 150 300)">Base-Elbow 링크 24.2 cm</text>
+  <text class="ts" x="215" y="112">Elbow-Wrist 링크</text>
+
+  <!-- 마운트 후보 설명 -->
+  <g>
+    <rect x="360" y="200" width="255" height="112" rx="8" fill="#16a34a" opacity=".10"/>
+    <text class="ok" x="374" y="224">B안 · 카메라 마운트 후보 구간</text>
+    <text class="ts" x="374" y="246">Base-Elbow 링크의 위쪽 60~100 % 지점</text>
+    <text class="ts" x="374" y="265">높이 20.9 ~ 29.3 cm</text>
+    <text class="ts" x="374" y="284">영향받는 관절: base_yaw, base_pitch 2개</text>
+    <text class="ts" x="374" y="303">base_yaw 는 높이를 바꾸지 않는다</text>
+  </g>
+  <line class="gl" x1="358" y1="250" x2="190" y2="235" marker-end="url(#ar)" stroke-dasharray="0"/>
+
+  <!-- 배제된 구간 -->
+  <g>
+    <rect x="360" y="404" width="255" height="56" rx="8" fill="#dc2626" opacity=".10"/>
+    <text class="no" x="374" y="428">C안 · 베이스 본체 (0 ~ 4.2 cm)</text>
+    <text class="ts" x="374" y="448">5 cm 실측에서 키보드 검출 0건 → 배제</text>
+  </g>
+  <line class="gl" x1="358" y1="432" x2="272" y2="458" marker-end="url(#ar)" stroke-dasharray="0"/>
+
+  <!-- 좌표 주석 -->
+  <text class="ts" x="95" y="536">휴식 자세(REST_POSE) 기준. MuJoCo 모델 순기구학으로 계산. 팔은 뒤로 젖혀 올라갔다가 앞으로 넘어온다.</text>
+</svg>

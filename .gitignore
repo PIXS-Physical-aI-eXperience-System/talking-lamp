@@ -23,3 +23,7 @@ docs/협의/*.pdf
 
 # Superpowers local state
 .superpowers/
+
+# 비전 작업 산출물 (재현 가능하거나 사무실 사진이라 커밋하지 않음)
+vision-bench/images/
+vision-bench/models/
