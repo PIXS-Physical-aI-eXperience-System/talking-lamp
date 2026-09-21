@@ -164,8 +164,27 @@ def _pump(sock, f):
             link.send(sock, link.PONG)
 
 
+def load_runs(paths):
+    """따로 잰 결과들을 하나로 합친다.
+
+    부르기와 대화를 다른 날 재도 된다. 구간마다 자기 시각을 들고 있으므로
+    그냥 이어 붙이면 섞이지 않는다.
+    """
+    rec, marks = [], []
+    for path in paths:
+        with open(path) as f:
+            d = json.load(f)
+        rec += [(t, s, a) for t, s, a in d["scores"]]
+        marks += [(m, a, b) for m, a, b in d["marks"]]
+    rec.sort(key=lambda r: r[0])
+    return rec, marks
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--report", nargs="+", metavar="JSON",
+                    help="이미 잰 결과 파일들로 표만 다시 뽑는다. "
+                         "여러 개를 주면 합쳐서 센다")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=5150)
     ap.add_argument("--wake-model", default="models/wake/pixs-ya.onnx")
@@ -178,6 +197,12 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="모델이 열리는지만 보고 끝낸다. 재기 전에 먼저 할 것")
     a = ap.parse_args()
+
+    if a.report:
+        rec, marks = load_runs(a.report)
+        print(f"결과 {len(a.report)}개를 합쳐서 센다")
+        report(rec, marks, os.path.join(a.out, "wake-field-합본.json"))
+        return
 
     f = Field(os.path.join(ROOT, a.wake_model), 0.5, 1)   # 기록만 — 판정은 나중에
     if a.check:
@@ -208,11 +233,14 @@ def main():
     else:
         print(f"  마이크 프레임 들어오는 중 ({f.frames}개)")
 
-    print(f"\n{'='*58}")
-    print(f'① 부르기 — "{PHRASE}" 를 {a.calls}번 부른다')
-    print(f"{'='*58}")
-    print("매번 Enter 를 누르고 부른다. 말투와 거리를 바꿔 가며 부를 것.")
-    print("(평소, 작게, 크게, 빠르게, 천천히, 멀리서, 고개 돌린 채)")
+    if a.calls == 0:
+        print("\n① 부르기 — 건너뛴다(--calls 0)")
+    else:
+        print(f"\n{'='*58}")
+        print(f'① 부르기 — "{PHRASE}" 를 {a.calls}번 부른다')
+        print(f"{'='*58}")
+        print("매번 Enter 를 누르고 부른다. 말투와 거리를 바꿔 가며 부를 것.")
+        print("(평소, 작게, 크게, 빠르게, 천천히, 멀리서, 고개 돌린 채)")
     for i in range(a.calls):
         input(f"\n  [{i+1}/{a.calls}] Enter 누르고 부르세요 → ")
         t0 = time.time()
@@ -230,25 +258,33 @@ def main():
         got = max(got_all)
         print(f"      최고 점수 {got:.3f}" + ("  ✔" if got >= 0.7 else "  ✗"))
 
-    print(f"\n{'='*58}")
-    print(f"② 헛깨움 — {a.talk_min:.0f}분 동안 평소처럼 대화한다")
-    print(f"{'='*58}")
-    print(f'호출어("{PHRASE}") 는 말하지 말 것. 여러 명이면 더 좋다.')
-    print("램프는 대답하지 않는다 — 점수만 센다.")
-    input("\n  준비되면 Enter → ")
-    t0 = time.time()
-    end = t0 + a.talk_min * 60
-    try:
-        while time.time() < end:
-            left = end - time.time()
-            n = fired_runs(window(f.rec, t0, time.time()), 0.7, 2)
-            print(f"\r  남은 시간 {int(left)//60}:{int(left)%60:02d}   "
-                  f"지금까지 헛깨움 {n}회 (임계 0.7 기준)", end="", flush=True)
-            time.sleep(1.0)
-    except KeyboardInterrupt:
-        print("\n  중단 — 여기까지로 센다")
-    f.mark("talk", t0, time.time())
-    print()
+    if a.talk_min <= 0:
+        print("\n② 헛깨움 — 건너뛴다(--talk-min 0). 나중에 이렇게 돌린다:")
+        print("     venvs/melo-onnx/bin/python bench/wake_field.py --calls 0")
+    else:
+        print(f"\n{'='*58}")
+        print(f"② 헛깨움 — {a.talk_min:.0f}분 동안 평소처럼 대화한다")
+        print(f"{'='*58}")
+        print(f'호출어("{PHRASE}") 는 말하지 말 것. 여러 명이면 더 좋다.')
+        print("램프는 대답하지 않는다 — 점수만 센다.")
+        # input() 까지 try 안에 넣는다. 밖에 두면 여기서 Ctrl+C 를 누를 때
+        # 프로그램이 그냥 죽어서 앞서 부른 20번이 통째로 날아간다.
+        t0 = time.time()
+        try:
+            input("\n  준비되면 Enter (지금 Ctrl+C 해도 ①은 저장된다) → ")
+            t0 = time.time()
+            end = t0 + a.talk_min * 60
+            while time.time() < end:
+                left = end - time.time()
+                n = fired_runs(window(f.rec, t0, time.time()), 0.7, 2)
+                print(f"\r  남은 시간 {int(left)//60}:{int(left)%60:02d}   "
+                      f"지금까지 헛깨움 {n}회 (임계 0.7 기준)", end="", flush=True)
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            print("\n  중단 — 여기까지로 센다")
+        if time.time() - t0 > 5:
+            f.mark("talk", t0, time.time())
+        print()
 
     os.makedirs(a.out, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
