@@ -230,6 +230,11 @@ def main():
     ap.add_argument("--neg-aug", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--lopo-only", action="store_true")
+    ap.add_argument("--holdout", metavar="이름",
+                    help="그 사람을 빼고 학습해 따로 내보낸다. 실제 마이크로 "
+                         "'학습에 없던 목소리' 를 재려면 이게 필요하다 — "
+                         "팀원이 전부 학습에 들어가 있어서, 남을 구하는 대신 "
+                         "그 사람을 뺀 모델을 만든다")
     ap.add_argument("--cache", default=os.path.join(ROOT, "out/wake-feats.npz"))
     ap.add_argument("--rebuild", action="store_true")
     ap.add_argument("--tts-neg", help="합성 부정 wav 디렉터리. 주면 학습에만 넣는다")
@@ -277,6 +282,25 @@ def main():
         print(f"{th:>6.1f} {hit*100:>8.1f}% {fa*100:>8.2f}%")
 
     if a.lopo_only:
+        return
+
+    if a.holdout:
+        if a.holdout not in names:
+            raise SystemExit(f"그런 사람이 없다: {a.holdout} (있는 사람: {names})")
+        keep = who != a.holdout
+        print(f"\n{a.holdout} 를 빼고 학습 — 그 사람에게는 처음 듣는 목소리가 된다")
+        m = train(X[keep], y[keep], a.seed)
+        # 파일 이름에 사람 이름을 넣지 않는다. 한글 파일명이 젯슨 로케일에서
+        # 깨지면 --wake-model 로 가리키기가 성가시다. 누구를 뺐는지는
+        # 화면과 문서에 적는다.
+        out = a.out.replace(".onnx", "-holdout.onnx")
+        path = export_onnx(m, out)
+        sc = score(m, X[keep])
+        err = verify_onnx(path, X[keep][:100], sc[:100])
+        print(f"  저장 {os.path.relpath(path, ROOT)}  "
+              f"(sklearn 과 최대 차이 {err:.2e})")
+        print("  이 모델로 실제 마이크에서 재면 그게 학습 밖 숫자다:")
+        print(f"    bench/wake_field.py --wake-model {os.path.relpath(path, ROOT)}")
         return
 
     print("\n다섯 명 전부로 최종 학습")
