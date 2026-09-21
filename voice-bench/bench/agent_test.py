@@ -235,37 +235,6 @@ def main() -> int:
     if agent.state != LISTENING or len(agent._buf) <= n_before:
         fails.append("끼어든 직후 speech_id 가 비었다고 발화를 잘라버렸다")
 
-    # ⑥ 깨우면 "네" 하고 대답한다 ────────────────────────────────────
-    #    파이는 재생 중과 그 뒤 0.3초 동안 VAD 를 끈다. 그 구간의 speech_id
-    #    는 비어서 오는데 그것을 "말이 끝났다" 로 읽으면 대답하자마자 턴이
-    #    끝난다. 이 시험이 그것만 본다.
-    sent6, states6 = [], []
-    ack = np.zeros(int(16000 * 0.4), dtype=np.float32)
-    agent6 = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
-                        on_utterance=lambda t: "네",
-                        send=lambda k, p: sent6.append((k, p)),
-                        on_state=states6.append, ack_wav=ack)
-    agent6.on_capture("sid-6", frame(-20))           # 깨어남
-    time.sleep(0.3)                                   # 대답 스레드가 나가도록
-    kinds = [k for k, _ in sent6]
-    print(f"  ⑥ 깨우면 대답        보낸 것 "
-          f"{sorted(set(k.decode() for k in kinds))}   상태 {agent6.state}")
-    if link.SPEAK_AUDIO not in kinds:
-        fails.append("깨웠는데 대답 오디오가 안 나갔다")
-
-    for _ in range(40):                               # 0.8초 — 기본 0.6초보다 길다
-        agent6.on_capture("", frame(-50))
-    print(f"  ⑥-b 대답 중 표시 없음  상태 {agent6.state} (듣기여야 한다)")
-    if agent6.state != LISTENING:
-        fails.append(f"대답하는 동안 턴이 끝났다: {agent6.state}")
-
-    before6 = len(agent6._buf)
-    for _ in range(20):
-        agent6.on_capture("sid-6", frame(-20))
-    print(f"  ⑥-c 대답 뒤 사람 말함  모은 프레임 {before6} → {len(agent6._buf)}")
-    if len(agent6._buf) <= before6:
-        fails.append("대답 뒤에 들어온 말을 안 모았다")
-
     print()
     if fails:
         print("  ✗ 실패:", ", ".join(fails))

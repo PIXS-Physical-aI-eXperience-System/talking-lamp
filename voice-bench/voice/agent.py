@@ -50,7 +50,6 @@ MIN_UTTERANCE_FRAMES = 20    # 0.4초보다 짧으면 발화로 치지 않는다
 PREROLL_FRAMES = 15          # 0.3초. 깨어나기 직전 소리도 함께 넘긴다
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
 BARGE_RISE_DB = 20.0         # 바닥 대비 이만큼 올라야 끼어든 것으로 본다
-ACK_GRACE_S = 1.6            # "네" 하는 동안과 그 뒤 — 파이 VAD 를 믿지 않는다
 
 
 def _db(x):
@@ -110,7 +109,7 @@ class BargeInDetector:
 
 class VoiceAgent:
     def __init__(self, stt, tts, wake, on_utterance, send, on_state=None,
-                 rise_db=BARGE_RISE_DB, ack_wav=None):
+                 rise_db=BARGE_RISE_DB):
         self.stt = stt
         self.tts = tts
         self.wake = wake
@@ -118,8 +117,6 @@ class VoiceAgent:
         self.send = send                      # send(kind, payload)
         self.on_state = on_state or (lambda s: None)
         self.barge = BargeInDetector(rise_db=rise_db)
-        # 깨어나자마자 낼 짧은 대답. 미리 합성해 둔 파형이라 TTS 를 타지 않는다.
-        self.ack_wav = ack_wav
 
         self.state = IDLE
         self.speech_id = ""
@@ -206,7 +203,6 @@ class VoiceAgent:
                 self._voiced = 1
                 self._t0 = time.time()
                 self._set(LISTENING)
-                self._ack()
             return
 
         # LISTENING
@@ -256,34 +252,6 @@ class VoiceAgent:
             threading.Thread(target=self._think_and_speak,
                              args=(audio, self.speech_id, time.time()), daemon=True).start()
             self._set(THINKING)
-
-    def _ack(self):
-        """깨어났다고 짧게 대답한다.
-
-        지연을 줄이지는 못한다. 사람이 기다리는 줄 모르게 만들 뿐이다 —
-        답이 2~3초 뒤에 와도 "듣고 있다" 는 신호가 0.3초 안에 오면 체감이
-        완전히 다르다.
-
-        파이는 재생 중과 그 뒤 0.3초 동안 자기 목소리에 반응하지 않으려고
-        VAD 를 끈다. 그 구간의 speech_id 는 비어서 오는데, 그걸 "말이
-        끝났다" 로 읽으면 대답하자마자 턴이 끝난다. barge-in 뒤에 쓰던
-        유예를 여기에도 건다 — 그동안은 파이 판정을 믿지 않는다.
-        """
-        if self.ack_wav is None:
-            return
-        self._grace_until = time.time() + ACK_GRACE_S
-        self._grace_floor = None      # 유예 동안에는 끝났다고 보지 않는다
-        self._quiet_run = 0
-
-        def run():
-            try:
-                self.send(link.SPEAK_BEGIN, link.pack_id(self.speech_id))
-                self._send_audio(self.ack_wav, self.tts.samplerate)
-                self.send(link.SPEAK_END, b"")
-            except Exception as e:
-                print(f"  ! 대답 실패: {type(e).__name__}: {e}")
-
-        threading.Thread(target=run, daemon=True).start()
 
     def _while_speaking(self, pcm):
         hit, cur, floor = self.barge.update(pcm)
