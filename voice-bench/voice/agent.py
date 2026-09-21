@@ -49,6 +49,7 @@ PI_END_FRAMES = 30           # 0.6초 연속으로 표시가 없어야 발화 �
 MIN_UTTERANCE_FRAMES = 20    # 0.4초보다 짧으면 발화로 치지 않는다
 PREROLL_FRAMES = 15          # 0.3초. 깨어나기 직전 소리도 함께 넘긴다
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
+BARGE_RISE_DB = 20.0         # 바닥 대비 이만큼 올라야 끼어든 것으로 본다
 
 
 def _db(x):
@@ -61,9 +62,18 @@ class BargeInDetector:
     고정 dB 임계값을 쓰지 않는 이유: 같은 조건에서 세 번 쟀을 때 조용할 때가
     -20 dB 였다가 -83 dB 로 나온 적이 있다. 절대값을 기준으로 삼으면 그런
     회차에 통째로 틀린다. 재생 중 바닥은 매번 새로 재면 된다.
+
+    rise_db 를 12 에서 20 으로 올렸다. 실제 장비에서 램프 자기 목소리만으로
+    바닥 대비 15.1 dB 까지 올라갔고(에코 제거를 통과하고 남은 것), 그게
+    12 를 넘어서 램프가 자기 목소리에 놀라 자기 말을 끊었다 —
+    `재생 결과 success=False code=cancelled` 가 그것이었다.
+
+    20 으로 두면 자기 목소리(15.1) 위로 5 dB 여유가 있고, 사람이 실제로
+    끼어들 때(직전 실측 28 dB) 아래로 8 dB 여유가 있다. 다만 **이 장비에서
+    사람이 끼어드는 것은 아직 안 재봤다.** 안 걸리면 낮출 것.
     """
 
-    def __init__(self, rise_db=12.0, need_frames=3, floor_frames=15,
+    def __init__(self, rise_db=BARGE_RISE_DB, need_frames=3, floor_frames=15,
                  hold_s=1.0):
         self.rise_db = rise_db
         self.need_frames = need_frames
@@ -99,7 +109,7 @@ class BargeInDetector:
 
 class VoiceAgent:
     def __init__(self, stt, tts, wake, on_utterance, send, on_state=None,
-                 rise_db=12.0):
+                 rise_db=BARGE_RISE_DB):
         self.stt = stt
         self.tts = tts
         self.wake = wake

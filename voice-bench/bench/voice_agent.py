@@ -23,7 +23,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
 from voice import link                    # noqa: E402
-from voice.agent import VoiceAgent        # noqa: E402
+from voice.agent import BARGE_RISE_DB, VoiceAgent   # noqa: E402
 from voice.stt import Stt                 # noqa: E402
 from voice.tts import Tts                 # noqa: E402
 from voice.llm import load_llm          # noqa: E402
@@ -113,9 +113,10 @@ def main() -> int:
                                   "예: http://127.0.0.1:8080/v1/chat/completions")
     ap.add_argument("--llm-model", default="local")
     ap.add_argument("--llm-timeout", type=float, default=20.0)
-    ap.add_argument("--rise-db", type=float, default=12.0,
+    ap.add_argument("--rise-db", type=float, default=BARGE_RISE_DB,
                     help="재생 중 바닥 대비 몇 dB 오르면 끼어든 것으로 볼지. "
-                         "실측에서 끼어들면 최악 28 dB 튀었다")
+                         "램프 자기 목소리가 15.1 dB 까지 올라가고 사람이 "
+                         "끼어들면 28 dB 튄다. 안 걸리면 낮출 것")
     args = ap.parse_args()
 
     print("적재 중…")

@@ -180,6 +180,29 @@ def main() -> int:
     if link.BARGE_IN in early:
         fails.append("말하기 시작 직후 자기 목소리를 끼어듦으로 오인했다")
 
+    # ④-0b 램프 자기 목소리(바닥 대비 15 dB)에는 끊지 않는다 ───────────
+    #    실기기에서 에코 제거를 통과하고 남은 자기 목소리가 바닥 대비
+    #    15.1 dB 까지 올라갔다. 임계가 12 였을 때 램프가 자기 말을 끊었다
+    #    (파이가 code=cancelled 를 돌려줬다). 여기서 막는다.
+    sent_self = []
+    agent_self = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
+                            on_utterance=lambda t: "네",
+                            send=lambda k, p: sent_self.append((k, p)),
+                            on_state=lambda s: None)
+    agent_self.state = SPEAKING
+    agent_self.barge.hold_s = 0.0
+    agent_self.barge.reset()
+    for _ in range(20):                      # 바닥 — 램프가 조용히 말하는 중
+        agent_self.on_capture("", frame(-55))
+    for _ in range(40):                      # 자기 목소리가 15 dB 올라간다
+        agent_self.on_capture("", frame(-40))
+    self_fired = [k.decode() for k, _ in sent_self]
+    print(f"  ④-0b 자기 목소리 15dB  보낸 것 {self_fired or '없음'}   "
+          f"(임계 {agent_self.barge.rise_db:.0f}dB)")
+    if link.BARGE_IN in [k for k, _ in sent_self]:
+        fails.append("램프 자기 목소리(15dB)를 끼어듦으로 오인했다 — "
+                     "rise_db 가 너무 낮다")
+
     # 이제 대기가 끝난 상태로 만들어 바닥을 잡게 한다
     agent.barge.hold_s = 0.0
     agent.barge.reset()
@@ -187,7 +210,10 @@ def main() -> int:
         agent.on_capture("", frame(-55))
     before = [k for k, _ in sent2]
     for _ in range(5):                       # 갑자기 크게 — 끼어듦
-        agent.on_capture("", frame(-20))
+        # 실측에서 사람이 끼어들면 바닥 대비 28 dB 튀었다. 바닥이 -55 이므로
+        # -27 이 그 값이다. 시험을 실제 값에 맞춰 둬야 임계를 올렸을 때
+        # 여기서 잡힌다.
+        agent.on_capture("", frame(-27))
     after = [k for k, _ in sent2]
     print(f"  ④ barge-in           바닥 구간 {len(before)}건 → 이후 "
           f"{[k.decode() for k in after]}   상태 {agent.state}")
