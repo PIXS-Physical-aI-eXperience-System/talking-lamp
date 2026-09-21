@@ -101,6 +101,22 @@ def report(rec, marks, out_path):
 
     print(f"\n{'='*58}")
     print(f"부른 횟수 {len(calls)}회, 대화 {talk_s/60:.1f}분, 점수 {len(rec)}개")
+    if calls:
+        mx = sorted(max(window(rec, t0, t1)) for _, t0, t1 in calls)
+        # 못 깨어난 것이 아깝게 못 넘긴 건지 아예 0점인지 갈라야 한다.
+        # 앞이면 임계값 문제고, 뒤면 모델이 그 소리를 아예 모른다는 뜻이라
+        # 임계값을 아무리 내려도 안 된다.
+        near = sum(1 for v in mx if 0.1 <= v < 0.7)
+        zero = sum(1 for v in mx if v < 0.1)
+        print(f"\n부를 때마다의 최고 점수 (낮은 순)")
+        print("  " + "  ".join(f"{v:.2f}" for v in mx))
+        print(f"  0.7 이상 {len(mx)-near-zero}회 / "
+              f"아깝게 못 넘김(0.1~0.7) {near}회 / "
+              f"거의 0점 {zero}회")
+        if zero > near:
+            print("  → 임계값 문제가 아니다. 모델이 그 소리를 아예 못 알아본다")
+        elif near:
+            print("  → 임계값을 내리면 일부는 건진다")
     if skipped:
         print(f"! {skipped}회는 파이 VAD 가 말로 보지 않아 뺐다 — 마이크 쪽 문제다")
     print(f"{'='*58}\n")
