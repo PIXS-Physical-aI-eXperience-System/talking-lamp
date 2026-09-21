@@ -125,14 +125,43 @@ class VoiceAgent:
         self._grace_floor = None
         self._quiet_run = 0
         self._stop_speaking = threading.Event()
+        self._mic = []          # 말하는 동안의 (현재 dB, 바닥 dB)
         self._speak_thread = None
         self._lock = threading.Lock()
 
     # ── 상태 ────────────────────────────────────────────────────────────
     def _set(self, s):
         if s != self.state:
+            if self.state == SPEAKING:
+                self._report_speak_mic()
+            if s == SPEAKING:
+                self._mic = []
             self.state = s
             self.on_state(s)
+
+    def _report_speak_mic(self):
+        """말하는 동안 마이크가 어땠는지 한 줄로.
+
+        barge-in 이 실제 장비에서 되는지 보려면 이게 있어야 한다. 안 될 때
+        원인이 세 가지인데 로그가 없으면 구분이 안 된다.
+
+          프레임 0개  — 재생 중에는 파이가 캡처를 아예 안 보낸다. 그러면
+                        barge-in 은 구조상 불가능하다(파이 쪽을 고쳐야 한다).
+          대비 작음   — 에코 제거가 약해서 램프 목소리가 바닥을 올린다.
+                        rise_db 를 낮춰도 자기 목소리에 걸린다.
+          대비 충분   — 임계값만 조정하면 된다.
+        """
+        mic = getattr(self, "_mic", None)
+        if not mic:
+            print("  말하는 동안 마이크 프레임 0개 "
+                  "— 재생 중 캡처가 안 온다. barge-in 불가")
+            return
+        lv = [v for v, _ in mic]
+        floors = [f for _, f in mic if f is not None]
+        base = f"{min(floors):.1f}" if floors else "미정"
+        print(f"  말하는 동안 마이크 {len(mic)}프레임  "
+              f"바닥 {base} dB  최고 {max(lv):.1f} dB  "
+              f"대비 {max(lv) - (min(floors) if floors else max(lv)):.1f} dB")
 
     # ── ROS 노드가 부르는 것 ────────────────────────────────────────────
     def on_capture(self, speech_id, pcm):
@@ -206,6 +235,7 @@ class VoiceAgent:
 
     def _while_speaking(self, pcm):
         hit, cur, floor = self.barge.update(pcm)
+        self._mic.append((cur, floor))
         if hit:
             print(f"  barge-in: {cur:.1f} dB (바닥 {floor:.1f})")
             self.send(link.BARGE_IN, b"")
