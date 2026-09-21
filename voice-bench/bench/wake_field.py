@@ -175,9 +175,20 @@ def main():
     ap.add_argument("--talk-min", type=float, default=5.0,
                     help="헛깨움을 잴 대화 시간(분)")
     ap.add_argument("--out", default=os.path.join(ROOT, "out"))
+    ap.add_argument("--check", action="store_true",
+                    help="모델이 열리는지만 보고 끝낸다. 재기 전에 먼저 할 것")
     a = ap.parse_args()
 
     f = Field(os.path.join(ROOT, a.wake_model), 0.5, 1)   # 기록만 — 판정은 나중에
+    if a.check:
+        import numpy as np
+        for i in range(60):        # 1.2초치 무음을 넣어 실제로 돌려 본다
+            f.active_now = True
+            f.wake.detect(np.zeros(320, dtype=np.float32))
+        print(f"  {f.wake.name}")
+        print(f"  점수 {len(f.rec)}개 나옴 — 모델이 정상으로 돈다")
+        print("\n준비됐다. --check 없이 다시 띄우고 ROS 노드를 붙일 것")
+        return
     print(f"  {f.wake.name}")
     print("  (여기서는 판정하지 않고 점수만 남긴다. 표는 끝나고 뽑는다)")
 
