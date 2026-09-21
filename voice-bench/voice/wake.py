@@ -39,6 +39,27 @@ class StubWake:
 
 
 CHUNK = 1280        # openWakeWord 가 한 걸음에 먹는 표본 수(80 ms)
+
+
+def _feature_models(model_path):
+    """특징 추출 모델(멜 스펙트로그램·임베딩)을 모델 옆에서 찾는다.
+
+    openWakeWord 는 보통 자기 패키지 안의 resources/models 에서 찾는데,
+    젯슨에는 의존성 충돌을 피하려고 `--no-deps` 로 깔아서 그 파일들이
+    없다. 없으면 AudioFeatures 가 뜨는 순간 FileNotFoundError 다.
+
+    둘이 합쳐 2.4 MB뿐이라 저장소에 같이 넣고 여기서 직접 가리킨다.
+    옆에 없으면 인자를 비워 패키지 기본 경로에 맡긴다.
+    """
+    d = os.path.dirname(os.path.abspath(model_path))
+    out = {}
+    for key, name in (("melspec_model_path", "melspectrogram.onnx"),
+                      ("embedding_model_path", "embedding_model.onnx")):
+        path = os.path.join(d, name)
+        if os.path.exists(path):
+            out[key] = path
+    return out if len(out) == 2 else {}
+
 THRESHOLD = 0.7     # bench/wake_eval.py 실측에서 고른 자리
 NEED_FRAMES = 2     # 연속 2창
 
@@ -64,9 +85,10 @@ class OpenWakeWord:
     ready = True
 
     def __init__(self, model_path, threshold=THRESHOLD,
-                 need_frames=NEED_FRAMES, samplerate=16000):
+                 need_frames=NEED_FRAMES, samplerate=16000, on_score=None):
         from openwakeword.model import Model
-        self.m = Model(wakeword_models=[model_path], inference_framework="onnx")
+        self.m = Model(wakeword_models=[model_path], inference_framework="onnx",
+                       **_feature_models(model_path))
         self.threshold = threshold
         self.need = need_frames
         self.key = os.path.splitext(os.path.basename(model_path))[0]
@@ -74,6 +96,10 @@ class OpenWakeWord:
                      f"연속 {need_frames}창)")
         self._buf = np.empty(0, dtype=np.int16)
         self._run = 0
+        # 80 ms 마다 나오는 점수를 그대로 흘려보낸다. 실제 마이크로 잴 때
+        # 점수를 전부 남겨 두면 임계·연속 창을 바꿔 가며 다시 부르지 않아도
+        # 된다(bench/wake_field.py).
+        self.on_score = on_score
 
     def detect(self, frame):
         x = (np.clip(frame, -1, 1) * 32767).astype(np.int16)
@@ -83,6 +109,8 @@ class OpenWakeWord:
             chunk, self._buf = self._buf[:CHUNK], self._buf[CHUNK:]
             scores = self.m.predict(chunk)
             s = max(scores.values()) if scores else 0.0
+            if self.on_score:
+                self.on_score(s)
             self._run = self._run + 1 if s >= self.threshold else 0
             if self._run >= self.need:
                 hit = True
@@ -95,11 +123,12 @@ class OpenWakeWord:
 
 
 def load_wake(model_path=None, threshold=THRESHOLD,
-              need_frames=NEED_FRAMES, samplerate=16000):
+              need_frames=NEED_FRAMES, samplerate=16000, on_score=None):
     """모델이 있으면 쓰고, 없으면 대역을 돌려준다. 어느 쪽인지 알려준다."""
     if model_path and os.path.exists(model_path):
         try:
-            return OpenWakeWord(model_path, threshold, need_frames, samplerate)
+            return OpenWakeWord(model_path, threshold, need_frames,
+                                samplerate, on_score)
         except Exception as e:
             print(f"  ! 웨이크워드 모델을 못 열었다({type(e).__name__}). 대역으로 진행한다")
     return StubWake(samplerate)

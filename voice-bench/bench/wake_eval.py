@@ -84,9 +84,12 @@ def main():
     ap.add_argument("--data", default=os.path.join(ROOT, "wake-data"))
     ap.add_argument("--cache", default=os.path.join(ROOT, "out/wake-feats.npz"))
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--label", default="", help="어떤 설정인지 표시만 한다")
     a = ap.parse_args()
 
     from openwakeword.model import Model
+    if a.label:
+        print(f"[{a.label}]")
 
     d = np.load(a.cache, allow_pickle=True)
     X, y, who = d["X"], d["y"], d["who"]
@@ -143,6 +146,17 @@ def main():
         print(f"깨어남 95% 이상 중 문장 헛깨움이 가장 낮은 자리: "
               f"연속 {need}창, 임계 {th}")
         print(f"  깨어남 {hit:.0f}%  문장 {sn:.0f}%  헷갈리는 말 {h:.0f}%  방 소리 {per_min:.1f}회/분")
+
+    # 비율만 보면 표본이 작아 흔들린다(문장 30개 중 4개면 13%). 점수 분포는
+    # 녹음 하나마다 값이 하나씩 나오므로 같은 표본에서 훨씬 예민하다.
+    # 설정을 바꿔 가며 비교할 때는 비율보다 이쪽을 본다.
+    print("\n최고 점수 분포 — 설정을 비교할 때 볼 것")
+    print(f"{'':<12}{'중앙값':>9}{'평균':>9}{'0.7 넘은 것':>13}")
+    for label, group in (("호출어", allpos), ("헷갈리는 말", allhard),
+                         ("평범한 문장", allsent)):
+        mx = np.array([s.max() if len(s) else 0.0 for s in group])
+        print(f"{label:<12}{np.median(mx):>9.3f}{mx.mean():>9.3f}"
+              f"{int((mx >= 0.7).sum()):>9}/{len(mx):<4}")
 
     print("\n사람별 (위에서 고른 자리 기준)")
     if best:

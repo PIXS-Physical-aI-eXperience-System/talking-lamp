@@ -29,6 +29,8 @@ from wake_data import people  # noqa: E402
 
 BATCH = 256          # 임베딩 한 번에 넣을 창 개수
 SILENT_DB = -70.0    # 이보다 조용한 방 소리는 녹음 실패다(마이크 권한)
+TTS_TAG = "합성"      # 합성 부정에 붙이는 이름. 사람이 아니므로 LOPO 에서
+                     # 시험 쪽으로 가지 않고 항상 학습에만 들어간다.
 
 
 def read_wav(path):
@@ -46,18 +48,28 @@ def read_wav(path):
     return x
 
 
-def make_windows(base, rng, n_pos_aug, n_neg_aug):
+def _noises(paths, who, quiet=False):
+    out = []
+    for p in paths:
+        x = read_wav(p)
+        if x is None:
+            continue
+        if rms_db(x) < SILENT_DB:
+            if not quiet:
+                print(f"  ! {who}/{os.path.basename(p)} 무음 — 뺀다")
+            continue
+        out.append(x)
+    return out
+
+
+def make_windows(base, rng, n_pos_aug, n_neg_aug, tts_dir=None, n_tts_aug=3):
     """(창 int16, 라벨, 사람) 를 하나씩 내놓는다. 오디오를 다 들고 있지 않는다."""
+    pool = []
+    for name, _, _, noise_paths in people(base):
+        pool += _noises(noise_paths, name, quiet=True)
+
     for name, pos_paths, neg_paths, noise_paths in people(base):
-        noises = []
-        for p in noise_paths:
-            x = read_wav(p)
-            if x is None:
-                continue
-            if rms_db(x) < SILENT_DB:
-                print(f"  ! {name}/{os.path.basename(p)} 무음 — 뺀다")
-                continue
-            noises.append(x)
+        noises = _noises(noise_paths, name)
 
         pos = [(p, read_wav(p)) for p in pos_paths]
         pos = [(p, x) for p, x in pos if x is not None]
@@ -99,8 +111,28 @@ def make_windows(base, rng, n_pos_aug, n_neg_aug):
             g = rng.uniform(-6, 18)
             yield (to_int16(bed * (10 ** (g / 20.0))), 0, name)
 
+    if not tts_dir:
+        return
+    import glob
+    paths = sorted(glob.glob(os.path.join(tts_dir, "*.wav")))
+    print(f"  합성 부정 {len(paths)}개 (사람 목소리가 아니다 — 학습에만 넣는다)")
+    for path in paths:
+        x = read_wav(path)
+        if x is None:
+            continue
+        a, b = speech_span(x)
+        seg0 = x[a:b]
+        for _ in range(n_tts_aug):
+            # 사람 다양성을 못 얻으므로 속도·음높이를 사람 녹음보다 넓게
+            # 흔들어 가짜 화자를 만든다. 진짜 다섯 명과 같지는 않다.
+            seg = resample(seg0, rng.uniform(0.82, 1.25))
+            yield (to_int16(place(seg, pool, rng,
+                                  end_frac=rng.uniform(0.7, 1.2),
+                                  snr_db=rng.uniform(3, 25),
+                                  gain_db=rng.uniform(-12, 4))), 0, TTS_TAG)
 
-def embed_all(base, rng, n_pos_aug, n_neg_aug):
+
+def embed_all(base, rng, n_pos_aug, n_neg_aug, tts_dir=None):
     from openwakeword.utils import AudioFeatures
     fx = AudioFeatures(inference_framework="onnx")
 
@@ -117,7 +149,7 @@ def embed_all(base, rng, n_pos_aug, n_neg_aug):
         buf_a.clear(); buf_y.clear(); buf_w.clear()
         print(f"\r  창 {len(y)}개", end="", flush=True)
 
-    for clip, label, name in make_windows(base, rng, n_pos_aug, n_neg_aug):
+    for clip, label, name in make_windows(base, rng, n_pos_aug, n_neg_aug, tts_dir):
         buf_a.append(clip); buf_y.append(label); buf_w.append(name)
         if len(buf_a) >= BATCH:
             flush()
@@ -200,6 +232,7 @@ def main():
     ap.add_argument("--lopo-only", action="store_true")
     ap.add_argument("--cache", default=os.path.join(ROOT, "out/wake-feats.npz"))
     ap.add_argument("--rebuild", action="store_true")
+    ap.add_argument("--tts-neg", help="합성 부정 wav 디렉터리. 주면 학습에만 넣는다")
     a = ap.parse_args()
 
     rng = np.random.default_rng(a.seed)
@@ -209,11 +242,11 @@ def main():
         print(f"특징 재사용: {a.cache} ({len(y)}창)")
     else:
         print("창 만들고 임베딩 뽑는 중…")
-        X, y, who = embed_all(a.data, rng, a.pos_aug, a.neg_aug)
+        X, y, who = embed_all(a.data, rng, a.pos_aug, a.neg_aug, a.tts_neg)
         os.makedirs(os.path.dirname(a.cache), exist_ok=True)
         np.savez_compressed(a.cache, X=X, y=y, who=who)
 
-    names = sorted(set(who.tolist()))
+    names = [n for n in sorted(set(who.tolist())) if n != TTS_TAG]
     print(f"\n사람 {len(names)}명, 창 {len(y)}개 (호출어 {int(y.sum())}, 아닌 것 {int((y == 0).sum())})")
 
     print("\n한 사람 빼고 학습 — 학습에 없던 목소리로 시험한다")

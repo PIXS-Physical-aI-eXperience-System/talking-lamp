@@ -1,6 +1,7 @@
 # 제3자 구성요소 고지
 
-파트 C(음성)의 한국어 TTS 파이프라인이 사용하는 외부 저작물과, 우리가 가한 변경 사항.
+파트 C(음성)의 한국어 TTS·웨이크워드 파이프라인이 사용하는 외부 저작물과,
+우리가 가한 변경 사항.
 
 Apache-2.0 §4(b)는 변경한 파일에 변경 사실을 명시할 것을 요구하고,
 MIT·Apache-2.0 모두 저작권 고지와 라이선스 사본의 유지를 요구한다.
@@ -80,6 +81,30 @@ Apache-2.0 자체는 상업적 사용을 허용하므로 법적 강제 조건은
 
 ---
 
+## 4. openWakeWord — 특징 추출 모델
+
+- **출처**: https://github.com/dscripka/openWakeWord
+- **저작권**: David Scripka
+- **라이선스**: Apache-2.0
+- **사용 범위**: `models/wake/melspectrogram.onnx`, `models/wake/embedding_model.onnx`
+
+저장소에 **파일 그대로** 넣었다. 변경하지 않았다.
+
+`embedding_model.onnx` 는 구글의 `speech_embedding`(TF Hub) 을 openWakeWord 가
+ONNX 로 변환해 Apache-2.0 으로 배포하는 것이다.
+
+**왜 저장소에 넣는가**: 젯슨에서는 직접 빌드한 onnxruntime 휠이 덮이지 않게
+openwakeword 를 `--no-deps` 로 설치한다. 그러면 패키지가 자기 리소스를
+내려받지 못해 실행 시점에 FileNotFoundError 가 난다. 둘이 합쳐 2.4 MB 뿐이라
+같이 넣고 `voice/wake.py` 가 직접 가리킨다.
+
+**우리가 학습한 `models/wake/pixs-ya.onnx` 는 이 고지의 대상이 아니다.**
+위 임베딩 모델의 출력 위에 얹은 분류기를 우리 녹음으로 학습한 것이다
+(`bench/wake_train.py`). 다만 실행할 때 위 두 파일이 필요하다.
+
+
+---
+
 ## 배포 시 지켜야 할 것
 
 `models/melo-ko-onnx/` 산출물을 저장소 밖으로 배포(시연 이미지, 릴리스 등)할 때는
@@ -87,6 +112,8 @@ Apache-2.0 자체는 상업적 사용을 허용하므로 법적 강제 조건은
 
 - MIT 라이선스 전문 및 MyShell.ai 저작권 고지 (MeloTTS 코드·가중치)
 - Apache-2.0 라이선스 전문 및 Kiyoung Kim 저작권 고지 (BERT)
+- Apache-2.0 라이선스 전문 및 David Scripka 저작권 고지
+  (openWakeWord 특징 추출 모델)
 
 모델 가중치 자체는 용량 때문에 저장소에 커밋하지 않는다.
 `melo_export_onnx.py` → `melo_export_bert.py` → `melo_quantize.py` 순서로

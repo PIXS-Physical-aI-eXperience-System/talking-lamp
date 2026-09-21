@@ -45,6 +45,48 @@ python3 ros/lamp_voice_node.py --agent 127.0.0.1:5150
 
 순서가 반대여도 된다. 노드는 판단부에 못 붙으면 2초마다 다시 시도한다.
 
+## 실제 마이크로 웨이크워드 재기
+
+지금까지의 웨이크워드 숫자는 전부 노트북 녹음으로 잰 것이다
+(`results/wake-2026-09-17.md`). 실제로 램프가 듣는 소리는 XVF3800 의
+빔포밍·잡음제거·AGC 를 거쳐 랜을 타고 온 것이라 성격이 다르다.
+**좋아질지 나빠질지 모르므로 재야 한다.**
+
+판단부(`voice_agent.py`) 대신 이것을 띄운다 — 같은 포트를 쓴다.
+
+```bash
+cd ~/talking-lamp/voice-bench
+venvs/melo-onnx/bin/python bench/wake_field.py
+```
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ~/talking-lamp-integration/jetson_ws/install/setup.bash
+cd ~/talking-lamp/voice-bench
+python3 ros/lamp_voice_node.py --agent 127.0.0.1:5150
+```
+
+STT·TTS·LLM 을 올리지 않으므로 2초면 뜨고 GPU 도 안 쓴다. 램프가 대답하지
+않으니 대화 중 헛깨움을 재는 동안 말을 끊지 않는다.
+
+두 단계로 진행된다.
+
+| ① 부르기 | Enter 를 누르고 "픽스야" 를 20번. 말투와 거리를 바꿔 가며 |
+| --- | --- |
+| ② 헛깨움 | 5분 동안 평소처럼 대화. 호출어는 말하지 말 것 |
+
+**점수를 전부 남긴다.** 임계값과 연속 창 수를 바꿔 가며 다시 부를 필요가
+없다 — 한 번 재고 표 전체가 나온다. 원자료는 `out/wake-field-*.json`.
+
+부르는데 "점수가 하나도 없다" 가 뜨면 모델 문제가 아니라 파이 VAD 가 그
+소리를 말로 보지 않은 것이다. 마이크 쪽을 봐야 한다.
+
+전제: `models/wake/` 에 세 파일이 다 있어야 한다(`git pull`).
+`pixs-ya.onnx` 가 우리가 학습한 것이고, 나머지 둘은 openWakeWord 의 특징
+추출 모델이다. 젯슨에는 openwakeword 를 `--no-deps` 로 깔아서 패키지 안에
+그 파일들이 없기 때문에 저장소에 같이 넣어 두었다.
+
+
 ## 오디오 형식
 
 계약상 이것만 받는다. 어기면 GStreamer 에 닿기 전에 거부된다.
