@@ -131,6 +131,11 @@ def main() -> int:
     print(f"  웨이크워드 {wake.name}")
     if not getattr(wake, "ready", False):
         print(f'  ! "{PHRASE}" 모델이 없다. 지금은 아무 말에나 깨어난다 — 제품이 아니다.')
+    # 첫 호출이 느린 값을 여기서 치른다. 사람이 처음 말을 건 순간에
+    # 치르면 첫 인상이 8초다 — 실측이 그랬다.
+    w_tts = tts.warmup() if hasattr(tts, "warmup") else 0.0
+    w_stt = stt.warmup()
+    print(f"  예열 TTS {w_tts:.1f}s + STT {w_stt:.1f}s")
     print(f"  합계 {time.time() - t0:.1f}s")
 
     llm = load_llm(args.llm, args.llm_model, args.llm_timeout)

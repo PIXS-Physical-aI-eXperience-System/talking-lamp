@@ -20,6 +20,20 @@ class Stt:
         self.device = device
         self.name = f"faster-whisper {model}/{device}/{compute_type}"
 
+    def warmup(self):
+        """무음 1초를 받아쓰고 버린다. 첫 호출이 느린 값을 미리 치른다
+        (실측 첫 턴 2.61s, 둘째 턴 0.70s)."""
+        import time
+
+        import numpy as np
+        t = time.time()
+        try:
+            self.transcribe(np.zeros(16000, dtype=np.float32), 16000)
+        except Exception as e:
+            print(f"  ! STT 예열 실패({type(e).__name__}) — 첫 응답이 느릴 수 있다")
+            return 0.0
+        return time.time() - t
+
     def transcribe(self, audio, samplerate=16000):
         """float32 모노 버퍼를 받아 문자열로. beam_size=1 은 실시간 대화용 설정이다."""
         x = np.asarray(audio, dtype=np.float32)

@@ -67,6 +67,12 @@ def build_synth(model_dir, int8=False, providers="auto", threads=2, quiet=False,
 
     반환: (synth, sample_rate, 실제_공급자, 로드_초, frontend)
     """
+    # 토크나이저는 models/melo-ko-onnx/tokenizer 에 이미 있는데도
+    # transformers 가 HF Hub 를 친다("unauthenticated requests" 경고).
+    # 데모장 네트워크가 느리거나 막혀 있으면 그만큼 기다린다. 받을 것이
+    # 없으므로 아예 끊는다.
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     from transformers import AutoTokenizer
 
     d = model_dir if os.path.isabs(model_dir) else os.path.join(HERE, model_dir)

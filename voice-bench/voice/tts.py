@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import threading
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -66,6 +67,24 @@ class Tts:
             from ko_normalize import normalize as n
             self._norm = n
         self._lock = threading.Lock()
+
+    def warmup(self):
+        """한 번 합성해 두고 버린다.
+
+        첫 합성이 둘째보다 3~4배 느리다(실측 5.22s vs 1.51s). CUDA 커널
+        선택과 그래프 최적화가 첫 호출에 몰리고, transformers 토크나이저가
+        그때 HF Hub 를 친다 — 모델을 다 올려놓고도 네트워크를 기다린다.
+
+        그 값을 사람이 처음 말을 건 순간에 치르게 두지 않는다. 적재할 때
+        미리 치르면 대화 첫 마디부터 제 속도가 난다.
+        """
+        t = time.time()
+        try:
+            self.synth("예열")
+        except Exception as e:
+            print(f"  ! TTS 예열 실패({type(e).__name__}) — 첫 응답이 느릴 수 있다")
+            return 0.0
+        return time.time() - t
 
     def synth(self, text):
         """한 조각을 합성한다. 세션은 스레드 안전하지 않으므로 잠근다."""

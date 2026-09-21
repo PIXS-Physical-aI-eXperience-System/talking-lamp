@@ -301,8 +301,15 @@ class LampVoiceNode(Node):
         took = time.time() - self.play_t0
         self.get_logger().info(
             f"프레임 {self.sent}개({sent_s:.1f}초 분량)를 {took:.1f}초에 보냈다")
-        lvl = self.get_logger().info if r.success else self.get_logger().error
-        lvl(f"재생 결과 success={r.success} code={r.code} {r.message}")
+        # 심각도를 골라서 한 줄에서 부르면 안 된다. rclpy 는 호출 위치로
+        # 심각도를 캐싱해서, 같은 줄에서 info 를 쓰다가 error 를 쓰면
+        # ValueError 를 던지고 그게 executor 를 타고 올라와 노드가 죽는다.
+        # 성공하다가 한 번 실패하는 순간 죽으므로 평소에는 안 보인다.
+        msg = f"재생 결과 success={r.success} code={r.code} {r.message}"
+        if r.success:
+            self.get_logger().info(msg)
+        else:
+            self.get_logger().error(msg)
         self.goal_handle = None
         self.play_done.set()
 
