@@ -123,6 +123,7 @@ bench/                    측정 도구. 램프 런타임에 안 들어간다
   voice_agent.py            판단부를 젯슨에서 띄우는 진입점
   agent_test.py             판단부 회귀 시험 (장치 불필요)
   pacing_test.py            재생 일정 시험 (ROS 불필요)
+  node_test.py              노드 취소 처리·EOS 순서 (ROS 불필요)
   wake_*.py                 웨이크워드 학습·평가·측정 (아래)
   stt_sweep.py              STT 모델·스레드별 RTF 와 CER
   mem_profile.py            구간별 메모리. barge-in 겹침 포함
@@ -139,9 +140,16 @@ export/                   모델 변환 — 한 번만 실행하면 된다
 장치도 ROS도 없이 돈다. 고치고 나면 이것부터.
 
 ```bash
-venvs/melo-onnx/bin/python bench/agent_test.py    # 판단부 ①~⑤
-venvs/melo-onnx/bin/python bench/pacing_test.py   # 재생 일정
+venvs/melo-onnx/bin/python bench/agent_test.py    # 판단부 상태·barge-in·재생 수명
+venvs/melo-onnx/bin/python bench/pacing_test.py   # 재생 일정 계산
+venvs/melo-onnx/bin/python bench/node_test.py     # 노드 취소 처리·EOS 순서
 ```
+
+`node_test.py` 는 rclpy 를 가짜로 채우고 `Node.__init__` 없이 객체만 만들어
+메서드를 직접 부른다. 하드웨어도 ROS 도 없이 실제 코드를 시험하기 위해서다.
+
+시험을 넣을 때는 **일부러 고장 내서 실제로 실패하는지** 확인한다. 안
+실패하는 시험은 아무것도 안 지킨다.
 
 ---
 

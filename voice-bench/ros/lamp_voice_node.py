@@ -93,6 +93,7 @@ HDR_LEN = 8
 CAP_FRAME = b"CAPF"
 ORIENT = b"ORNT"
 SPEAK_BEGIN = b"SPKB"
+SPEAK_DONE = b"SPKD"
 SPEAK_AUDIO = b"SPKA"
 SPEAK_END = b"SPKE"
 BARGE_IN = b"BRGI"
@@ -124,6 +125,8 @@ class LampVoiceNode(Node):
         # 동안 새로 온 것을 다른 스레드가 내보내면 순서가 뒤집히고 순번도
         # 겹친다. 브리지가 out_of_order 로 전부 거부했다.
         self.cancelled = False
+        self.cancel_pending = False   # 수락 응답 전에 들어온 취소
+        self.goal_sent = False
         self.play_done.set()          # 처음에는 기다릴 재생이 없다
         self.accepted = threading.Event()
         self.outq = queue.Queue()
@@ -265,6 +268,8 @@ class LampVoiceNode(Node):
                 self.get_logger().warn("앞 재생이 안 끝난다 — 그대로 진행한다")
         self.stream_id = str(uuid.uuid4())
         self.sent = 0
+        self.cancel_pending = False
+        self.goal_sent = False
         self.play_done.clear()
         self.accepted.clear()
         self.cancelled = False
@@ -281,11 +286,20 @@ class LampVoiceNode(Node):
             return
         goal = PlayAudio.Goal(stream_id=self.stream_id, sample_rate=RATE,
                               channels=1, encoding="pcm_s16le")
+        self.goal_sent = True
         fut = self.play_audio.send_goal_async(goal)
         fut.add_done_callback(self._goal_accepted)
 
     def _goal_accepted(self, fut):
         handle = fut.result()
+        if handle.accepted and self.cancel_pending:
+            # 수락 응답을 기다리는 동안 취소가 들어왔다.
+            self.cancel_pending = False
+            self.goal_handle = handle
+            self.get_logger().info("수락된 목표를 바로 취소한다")
+            handle.cancel_goal_async()
+            handle.get_result_async().add_done_callback(self._goal_result)
+            return
         if not handle.accepted:
             self.get_logger().error("PlayAudio 거부됨 — 프레임을 버린다")
             self.cancelled = True
@@ -311,7 +325,11 @@ class LampVoiceNode(Node):
         else:
             self.get_logger().error(msg)
         self.goal_handle = None
+        self.cancel_pending = False
         self.play_done.set()
+        # 판단부는 이 신호를 받고서야 말하기를 끝낸다. 프레임을 다 보낸
+        # 것과 소리가 다 난 것은 다르다.
+        self.send(SPEAK_DONE, (r.code or "").encode("utf-8"))
 
     def _publisher(self, stream_id, q):
         """이 스레드만 발행한다. 순번과 큐를 스트림마다 따로 둔다.
@@ -343,6 +361,18 @@ class LampVoiceNode(Node):
             if self.cancelled or stream_id != self.stream_id:
                 return
             if data is None:            # 끝 신호
+                # EOS 도 자기 20ms 자리를 지킨다. 마지막 오디오 프레임 바로
+                # 뒤에 붙여 보내면 두 콜백이 겹쳐 실행될 수 있고, 브리지는
+                # ReentrantCallbackGroup + MultiThreadedExecutor 라 순서가
+                # 뒤집힐 여지가 있다. EOS 가 먼저 처리되면 마지막 프레임이
+                # out_of_order 로 거부되고 파이가 드레인을 못 끝낸다.
+                #
+                # 실기기에서 역전을 본 적은 없다. 다만 간격을 지키는 것이
+                # 공짜라(20ms) 확인되지 않은 경합을 남겨 둘 이유가 없다.
+                due, t0, _ = next_due(t0, seq, time.time())
+                delay = due - time.time()
+                if delay > 0:
+                    time.sleep(delay)
                 self.playback.publish(self._frame(b"", True, stream_id, seq))
                 self.sent = seq + 1
                 return
@@ -392,8 +422,16 @@ class LampVoiceNode(Node):
         if self.goal_handle is not None:
             self.get_logger().info("barge-in — 재생 취소")
             self.goal_handle.cancel_goal_async()
-        else:
-            self.play_done.set()
+            return
+        # 목표를 보냈는데 아직 수락 응답이 안 온 구간이다. 여기서 그냥
+        # 끝내면 로컬 발행만 멈추고 액션 서버 쪽 목표는 살아 있다. 그
+        # 목표는 오디오 프레임과 EOS 를 기다리며 남아, 다음 재생이
+        # audio_busy 로 거부된다. 수락되면 바로 취소하도록 남겨 둔다.
+        if self.goal_sent and not self.play_done.is_set():
+            self.cancel_pending = True
+            self.get_logger().info("barge-in — 수락 전이라 수락되면 취소한다")
+            return
+        self.play_done.set()
 
 
 def main() -> int:

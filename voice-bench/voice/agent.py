@@ -50,6 +50,7 @@ MIN_UTTERANCE_FRAMES = 20    # 0.4초보다 짧으면 발화로 치지 않는다
 PREROLL_FRAMES = 15          # 0.3초. 깨어나기 직전 소리도 함께 넘긴다
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
 BARGE_RISE_DB = 20.0         # 바닥 대비 이만큼 올라야 끼어든 것으로 본다
+PLAY_WAIT_MARGIN_S = 5.0     # 재생 완료 신호를 이만큼 더 기다린다
 
 
 def _db(x):
@@ -135,6 +136,13 @@ class VoiceAgent:
         self._grace_floor = None
         self._quiet_run = 0
         self._stop_speaking = threading.Event()
+        # 파이에서 재생이 실제로 끝났다는 신호. 프레임을 다 보낸 것과
+        # 소리가 다 난 것은 다르다 — 노드가 20ms 간격으로 발행하고 그 뒤에도
+        # 파이 재생 버퍼가 남는다. 이 신호를 기다려야 그 구간에 끼어든
+        # 사람에게도 barge-in 이 동작한다.
+        self._play_done = threading.Event()
+        self._play_done.set()
+        self._sent_s = 0.0            # 이번 스트림에서 보낸 오디오 길이
         self._mic = []          # 말하는 동안의 (현재 dB, 바닥 dB)
         self._speak_thread = None
         self._lock = threading.Lock()
@@ -181,6 +189,10 @@ class VoiceAgent:
                 self._while_speaking(pcm)
             elif self.state in (IDLE, LISTENING):
                 self._while_listening(speech_id, pcm)
+
+    def on_play_done(self, code=""):
+        """노드가 PlayAudio 결과를 받았다. 성공·실패·취소 모두 온다."""
+        self._play_done.set()
 
     def on_orientation(self, speech_id, state):
         """파이의 방향 정렬 상태. 지금은 기록만 한다 —
@@ -303,6 +315,8 @@ class VoiceAgent:
         chunks = [reply] if isinstance(reply, str) else reply
 
         self._stop_speaking.clear()
+        self._play_done.clear()
+        self._sent_s = 0.0
         self.barge.reset()
         with self._lock:
             self._set(SPEAKING)
@@ -336,6 +350,17 @@ class VoiceAgent:
                   if first is not None else
                   f"  지연  STT {t_stt:.2f}s + 응답생성 {t_think:.2f}s")
             self.send(link.SPEAK_END, b"")
+            # 프레임을 다 보냈다고 끝난 것이 아니다. 노드가 20ms 간격으로
+            # 발행하고 그 뒤에도 파이 재생 버퍼가 남는다. 여기서 바로
+            # 대기로 가면 스피커에서는 소리가 나는데 상태는 대기라, 그
+            # 사이에 끼어들어도 barge-in 이 안 걸린다.
+            #
+            # 노드가 신호를 못 주는 경우(구버전·죽음)에 영영 말하기 상태로
+            # 남지 않도록 상한을 둔다. 보낸 오디오 길이보다 길게 잡는다.
+            if spoke and not self._play_done.wait(self._sent_s + PLAY_WAIT_MARGIN_S):
+                print(f"  ! 재생 완료 신호가 안 왔다 "
+                      f"({self._sent_s + PLAY_WAIT_MARGIN_S:.1f}초 기다림) — "
+                      "노드를 확인할 것")
             with self._lock:
                 if self.state == SPEAKING:
                     self._set(IDLE)
@@ -346,6 +371,7 @@ class VoiceAgent:
             from .audio import resample
             wav = resample(wav, src_rate, link.RATE)
         pcm = link.pcm_from(wav)
+        self._sent_s += len(pcm) / 2 / link.RATE
         step = FRAME_SAMPLES * 2
         for i in range(0, len(pcm), step):
             if self._stop_speaking.is_set():

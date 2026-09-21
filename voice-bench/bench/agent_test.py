@@ -8,6 +8,7 @@
 """
 import os
 import sys
+import threading
 import time
 import uuid
 
@@ -54,13 +55,32 @@ class NeverWake(AlwaysWake):
         return False
 
 
+def fake_node(agent, sent, code="drained", delay=0.0):
+    """노드 흉내. SPEAK_END 를 보면 잠시 뒤 재생 완료를 돌려준다.
+
+    실제 노드는 프레임을 20ms 간격으로 발행하고, 파이가 다 재생한 뒤에야
+    PlayAudio 결과가 온다. 그것을 안 흉내 내면 시험이 상한까지 기다린다.
+    """
+    def send(kind, payload=b""):
+        sent.append((kind, payload))
+        if kind == link.SPEAK_END:
+            def done():
+                if delay:
+                    time.sleep(delay)
+                agent[0].on_play_done(code)
+            threading.Thread(target=done, daemon=True).start()
+    return send
+
+
 def run(name, wake, script, rise_db=12.0):
     """script: (speech_id, 레벨dB, 반복) 목록. 보낸 메시지와 상태를 돌려준다."""
     sent, states = [], []
+    box = []
     agent = VoiceAgent(FakeStt(), FakeTts(), wake,
                        on_utterance=lambda t: "네, 밝게 할게요.",
-                       send=lambda k, p: sent.append((k, p)),
+                       send=fake_node(box, sent),
                        on_state=states.append, rise_db=rise_db)
+    box.append(agent)
     for sid, db, n in script:
         for _ in range(n):
             agent.on_capture(sid, frame(db))
@@ -234,6 +254,95 @@ def main() -> int:
           f"상태 {agent.state}")
     if agent.state != LISTENING or len(agent._buf) <= n_before:
         fails.append("끼어든 직후 speech_id 가 비었다고 발화를 잘라버렸다")
+
+    # ⑥ 프레임을 다 보내도 재생이 끝나기 전에는 말하기다 ──────────────
+    #    노드는 받은 프레임을 20ms 간격으로 발행하고, 파이 재생 버퍼는
+    #    그보다 늦게 빈다. 프레임 전송만 보고 대기로 가면 스피커에서
+    #    소리가 나는 동안 상태는 대기라 barge-in 이 안 걸린다.
+    sent6, states6 = [], []
+    box6 = []
+    agent6 = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
+                        on_utterance=lambda t: "네, 밝게 할게요.",
+                        send=lambda k, p: sent6.append((k, p)),   # 완료를 안 준다
+                        on_state=states6.append)
+    box6.append(agent6)
+    for sid, db, n in [(SID, -20, 50), ("", -60, 35)]:
+        for _ in range(n):
+            agent6.on_capture(sid, frame(db))
+            time.sleep(0.001)
+    for _ in range(60):
+        if any(k == link.SPEAK_END for k, _ in sent6):
+            break
+        time.sleep(0.05)
+    print(f"  ⑥ 전송 끝, 재생 중    상태 {agent6.state} (말하기여야 한다)")
+    if agent6.state != SPEAKING:
+        fails.append(f"재생이 끝나기 전에 말하기를 벗어났다: {agent6.state}")
+
+    # ⑥-b 그 구간에 끼어들면 barge-in 이 걸려야 한다
+    agent6.barge.hold_s = 0.0
+    agent6.barge.reset()
+    for _ in range(20):
+        agent6.on_capture("", frame(-55))          # 바닥
+    n_before = len(sent6)
+    for _ in range(5):
+        agent6.on_capture("", frame(-27))          # 끼어듦 28 dB
+    after6 = [k for k, _ in sent6[n_before:]]
+    print(f"  ⑥-b 재생 중 끼어들기  {[k.decode() for k in after6]}   "
+          f"상태 {agent6.state}")
+    if link.BARGE_IN not in after6:
+        fails.append("재생 중(전송 완료 후)에 끼어들었는데 barge-in 이 안 나갔다")
+
+    # ⑥-c 취소 결과가 와도 듣기를 덮지 않는다
+    agent6.on_play_done("cancelled")
+    time.sleep(0.2)
+    print(f"  ⑥-c 취소 결과 수신    상태 {agent6.state} (듣기여야 한다)")
+    if agent6.state != LISTENING:
+        fails.append(f"끼어든 뒤 취소 결과가 상태를 덮었다: {agent6.state}")
+
+    # ⑦ 성공·실패·취소 어느 결과든 상태가 정리된다 ────────────────────
+    for code in ("drained", "failed", "cancelled"):
+        sent7, states7, box7 = [], [], []
+        agent7 = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
+                            on_utterance=lambda t: "네.",
+                            send=fake_node(box7, sent7, code=code),
+                            on_state=states7.append)
+        box7.append(agent7)
+        for sid, db, n in [(SID, -20, 50), ("", -60, 35)]:
+            for _ in range(n):
+                agent7.on_capture(sid, frame(db))
+                time.sleep(0.001)
+        for _ in range(60):
+            if agent7.state == IDLE and states7 and states7[-1] == IDLE:
+                break
+            time.sleep(0.05)
+        print(f"  ⑦ 결과 {code:<10} 상태 {agent7.state}")
+        if agent7.state != IDLE:
+            fails.append(f"재생 결과 {code} 뒤에 상태가 안 돌아왔다: {agent7.state}")
+
+    # ⑧ 노드가 완료를 안 주면 상한까지만 기다리고 푼다 ─────────────────
+    #    구버전 노드나 노드가 죽은 경우에 영영 말하기로 남으면 안 된다.
+    import voice.agent as _A
+    old_margin = _A.PLAY_WAIT_MARGIN_S
+    _A.PLAY_WAIT_MARGIN_S = 0.3
+    try:
+        sent8, states8 = [], []
+        agent8 = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
+                            on_utterance=lambda t: "네.",
+                            send=lambda k, p: sent8.append((k, p)),
+                            on_state=states8.append)
+        for sid, db, n in [(SID, -20, 50), ("", -60, 35)]:
+            for _ in range(n):
+                agent8.on_capture(sid, frame(db))
+                time.sleep(0.001)
+        for _ in range(40):
+            if agent8.state == IDLE:
+                break
+            time.sleep(0.05)
+        print(f"  ⑧ 완료 신호 없음     상태 {agent8.state} (상한 뒤 대기여야 한다)")
+        if agent8.state != IDLE:
+            fails.append("완료 신호가 없을 때 말하기에서 안 빠져나왔다")
+    finally:
+        _A.PLAY_WAIT_MARGIN_S = old_margin
 
     print()
     if fails:

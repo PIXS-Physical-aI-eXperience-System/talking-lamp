@@ -89,6 +89,8 @@ def _pump(sock, agent):
         elif kind == link.ORIENT:
             sid, state = link.unpack_id(body)
             agent.on_orientation(sid, state.decode("utf-8", "replace"))
+        elif kind == link.SPEAK_DONE:
+            agent.on_play_done(body.decode("utf-8", "replace"))
         elif kind == link.PING:
             link.send(sock, link.PONG)
 
