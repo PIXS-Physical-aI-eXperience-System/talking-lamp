@@ -113,6 +113,9 @@ def main() -> int:
                                   "예: http://127.0.0.1:8080/v1/chat/completions")
     ap.add_argument("--llm-model", default="local")
     ap.add_argument("--llm-timeout", type=float, default=20.0)
+    ap.add_argument("--ack", default="네",
+                    help='깨어나면 바로 낼 짧은 대답. 빈 문자열이면 안 낸다. '
+                         '지연을 줄이지는 못하지만 기다리는 줄 모르게 한다')
     ap.add_argument("--end-silence", type=float, default=None,
                     help="발화가 끝났다고 보는 무음 길이(초). 기본 0.6. "
                          "줄이면 응답이 그만큼 빨라지지만, 말하다 숨 쉬는 "
@@ -149,6 +152,16 @@ def main() -> int:
     print(f"  예열 TTS {w_tts:.1f}s + STT {w_stt:.1f}s")
     print(f"  합계 {time.time() - t0:.1f}s")
 
+    # 미리 합성해 둔다. 깨어날 때마다 합성하면 그 시간이 그대로 얹힌다.
+    ack_wav = None
+    if args.ack:
+        try:
+            ack_wav = tts.synth(args.ack)
+            print(f'  깨우면 낼 대답 "{args.ack}" '
+                  f'({len(ack_wav)/tts.samplerate:.2f}초, 미리 합성해 뒀다)')
+        except Exception as e:
+            print(f"  ! 대답 합성 실패({type(e).__name__}) — 대답 없이 간다")
+
     llm = load_llm(args.llm, args.llm_model, args.llm_timeout)
     print(f"  응답 생성 {llm.name}")
 
@@ -163,7 +176,7 @@ def main() -> int:
     mark = {"대기": "·", "듣기": "◉", "생각": "…", "말하기": "▶"}
     serve(lambda send: VoiceAgent(stt, tts, wake, think, send,
                                   on_state=lambda s: print(f"  [{mark.get(s,' ')}] {s}"),
-                                  rise_db=args.rise_db),
+                                  rise_db=args.rise_db, ack_wav=ack_wav),
           args.host, args.port)
     return 0
 
