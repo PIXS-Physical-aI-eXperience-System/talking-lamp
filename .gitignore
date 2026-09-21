@@ -15,6 +15,15 @@ wheels/
 .claude/
 .vscode/
 
+# 개인 진행상황 관리 (커밋 안 함)
+발주-진행상황.md
+
+# 협의 문서는 md만 커밋 (pdf는 md와 중복되고 곧 낡음)
+docs/협의/*.pdf
+
+# Superpowers local state
+.superpowers/
+
 # voice-bench — 산출물·가중치·환경은 커밋하지 않는다
 voice-bench/venvs/
 # models/ 자체가 아니라 그 안의 것들을 막는다. 디렉터리를 막으면 git 이 안을
