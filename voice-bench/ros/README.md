@@ -25,6 +25,30 @@ ROS 노드를 같은 인터프리터에 넣으면 rosdep 이나 ROS 패키지가
 
 노드는 rclpy 말고 아무것도 필요 없다.
 
+## 먼저 떠 있어야 하는 것 (E 쪽)
+
+우리 두 프로세스만 띄워도 마이크 프레임은 안 온다. 그 아래가 먼저 떠야 한다.
+**부팅 시 자동으로 안 켜진다** — 커미셔닝 중에는 disable 해 두기로 했다.
+
+| 파이 | `sudo systemctl start talking-lamp-device.service` | 마이크·스피커 |
+| --- | --- | --- |
+| 젯슨 | `sudo systemctl start talking-lamp-bridges.service` | ROS 브리지 |
+
+(정의는 `~/talking-lamp-integration/deploy/{pi,jetson}/` 에 있다)
+
+떴는지 확인하는 법:
+
+```bash
+ros2 topic info /lamp/audio/capture --verbose
+```
+
+`Publisher count: 0` 이면 브리지가 안 떠 있는 것이다. `ros2 node list` 에
+`/lamp_voice` 하나만 보이면 확실하다.
+
+`Publisher count: 1` 인데 프레임이 안 오면 파이 쪽이다 — device 서비스와
+`ping 192.168.100.2` 를 본다.
+
+
 ## 띄우는 순서
 
 **① 판단부** (venv, 모델을 올린다. 40초쯤 걸린다)
