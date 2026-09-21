@@ -25,6 +25,9 @@ import socket
 import sys
 import threading
 import time
+import wave
+
+import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -41,9 +44,14 @@ STEP_S = 0.08          # 점수 하나 = 80 ms
 class Field:
     """마이크 프레임을 받아 점수만 남긴다. 아무것도 되돌려 보내지 않는다."""
 
-    def __init__(self, model_path, threshold, need):
+    def __init__(self, model_path, threshold, need, keep_audio=False):
         self.rec = []          # (t, 점수, 말하는중)
         self.link_down = False
+        # 재는 동안의 소리를 남긴다. 실제 채널을 거친 부정 데이터는 이렇게
+        # 밖에 못 얻는데, 처음엔 점수만 남기고 소리를 버렸다. 5분을 다시
+        # 받아야 했다.
+        self.keep_audio = keep_audio
+        self.audio = []        # (t, float32 320샘플)
         self.marks = []        # (구간이름, 시작, 끝)
         self.frames = 0
         self.active_now = False
@@ -63,6 +71,8 @@ class Field:
     def on_capture(self, speech_id, pcm):
         self.frames += 1
         self.active_now = bool(speech_id)
+        if self.keep_audio:
+            self.audio.append((time.time(), pcm.copy()))
         # 판단부와 같은 규칙: 파이가 말이라고 표시한 프레임만 넣는다.
         if self.active_now:
             self.wake.detect(pcm)
@@ -153,6 +163,51 @@ def report(rec, marks, out_path):
     print("점수를 다 남겼으므로 다른 임계값이 궁금하면 다시 부를 필요 없다.")
 
 
+def save_audio(f, marks, out_dir, ths=(0.7,), need=2):
+    """대화 구간 소리를 통째로 저장하고, 헛깨운 자리는 따로 잘라 둔다.
+
+    헛깨운 2초는 그냥 부정이 아니라 모델이 실제로 속은 소리다. 학습에서
+    가장 값이 나가는 쪽이라 찾기 쉽게 따로 뺀다.
+    """
+    if not f.audio:
+        return
+    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(os.path.join(out_dir, "속은것"), exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+
+    def write(path, chunks):
+        pcm = np.concatenate(chunks) if chunks else np.zeros(1, np.float32)
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+            w.writeframes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
+
+    talks = [m for m in marks if m[0] == "talk"]
+    n_clip = 0
+    for i, (_, t0, t1) in enumerate(talks):
+        chunks = [p for t, p in f.audio if t0 <= t <= t1]
+        if not chunks:
+            continue
+        write(os.path.join(out_dir, f"대화-{stamp}-{i}.wav"), chunks)
+
+        # 헛깨운 순간 앞 2초
+        scores = [(t, sc) for t, sc, _ in f.rec if t0 <= t <= t1]
+        run, armed = 0, True
+        for t, sc in scores:
+            if sc < ths[0]:
+                run, armed = 0, True
+                continue
+            run += 1
+            if run >= need and armed:
+                armed = False
+                clip = [p for tt, p in f.audio if t - 2.0 <= tt <= t]
+                if clip:
+                    write(os.path.join(out_dir, "속은것",
+                                       f"{stamp}-{n_clip:03d}.wav"), clip)
+                    n_clip += 1
+    print(f"  소리 저장 {os.path.relpath(out_dir, ROOT)} "
+          f"(속은 것 {n_clip}개 따로 뺐다)")
+
+
 def pump(sock, f):
     """노드가 끊기면 표시만 하고 조용히 끝낸다.
 
@@ -210,6 +265,10 @@ def main():
     ap.add_argument("--talk-min", type=float, default=5.0,
                     help="헛깨움을 잴 대화 시간(분)")
     ap.add_argument("--out", default=os.path.join(ROOT, "out"))
+    ap.add_argument("--save-audio", metavar="DIR", nargs="?",
+                    const=os.path.join(ROOT, "wake-data-real"),
+                    help="대화 구간 소리를 남긴다. 실제 채널을 거친 부정 "
+                         "데이터는 이렇게밖에 못 얻는다")
     ap.add_argument("--check", action="store_true",
                     help="모델이 열리는지만 보고 끝낸다. 재기 전에 먼저 할 것")
     a = ap.parse_args()
@@ -220,7 +279,8 @@ def main():
         report(rec, marks, os.path.join(a.out, "wake-field-합본.json"))
         return
 
-    f = Field(os.path.join(ROOT, a.wake_model), 0.5, 1)   # 기록만 — 판정은 나중에
+    f = Field(os.path.join(ROOT, a.wake_model), 0.5, 1,   # 기록만 — 판정은 나중에
+              keep_audio=bool(a.save_audio))
     if a.check:
         import numpy as np
         for i in range(60):        # 1.2초치 무음을 넣어 실제로 돌려 본다
@@ -304,6 +364,8 @@ def main():
 
     os.makedirs(a.out, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
+    if a.save_audio:
+        save_audio(f, f.marks, a.save_audio)
     report(f.rec, f.marks, os.path.join(a.out, f"wake-field-{stamp}.json"))
 
 

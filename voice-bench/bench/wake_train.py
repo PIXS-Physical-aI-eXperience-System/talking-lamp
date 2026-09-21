@@ -91,6 +91,22 @@ def make_windows(base, rng, n_pos_aug, n_neg_aug, tts_dir=None, n_tts_aug=3):
                                       end_frac=rng.uniform(1.05, 1.45),
                                       snr_db=rng.uniform(5, 25),
                                       gain_db=rng.uniform(-10, 4))), 0, name)
+            # **앞이 잘린 호출어 = 부정.** 처음엔 "애매하다"며 뺐는데 그게
+            # 구멍이었다. 실제로 "스야" 만 말해도 깨어났고, 재보니 "픽" 을
+            # 잘라내도 99% 깨어났다 — 모델이 꼬리만 듣고 판단하고 있었다.
+            #
+            # 긍정을 만들 때 말의 끝을 창 끝에 맞춰 놓으니 꼬리는 항상 같은
+            # 자리에 있고 머리는 빠르기에 따라 흔들린다. 그래서 꼬리가 더
+            # 쓸 만한 단서가 된다. 머리가 없으면 호출어가 아니라고 직접
+            # 가르쳐야 그 지름길이 막힌다.
+            for _ in range(max(n_pos_aug // 3, 1)):
+                keep = rng.uniform(0.35, 0.72)      # 뒤쪽 일부만 남긴다
+                tail = seg0[int(len(seg0) * (1 - keep)):]
+                tail = resample(tail, rng.uniform(0.92, 1.08))
+                yield (to_int16(place(tail, noises, rng,
+                                      end_frac=rng.uniform(0.775, 1.0),
+                                      snr_db=rng.uniform(5, 25),
+                                      gain_db=rng.uniform(-10, 4))), 0, name)
 
         for path in neg_paths:
             x = read_wav(path)
