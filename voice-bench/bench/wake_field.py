@@ -181,6 +181,19 @@ def save_audio(f, marks, out_dir, ths=(0.7,), need=2):
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
             w.writeframes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
 
+    # 부른 구간도 남긴다. 실제 채널을 거친 호출어 녹음은 이것 말고는
+    # 사람을 다시 모아야만 얻을 수 있다. 재는 김에 같이 쌓는다.
+    os.makedirs(os.path.join(out_dir, "호출어"), exist_ok=True)
+    n_pos = 0
+    for _, t0, t1 in [m for m in marks if m[0] == "call"]:
+        chunks = [p for t, p in f.audio if t0 <= t <= t1]
+        if not chunks:
+            continue
+        write(os.path.join(out_dir, "호출어", f"{stamp}-{n_pos:03d}.wav"), chunks)
+        n_pos += 1
+    if n_pos:
+        print(f"  호출어 {n_pos}개 저장 — 말 앞뒤 여백은 학습 때 잘라낸다")
+
     talks = [m for m in marks if m[0] == "talk"]
     n_clip = 0
     for i, (_, t0, t1) in enumerate(talks):
