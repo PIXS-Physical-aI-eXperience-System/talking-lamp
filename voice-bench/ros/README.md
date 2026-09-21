@@ -30,11 +30,24 @@ ROS 노드를 같은 인터프리터에 넣으면 rosdep 이나 ROS 패키지가
 우리 두 프로세스만 띄워도 마이크 프레임은 안 온다. 그 아래가 먼저 떠야 한다.
 **부팅 시 자동으로 안 켜진다** — 커미셔닝 중에는 disable 해 두기로 했다.
 
-| 파이 | `sudo systemctl start talking-lamp-device.service` | 마이크·스피커 |
+| 파이 | `talking-lamp-device.service` | 마이크·스피커 |
 | --- | --- | --- |
-| 젯슨 | `sudo systemctl start talking-lamp-bridges.service` | ROS 브리지 |
+| 젯슨 | `talking-lamp-bridges.service` | ROS 브리지 |
 
 (정의는 `~/talking-lamp-integration/deploy/{pi,jetson}/` 에 있다)
+
+파이에 따로 붙을 필요 없이 젯슨에서 한 번에 켠다.
+
+```bash
+ssh pixs@192.168.100.2 sudo systemctl start talking-lamp-device.service \
+  && sudo systemctl start talking-lamp-bridges.service
+```
+
+```bash
+ssh pixs@192.168.100.2 systemctl is-active talking-lamp-device.service
+systemctl is-active talking-lamp-bridges.service
+ros2 topic hz /lamp/audio/capture      # 50 Hz 근처여야 한다 (20 ms 프레임)
+```
 
 떴는지 확인하는 법:
 
