@@ -225,9 +225,13 @@ class VoiceAgent:
         if ended or too_long:
             audio = np.concatenate(self._buf) if self._buf else np.zeros(1, np.float32)
             self._buf = []
-            dur = len(self._buf) * FRAME_SAMPLES / link.RATE
+            # 길이는 비우기 전의 오디오에서 잰다. 전에는 self._buf 를 비운
+            # 뒤에 재서 늘 0.0초로 찍혔다 — 실제로 얼마나 모았는지 모른 채
+            # 원인을 찾아야 했다.
+            dur = len(audio) / link.RATE
             why = "길이 상한" if too_long else "무음"
-            print(f"  발화 {dur:.1f}초 모음 ({why}로 끊음)")
+            print(f"  발화 {dur:.1f}초 모음 (소리 난 프레임 {self._voiced}개, "
+                  f"{why}로 끊음)")
             # 발화가 끝났다고 판단한 시각. 여기부터 첫 소리까지가 체감 지연이다.
             threading.Thread(target=self._think_and_speak,
                              args=(audio, self.speech_id, time.time()), daemon=True).start()

@@ -66,6 +66,24 @@ FRAME_INTERVAL_S = 0.02
 # 브리지 송신기가 만들어질 때까지 기다리는 시간. 준비 신호가 없어서 짐작이다.
 # 이 시간이 그대로 응답 지연에 얹히므로 짧을수록 좋지만, 모자라면 첫 프레임이
 # 버려져 스트림이 통째로 죽는다. TTS 합성과 겹치므로 실제 손해는 이보다 작다.
+
+
+def next_due(t0, seq, now, interval=FRAME_INTERVAL_S):
+    """이 프레임을 언제 보낼지. (보낼 시각, 새 t0, 밀린 시간).
+
+    절대 시각으로 잡아야 20ms 오차가 쌓이지 않는다. 다만 큐가 비어
+    기다린 동안에는 seq 가 안 늘어나므로 일정이 통째로 밀린다. 그대로
+    두면 밀린 만큼 몰아 보내게 되고, 브리지가 순서를 뒤집어
+    out_of_order 로 스트림 전체가 죽는다.
+
+    따라잡지 않는다. 한 프레임 넘게 밀렸으면 지금으로 다시 잡는다.
+    """
+    due = t0 + seq * interval
+    behind = now - due
+    if behind > interval:
+        return now, now - seq * interval, behind
+    return due, t0, 0.0
+
 SENDER_READY_S = 0.6
 RATE = 16000
 HDR_LEN = 8
@@ -327,7 +345,11 @@ class LampVoiceNode(Node):
                 self.get_logger().info(
                     f"첫 프레임 발행까지 {t_ready - self.play_t0:.2f}초 "
                     f"(대기 {SENDER_READY_S:.1f}초 포함)")
-            due = t0 + seq * FRAME_INTERVAL_S
+            due, t0, behind = next_due(t0, seq, time.time())
+            if behind > 0.2:
+                self.get_logger().info(
+                    f"큐가 {behind:.1f}초 비었다 — 일정을 다시 잡는다"
+                    " (몰아 보내면 브리지가 순서를 뒤집는다)")
             delay = due - time.time()
             if delay > 0:
                 time.sleep(delay)
