@@ -1,0 +1,11 @@
+string name
+bool replace_current
+float32 intensity
+uint32 repeat
+---
+bool success
+string code
+string message
+---
+string state
+float32 progress

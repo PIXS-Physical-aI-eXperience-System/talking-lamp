@@ -1,42 +1,27 @@
-%%{init: {'theme':'base','themeVariables':{'background':'#ffffff','primaryColor':'#ffffff','primaryTextColor':'#1a1a1a','primaryBorderColor':'#999999','lineColor':'#666666','clusterBkg':'#fafafa','clusterBorder':'#aaaaaa','fontSize':'14px'}}}%%
+%%{init: {'theme':'neutral','flowchart':{'htmlLabels':false,'curve':'linear'},'themeVariables':{'fontFamily':'Noto Sans CJK KR, sans-serif','fontSize':'16px'}}}%%
 flowchart LR
-    CAM(["카메라"])
-    MIC(["마이크"])
-
-    subgraph JETSON ["Jetson Orin Nano 8GB · AI 추론"]
-        DET["검출기<br/>얼굴 · 물체 찾기"]
-        LTGT["L3 조명 타겟 계산<br/>어디를 어느 방향에서 비출지"]
-        STT["음성 인식"]
-        VLM["L2 인지 · VLM<br/>입력: 이미지 1장 + 텍스트<br/>출력: 대사 + 행동 태그"]
-        TTS["음성 합성"]
+    subgraph JETSON["Jetson · AI 추론 / ROS 2"]
+        CAM["카메라 → 검출 / 3D 목표"]
+        STT["STT → VLM → TTS"]
+        POLICY["대화 순서 / 모션·표정 요청"]
+        CAM --> POLICY
+        STT --> POLICY
     end
-
-    subgraph PI ["Raspberry Pi 5 · 실시간 제어 100 Hz"]
-        L0["L0 대기 모션<br/>호흡 · 미세 시선"]
-        L1["L1 반사<br/>칼만 필터 + IK"]
-        PLAY["L2 프리미티브 재생"]
-        TASK["L3 조명 자세<br/>IK"]
-        BLEND["모션 블렌더<br/>레이어 우선순위 합성"]
-        TRAJ["궤적 생성기<br/>속도 · 가속 · 저크 제한"]
+    subgraph PI["Raspberry Pi 5 · 장치 / 100 Hz 모션"]
+        MIC["Linear-4 마이크"]
+        SPK["XVF 출력 → 스피커<br/>AEC 참조 경로"]
+        MIC --> AUDIO
+        AUDIO --> SPK
+        AUDIO["XVF3800 USB / ALSA / GStreamer"]
+        DOA["VAD·DOA 안정화 / 보정<br/>전방 약 180°"]
+        MOTION["로컬 yaw 정렬 / L0~L3 합성<br/>IK → 궤적 생성 → 5축 서보"]
+        LED["RP1 PIO → WS2812B-64<br/>180° 회전 / 운영 밝기 8%"]
+        AUDIO --> DOA
+        DOA -- "Pi 로컬 소켓" --> MOTION
     end
-
-    SPK(["스피커"])
-    SERVO(["서보 5축 + 조명"])
-
-    CAM --> DET
-    CAM -- "이미지 1장" --> VLM
-    MIC -- "잡음 제거" --> STT
-    STT --> VLM
-    DET -- "얼굴 3D 위치" --> L1
-    DET -- "물체 3D 위치" --> LTGT
-    MIC -- "방향 추정 DOA" --> L1
-    VLM -- "대사" --> TTS
-    VLM -- "프리미티브 이름" --> PLAY
-    TTS --> SPK
-    LTGT -- "3D 타겟점 + 접근 방향" --> TASK
-    L0 --> BLEND
-    L1 --> BLEND
-    PLAY --> BLEND
-    TASK --> BLEND
-    BLEND -- "관절 각도" --> TRAJ
-    TRAJ --> SERVO
+    AUDIO -- "Ethernet 녹음<br/>Opus/RTP" --> STT
+    STT -- "Ethernet TTS<br/>Opus/RTP" --> AUDIO
+    POLICY -- "TCP · 모션 / 3D 목표" --> MOTION
+    POLICY -- "TCP · 표정 / 밝기" --> LED
+    DOA -. "TCP · 방향 상태 / speech_id" .-> POLICY
+    MOTION -. "TCP · 모션 상태" .-> POLICY

@@ -113,6 +113,14 @@ blend trace used for that command; logging should read it without calling
 `blender.compute()` again. Explicit primitive `sign`, `scale`, and `loop` options
 reload the clip and leave the cached default unchanged.
 
+## Pi 로컬 베이스 yaw 방향 정렬
+
+모션 데몬은 Pi 장치 서비스용 **로컬 전용** Unix 제어 소켓 `/run/talking-lamp/motion-control.sock`을 제공한다. 토큰은 사용하지 않는다. systemd 유닛은 상위 런타임 디렉터리를 만들고 그룹 읽기·쓰기 권한(`0660`)으로 소켓을 제공한다. 이 경로는 인증된 Jetson TCP 프로토콜과 별개다. 허용하는 로컬 메시지는 `orientation.acquire`, `orientation.return_center`, `orientation.status`, `system.heartbeat` 네 가지다.
+
+`orientation.acquire`는 정규 형식 UUID `speech_id`와 `-pi`~`pi` 범위의 유한한 절대 라디안 각도 `target_yaw`를 받는다. DOA 도 단위 값은 받지 않는다. Pi 장치 서비스가 DOA를 안정화·보정·변환한 뒤 요청한다. 모션 계층은 유효한 목표를 보정된 안전 yaw 범위로 제한하고 그 결과를 `clamped`로 보고한다.
+
+정확한 NDJSON 요청·응답, 상태 필드, 작업 조명·연결 끊김 처리, 보정 인수인계, 실물 마이크 벤치 선행 조건은 [베이스 yaw 운영 가이드](../../docs/base-yaw-orientation.md)를 참고한다. XVF3800 DOA·오디오·LED 및 Jetson ROS 연동의 현재 운영 절차는 [배포·인수인계 문서](../../docs/deployment-and-handoff.md)에 정리되어 있다.
+
 ## Known limitations / TODO
 
 - **Kinematics is the `build_arm.py` stopgap model**, not a CAD re-export -

@@ -11,3 +11,6 @@ from pathlib import Path
 
 sys.path[:] = [p for p in sys.path if "/opt/ros" not in p]
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+workspace_src = Path(__file__).resolve().parents[1] / "jetson_ws/src"
+for package in ("lamp_device_bridge", "lamp_motion_bridge", "lamp_interaction"):
+    sys.path.insert(0, str(workspace_src / package))

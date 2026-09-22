@@ -23,3 +23,4 @@ docs/협의/*.pdf
 
 # Superpowers local state
 .superpowers/
+.worktrees/
