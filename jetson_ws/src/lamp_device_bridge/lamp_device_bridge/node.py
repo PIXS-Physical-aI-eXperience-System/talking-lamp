@@ -92,6 +92,7 @@ class DeviceBridgeNode(Node):
         self._playback_lock = threading.Lock()
         self._playback_sender = None
         self._playback_stream = None
+        self._playback_owner = None
         self._playback_session = PlaybackSession()
         self.capture = CaptureReceiver(
             self._capture_pcm,
@@ -226,6 +227,19 @@ class DeviceBridgeNode(Node):
             "stream_id": goal.stream_id, "sample_rate": int(goal.sample_rate),
             "channels": int(goal.channels), "encoding": goal.encoding,
         }
+        session = PlaybackSession()
+        # Reserve before contacting Pi: startup and teardown are busy too.
+        with self._playback_lock:
+            busy = self._playback_owner is not None
+            if not busy:
+                self._playback_owner = session
+                self._playback_session = session
+        if busy:
+            result.success = False
+            result.code = "audio_busy"
+            result.message = "another playback request is active"
+            goal_handle.abort()
+            return result
         sender = None
         remote_started = False
         remote_stopped = False
@@ -233,7 +247,8 @@ class DeviceBridgeNode(Node):
         try:
             terminal = self._request("audio.play.start", metadata)
             if terminal.get("state") != "completed":
-                raise RuntimeError(str(terminal.get("code", "start_failed")))
+                raise AudioFrameError(str(terminal.get("code", "start_failed")),
+                                      str(terminal.get("message", "playback start failed")))
             remote_started = True
             sender = PlaybackSender(
                 goal.stream_id, bind_host="192.168.100.1",
@@ -243,15 +258,14 @@ class DeviceBridgeNode(Node):
             with self._playback_lock:
                 self._playback_sender = sender
                 self._playback_stream = goal.stream_id
-                self._playback_session.reset()
-            while not self._playback_session.wait(0.05):
+            while not session.wait(0.05):
                 if goal_handle.is_cancel_requested:
                     cancelled = True
                     break
             terminal = self._request(
                 "audio.play.stop", {"stream_id": goal.stream_id}, timeout=10)
             remote_stopped = True
-            frame_error = self._playback_session.error
+            frame_error = session.error
             if frame_error is not None:
                 raise frame_error
             if cancelled:
@@ -275,11 +289,17 @@ class DeviceBridgeNode(Node):
                         "audio.play.stop", {"stream_id": goal.stream_id}, timeout=10)
                 except (TransportError, RuntimeError, TimeoutError):
                     pass
+            # Keep ownership until our sender is closed. A rejected request
+            # never reaches cleanup, and cannot clear another request's state.
             with self._playback_lock:
-                self._playback_sender = None
-                self._playback_stream = None
-            if sender is not None:
-                sender.close()
+                try:
+                    if sender is not None:
+                        sender.close()
+                finally:
+                    if self._playback_owner is session:
+                        self._playback_sender = None
+                        self._playback_stream = None
+                        self._playback_owner = None
         (goal_handle.succeed if result.success else goal_handle.abort)()
         return result
 
