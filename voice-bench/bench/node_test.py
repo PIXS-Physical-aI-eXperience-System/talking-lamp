@@ -41,6 +41,8 @@ for mod, attrs in (("rclpy.node", ["Node"]),
 sys.path.insert(0, os.path.join(ROOT, "ros"))
 import lamp_voice_node as N  # noqa: E402
 
+DEFAULT_PREV_WAIT = N.PREV_PLAY_WAIT_S   # 시험들이 줄이기 전에 받아 둔다
+
 fail = 0
 
 
@@ -219,9 +221,12 @@ n.cancel_playback()
 t = threading.Thread(target=begin, args=(n, "B"))
 t.start()                           # B 는 A 가 끝나기를 기다리며 막힌다
 time.sleep(0.2)
+goals_before_A_done = len(n.play_audio.pending)
 hA.finish("cancelled")              # 그 사이에 A 의 결과
 t.join(3.0)
 check("A 의 결과는 A 의 이름으로 간다", n.done == [("A", "cancelled")], f"{n.done}")
+check("A 가 끝나기 전에는 B 의 목표를 안 보낸다(보내면 audio_busy)",
+      goals_before_A_done == 1, f"A 결과 전 목표 {goals_before_A_done}개")
 check("B 는 새로 시작한다", n.cur.speech_id == "B" and not n.play_done.is_set())
 
 # ⑤-b 상한이 지나 B 로 넘어간 뒤 B 가 수락 전에 끼어들린다.
@@ -342,6 +347,12 @@ for _ in range(3):
 n.cur.thread.join(2.0)
 check("서버가 끝낸 뒤로는 발행하지 않는다", len(n.published) == 1,
       f"{len(n.published)}개 (실패 전 1개여야 한다)")
+
+# 브리지 계약: 앞 재생의 정지 제한(audio.play.stop timeout=10)보다 길게
+# 기다려야 한다. 짧으면 취소가 느릴 때 다음 턴이 audio_busy 로 죽는다.
+print("\n⑥ 브리지 계약")
+check("앞 재생 대기가 브리지 정지 제한 10초보다 길다", DEFAULT_PREV_WAIT > 10.0,
+      f"{DEFAULT_PREV_WAIT:.0f}초")
 
 print("\n  ✔ 노드 상태 처리 이상 없음" if not fail else f"\n  ✗ {fail}건 실패")
 sys.exit(1 if fail else 0)

@@ -107,7 +107,17 @@ def next_due(t0, seq, now, interval=FRAME_INTERVAL_S, last=None,
     return due, t0, behind
 
 SENDER_READY_S = 0.6
-PREV_PLAY_WAIT_S = 3.0   # 앞 재생이 끝나기를 기다리는 상한
+# 앞 재생이 끝나기를 기다리는 상한.
+#
+# 브리지는 재생 소유권을 하나만 준다. 취소하면 파이에 audio.play.stop 을
+# 보내고(timeout=10) 그게 끝나야 소유권을 놓고, 놓은 뒤에 결과를 돌려준다.
+# 그 전에 다음 목표가 오면 audio_busy 로 끊는다. 그러니 앞 재생의 결과를
+# 기다리는 것이 곧 브리지가 비기를 기다리는 것이다.
+#
+# 처음에 3초로 뒀더니 취소가 느릴 때 다음 턴이 audio_busy 로 소리 없이
+# 죽었다. 브리지의 정지 제한 10초보다 길게 잡는다. 브리지가 10초 안에 반드시
+# 끝내므로 영영 멈출 걱정은 없다. 보통은 1초 안에 끝난다.
+PREV_PLAY_WAIT_S = 12.0
 RATE = 16000
 HDR_LEN = 8
 
@@ -320,9 +330,9 @@ class LampVoiceNode(Node):
     def start_playback(self, speech_id=""):
         prev = self.cur
         if prev is not None and not self.play_done.wait(PREV_PLAY_WAIT_S):
-            # 무한정 기다리지 않는다 — 취소가 10초까지 걸릴 수 있고 그동안
-            # 대화가 멈춘다. 앞 재생을 버리고 넘어가되, 액션 서버에 남은
-            # 목표는 취소한다. 안 그러면 다음 목표가 audio_busy 로 거부된다.
+            # 브리지가 정지 제한을 넘겼다 — 정상이면 여기 오지 않는다. 앞
+            # 재생을 버리고 넘어가되, 남은 목표는 취소한다. 다음 목표가
+            # audio_busy 로 끝날 수 있다.
             self.get_logger().warn(
                 f"앞 재생이 {PREV_PLAY_WAIT_S:.0f}초 안에 안 끝난다 "
                 "— 취소하고 다음으로 넘어간다")
