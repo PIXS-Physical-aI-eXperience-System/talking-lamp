@@ -23,6 +23,7 @@ docs/협의/*.pdf
 
 # Superpowers local state
 .superpowers/
+.worktrees/
 
 # voice-bench — 산출물·가중치·환경은 커밋하지 않는다
 voice-bench/venvs/

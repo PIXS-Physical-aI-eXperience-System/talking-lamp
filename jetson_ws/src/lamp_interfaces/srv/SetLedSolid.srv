@@ -1,0 +1,10 @@
+uint8 r
+uint8 g
+uint8 b
+float32 brightness
+---
+bool success
+string code
+string message
+float32 applied_brightness
+bool clamped

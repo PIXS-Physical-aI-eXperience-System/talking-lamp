@@ -11,17 +11,11 @@ import sys
 import time
 from typing import Callable
 
-from .config import CONTROL_DT, CONTROL_HZ, REST_POSE
+from .config import CONTROL_DT, CONTROL_HZ, DEADLINE_JITTER_SECONDS, REST_POSE
 from .hardware_backend import FeetechBackend
 from .primitives import PrimitiveLibrary
 from .runtime import MotionRuntime
 from .trajectory import TrajectoryGenerator
-
-
-# Accept ordinary OS wakeup jitter without treating every late wake as a miss.
-# A send may start at most 1 ms after its grid deadline, so adjacent starts
-# can be 9 ms apart, but substantially overdue trajectory steps are discarded.
-DEADLINE_JITTER_SECONDS = 0.001
 
 
 @dataclass

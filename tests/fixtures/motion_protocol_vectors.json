@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000001", "type": "motion.play", "ttl_ms": 1000, "token": "vector-token", "payload": {"name": "nod", "replace_current": true, "intensity": 1.0, "repeat": 1}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000002", "type": "motion.cancel", "ttl_ms": 1000, "token": "vector-token", "payload": {"request_id": "00000000-0000-4000-8000-000000000001"}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000003", "type": "motion.interrupt", "ttl_ms": 1000, "token": "vector-token", "payload": {}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000004", "type": "motion.status", "ttl_ms": 1000, "token": "vector-token", "payload": {}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000005", "type": "motion.list", "ttl_ms": 1000, "token": "vector-token", "payload": {}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000006", "type": "track.point", "ttl_ms": 1000, "token": "vector-token", "payload": {"point": [0.2, 0.0, 0.3]}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000007", "type": "track.bearing", "ttl_ms": 1000, "token": "vector-token", "payload": {"direction": [0.0, 1.0, 0.0]}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000008", "type": "track.clear", "ttl_ms": 1000, "token": "vector-token", "payload": {}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000009", "type": "task_light.place", "ttl_ms": 1000, "token": "vector-token", "payload": {"point": [0.1, -0.2, 0.4]}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000010", "type": "task_light.cancel", "ttl_ms": 1000, "token": "vector-token", "payload": {"request_id": "00000000-0000-4000-8000-000000000009"}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000011", "type": "task_light.clear", "ttl_ms": 1000, "token": "vector-token", "payload": {}},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000012", "type": "system.heartbeat", "ttl_ms": 1000, "token": "vector-token", "payload": {}}
+  ],
+  "events": [
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000101", "type": "event", "state": "accepted"},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000101", "type": "event", "state": "completed"},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000102", "type": "event", "state": "cancelled"},
+    {"version": 1, "id": "00000000-0000-4000-8000-000000000103", "type": "event", "state": "failed", "code": "busy"}
+  ]
+}
