@@ -14,8 +14,15 @@
   pub  /lamp/audio/playback_frames  같은 형식으로 되돌려 보낸다
   act  /lamp/play_audio             재생 시작·EOS·드레인 완료를 소유한다
 
-주의: 이 파일은 실기기에서 아직 돌려보지 않았다. rclpy 가 없는 곳에서는
-검증할 수 없어 문법과 계약만 맞춰 둔 상태다.
+재생 한 번 = Stream 하나. 액션 핸들·발행 큐·취소·발화 id 가 전부 그 안에
+있고 콜백에는 그 객체를 묶어 넘긴다. 끼어들면 앞 재생의 콜백이 한동안
+살아 있어서(취소가 10초까지 걸린다), 공용 필드로 두면 다음 재생을 건드린다.
+
+재생이 끝나면(성공·실패·취소·거부 무엇이든) 판단부에 SPEAK_DONE 을 재생마다
+한 번, 자기 발화 id 를 달아 보낸다. 판단부는 그것을 받고서야 말하기를
+끝낸다 — 프레임을 다 보낸 것과 소리가 다 난 것은 다르다.
+
+rclpy 없이 시험한다: bench/node_test.py, bench/integration_test.py.
 """
 import argparse
 import functools
@@ -528,9 +535,11 @@ def main() -> int:
     ap.add_argument("--agent", default="127.0.0.1:5150",
                     help="판단부 주소 (bench/voice_agent.py 가 띄운다)")
     ap.add_argument("--ready-wait", type=float, default=SENDER_READY_S,
-                    help="브리지 송신 소켓이 열릴 때까지 기다리는 최대 초")
+                    help="목표가 수락된 뒤 첫 프레임을 보내기까지 기다리는 초. "
+                         "브리지가 송신기 준비 신호를 안 줘서 짐작이다")
     ap.add_argument("--pi-host", default="192.168.100.2",
-                    help="송신 소켓을 찾을 때 쓰는 파이 주소")
+                    help="쓰지 않는다. 예전에 송신 소켓을 찾던 방식의 흔적이라 "
+                         "넘겨도 무시한다(띄우는 명령이 깨지지 않게 남겨 둠)")
 
     args, ros_args = ap.parse_known_args()
     host, _, port = args.agent.partition(":")

@@ -41,7 +41,8 @@ SPEAK_AUDIO = b"SPKA" # 재생할 조각 (S16LE)
 SPEAK_END = b"SPKE"   # 말 끝
 BARGE_IN = b"BRGI"    # 사용자가 끼어들었다 — 재생을 즉시 멈출 것
 HEARD = b"HERD"       # 받아쓴 글 (기록용, UTF-8)
-SPEAK_DONE = b"SPKD"  # 파이에서 재생이 실제로 끝났다. [code UTF-8]
+SPEAK_DONE = b"SPKD"  # 파이에서 재생이 실제로 끝났다.
+                      # [speech_id 36바이트][code UTF-8]. 재생마다 한 번.
                       #
                       # 프레임을 다 보낸 것과 소리가 다 난 것은 다르다.
                       # 노드가 20ms 간격으로 발행하고, 그 뒤에도 파이의
@@ -50,6 +51,9 @@ SPEAK_DONE = b"SPKD"  # 파이에서 재생이 실제로 끝났다. [code UTF-8]
                       # 상태는 대기라, 그 사이에 끼어들어도 barge-in 이
                       # 동작하지 않는다. PlayAudio 액션의 실제 결과를
                       # 받아서 끝낸다.
+                      #
+                      # 발화 id 를 싣는 것은 끼어든 앞 턴의 결과가 늦게
+                      # 와서 다음 턴을 끝내지 않게 하려는 것이다.
 
 SPEECH_ID_LEN = 36    # 표준 UUID 문자열 길이. 없으면 공백 36칸으로 채운다
 
