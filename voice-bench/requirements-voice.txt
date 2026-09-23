@@ -1,0 +1,23 @@
+# 음성 런타임(voice/) 추가 의존성. requirements-onnx.txt 위에 얹는다.
+#
+# ★ Jetson 설치 순서 주의 ★
+# onnxruntime 은 sm_87 커널이 있는 직접 빌드 휠이 깔려 있다(build-onnxruntime/).
+# openwakeword 는 의존성으로 onnxruntime<2,>=1.10 을 요구하는데, pip 가 이를
+# PyPI 의 CPU 판으로 채우면 GPU 휠이 덮이고 TTS·STT 가 같이 무너진다.
+# 그래서 Jetson 에서는 반드시 이렇게 깐다:
+#
+#   pip install -r requirements-voice.txt        # openwakeword 제외분
+#   pip install --no-deps openwakeword
+#   python -c "import onnxruntime as o; print(o.get_available_providers())"
+#     → CUDAExecutionProvider 가 남아 있어야 한다
+#
+# ctranslate2 도 같다 — 직접 빌드한 휠이므로 --force-reinstall 로 덮지 말 것.
+
+sounddevice          # 마이크 입력, 스피커 출력
+ten-vad              # 발화 감지. silero 는 torch 를 끌고 와서 쓰지 않는다
+scipy                # 44.1kHz -> 16kHz 재샘플링 (없으면 선형 보간으로 떨어진다)
+
+# openwakeword 가 필요로 하는 것들 (--no-deps 로 깔기 때문에 여기 적어 둔다)
+requests
+scikit-learn
+tqdm
