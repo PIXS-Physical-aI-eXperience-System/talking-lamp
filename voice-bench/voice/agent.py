@@ -142,6 +142,7 @@ class VoiceAgent:
         # 사람에게도 barge-in 이 동작한다.
         self._play_done = threading.Event()
         self._play_done.set()
+        self._speaking_id = None      # 지금 재생을 기다리는 발화
         self._sent_s = 0.0            # 이번 스트림에서 보낸 오디오 길이
         self._mic = []          # 말하는 동안의 (현재 dB, 바닥 dB)
         self._speak_thread = None
@@ -190,8 +191,17 @@ class VoiceAgent:
             elif self.state in (IDLE, LISTENING):
                 self._while_listening(speech_id, pcm)
 
-    def on_play_done(self, code=""):
-        """노드가 PlayAudio 결과를 받았다. 성공·실패·취소 모두 온다."""
+    def on_play_done(self, speech_id="", code=""):
+        """노드가 PlayAudio 결과를 받았다. 성공·실패·취소 모두 온다.
+
+        어느 발화의 결과인지 보고 거른다. 끼어들어 앞 턴이 취소되면 그
+        결과가 늦게 도착하는데, 그때 이미 다음 턴이 말하기 시작했다면
+        그 턴이 끝난 것으로 처리된다. 노드도 스트림 id 로 거르지만,
+        턴이 바뀌는 그 짧은 사이에 결과가 도착하면 노드 쪽에서는 아직
+        앞 스트림이 현재라 걸러지지 않는다.
+        """
+        if speech_id and self._speaking_id and speech_id != self._speaking_id:
+            return
         self._play_done.set()
 
     def on_orientation(self, speech_id, state):
@@ -315,6 +325,7 @@ class VoiceAgent:
         chunks = [reply] if isinstance(reply, str) else reply
 
         self._stop_speaking.clear()
+        self._speaking_id = speech_id
         self._play_done.clear()
         self._sent_s = 0.0
         self.barge.reset()

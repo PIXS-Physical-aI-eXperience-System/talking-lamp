@@ -67,7 +67,8 @@ def fake_node(agent, sent, code="drained", delay=0.0):
             def done():
                 if delay:
                     time.sleep(delay)
-                agent[0].on_play_done(code)
+                a = agent[0]
+                a.on_play_done(a._speaking_id or "", code)
             threading.Thread(target=done, daemon=True).start()
     return send
 
@@ -293,7 +294,7 @@ def main() -> int:
         fails.append("재생 중(전송 완료 후)에 끼어들었는데 barge-in 이 안 나갔다")
 
     # ⑥-c 취소 결과가 와도 듣기를 덮지 않는다
-    agent6.on_play_done("cancelled")
+    agent6.on_play_done(agent6._speaking_id or "", "cancelled")
     time.sleep(0.2)
     print(f"  ⑥-c 취소 결과 수신    상태 {agent6.state} (듣기여야 한다)")
     if agent6.state != LISTENING:
@@ -343,6 +344,40 @@ def main() -> int:
             fails.append("완료 신호가 없을 때 말하기에서 안 빠져나왔다")
     finally:
         _A.PLAY_WAIT_MARGIN_S = old_margin
+
+    # ⑨ 앞 턴의 늦은 완료 신호가 지금 턴을 끝내면 안 된다 ──────────────
+    #    끼어들어 앞 턴이 취소되면 그 결과가 늦게 온다. 그때 이미 다음
+    #    턴이 말하기 시작했다면 그 턴이 끝난 것으로 처리된다. 노드도
+    #    스트림 id 로 거르지만, 턴이 바뀌는 사이에 도착하면 노드 쪽에서는
+    #    아직 앞 스트림이 현재라 안 걸러진다.
+    sent9 = []
+    agent9 = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
+                        on_utterance=lambda t: "네, 밝게 할게요.",
+                        send=lambda k, p: sent9.append((k, p)),
+                        on_state=lambda s: None)
+    for sid, db, n in [(SID, -20, 50), ("", -60, 35)]:
+        for _ in range(n):
+            agent9.on_capture(sid, frame(db))
+            time.sleep(0.001)
+    for _ in range(60):
+        if any(k == link.SPEAK_END for k, _ in sent9):
+            break
+        time.sleep(0.05)
+
+    agent9.on_play_done("앞턴-다른-id", "cancelled")   # 앞 턴의 늦은 결과
+    time.sleep(0.2)
+    print(f"  ⑨ 앞 턴의 늦은 완료   상태 {agent9.state} (말하기여야 한다)")
+    if agent9.state != SPEAKING:
+        fails.append("앞 턴의 완료 신호가 지금 턴을 끝냈다")
+
+    agent9.on_play_done(agent9._speaking_id, "drained")   # 지금 턴의 결과
+    for _ in range(40):
+        if agent9.state == IDLE:
+            break
+        time.sleep(0.05)
+    print(f"  ⑨-b 지금 턴의 완료    상태 {agent9.state}")
+    if agent9.state != IDLE:
+        fails.append("자기 턴의 완료 신호로도 안 끝났다")
 
     print()
     if fails:

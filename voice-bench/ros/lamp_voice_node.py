@@ -18,6 +18,7 @@
 검증할 수 없어 문법과 계약만 맞춰 둔 상태다.
 """
 import argparse
+import functools
 import queue
 import socket
 import sys
@@ -85,6 +86,7 @@ def next_due(t0, seq, now, interval=FRAME_INTERVAL_S):
     return due, t0, 0.0
 
 SENDER_READY_S = 0.6
+PREV_PLAY_WAIT_S = 3.0   # 앞 재생이 끝나기를 기다리는 상한
 RATE = 16000
 HDR_LEN = 8
 
@@ -125,6 +127,7 @@ class LampVoiceNode(Node):
         # 동안 새로 온 것을 다른 스레드가 내보내면 순서가 뒤집히고 순번도
         # 겹친다. 브리지가 out_of_order 로 전부 거부했다.
         self.cancelled = False
+        self.speech_id = ""           # 지금 재생 중인 발화
         self.cancel_pending = False   # 수락 응답 전에 들어온 취소
         self.goal_sent = False
         self.play_done.set()          # 처음에는 기다릴 재생이 없다
@@ -252,6 +255,9 @@ class LampVoiceNode(Node):
         if kind == HEARD:
             self.get_logger().info(f"들은 말: {body.decode('utf-8', 'replace')}")
         elif kind == SPEAK_BEGIN:
+            # 어느 발화인지 들고 있다가 완료 신호에 되돌려 준다. 판단부가
+            # 그것으로 자기 턴의 완료인지 가린다.
+            self.speech_id = bytes(body)[:36].decode("ascii", "replace").strip()
             self.start_playback()
         elif kind == SPEAK_AUDIO:
             self.publish_frame(bytes(body))
@@ -264,8 +270,15 @@ class LampVoiceNode(Node):
         # 앞 재생이 아직 끝나지 않았으면 기다린다. 겹쳐서 시작하면 파이가
         # audio_busy 로 거부한다.
         if self.goal_handle is not None or not self.play_done.is_set():
-            if not self.play_done.wait(3.0):
-                self.get_logger().warn("앞 재생이 안 끝난다 — 그대로 진행한다")
+            if not self.play_done.wait(PREV_PLAY_WAIT_S):
+                # 무한정 기다리지 않는다 — 안 끝나면 대화가 멈춘다. 대신
+                # 남은 목표를 취소해 액션 서버를 비운다. 안 그러면 다음
+                # 목표가 audio_busy 로 거부된다.
+                self.get_logger().warn(
+                    f"앞 재생이 {PREV_PLAY_WAIT_S:.0f}초 안에 안 끝난다 "
+                    "— 취소하고 다음으로 넘어간다")
+                if self.goal_handle is not None:
+                    self.goal_handle.cancel_goal_async()
         self.stream_id = str(uuid.uuid4())
         self.sent = 0
         self.cancel_pending = False
@@ -288,17 +301,30 @@ class LampVoiceNode(Node):
                               channels=1, encoding="pcm_s16le")
         self.goal_sent = True
         fut = self.play_audio.send_goal_async(goal)
-        fut.add_done_callback(self._goal_accepted)
+        # 스트림 id 를 콜백에 묶는다. 앞 스트림의 늦은 응답이 지금 스트림의
+        # 상태를 건드리면 안 된다 — 실제로 그럴 수 있다:
+        #   0초 A 시작 / 1초 A 취소 요청 / 4초 상한이 지나 B 시작 /
+        #   5초 A 의 취소 결과 도착 → B 가 끝난 것으로 처리된다
+        fut.add_done_callback(
+            functools.partial(self._goal_accepted, self.stream_id))
 
-    def _goal_accepted(self, fut):
+    def _goal_accepted(self, stream_id, fut):
         handle = fut.result()
+        if stream_id != self.stream_id:
+            # 지난 스트림의 뒤늦은 수락. 지금 재생을 건드리지 않고, 그
+            # 목표만 정리한다.
+            self.get_logger().info("지난 스트림이 뒤늦게 수락됐다 — 취소한다")
+            if handle.accepted:
+                handle.cancel_goal_async()
+            return
         if handle.accepted and self.cancel_pending:
             # 수락 응답을 기다리는 동안 취소가 들어왔다.
             self.cancel_pending = False
             self.goal_handle = handle
             self.get_logger().info("수락된 목표를 바로 취소한다")
             handle.cancel_goal_async()
-            handle.get_result_async().add_done_callback(self._goal_result)
+            handle.get_result_async().add_done_callback(
+                functools.partial(self._goal_result, stream_id))
             return
         if not handle.accepted:
             self.get_logger().error("PlayAudio 거부됨 — 프레임을 버린다")
@@ -306,11 +332,19 @@ class LampVoiceNode(Node):
             self.outq.put(None)
             return
         self.goal_handle = handle
-        handle.get_result_async().add_done_callback(self._goal_result)
+        handle.get_result_async().add_done_callback(
+            functools.partial(self._goal_result, stream_id))
         self.accepted.set()
 
-    def _goal_result(self, fut):
+    def _goal_result(self, stream_id, fut):
         r = fut.result().result
+        if stream_id != self.stream_id:
+            # 지난 스트림의 늦은 결과다. 기록만 하고 지금 상태는 건드리지
+            # 않는다. 여기서 play_done 을 세우거나 SPEAK_DONE 을 보내면
+            # 지금 재생 중인 것이 끝난 것으로 처리된다.
+            self.get_logger().info(
+                f"지난 스트림 결과 (무시) success={r.success} code={r.code}")
+            return
         sent_s = self.sent * 0.02
         took = time.time() - self.play_t0
         self.get_logger().info(
@@ -329,7 +363,8 @@ class LampVoiceNode(Node):
         self.play_done.set()
         # 판단부는 이 신호를 받고서야 말하기를 끝낸다. 프레임을 다 보낸
         # 것과 소리가 다 난 것은 다르다.
-        self.send(SPEAK_DONE, (r.code or "").encode("utf-8"))
+        self.send(SPEAK_DONE,
+                  pack_id(self.speech_id) + (r.code or "").encode("utf-8"))
 
     def _publisher(self, stream_id, q):
         """이 스레드만 발행한다. 순번과 큐를 스트림마다 따로 둔다.

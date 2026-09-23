@@ -40,6 +40,7 @@ for mod, attrs in (("rclpy.node", ["Node"]),
 
 sys.path.insert(0, os.path.join(ROOT, "ros"))
 import lamp_voice_node as N  # noqa: E402
+from lamp_voice_node import SPEAK_DONE  # noqa: E402
 
 fail = 0
 
@@ -95,12 +96,20 @@ def bare_node():
     n.cancelled = False
     n.sent = 0
     n.stream_id = "s1"
+    n.speech_id = "u1"
     n.outq = queue.Queue()
     import threading
     n.play_done = threading.Event()
     n.play_done.clear()
     n.accepted = threading.Event()
-    n.send = lambda kind, payload=b"": None
+    n.sent_to_agent = []
+    n.done_payloads = []
+
+    def _send(kind, payload=b""):
+        n.sent_to_agent.append(kind)
+        if kind == N.SPEAK_DONE:
+            n.done_payloads.append((kind, payload))
+    n.send = _send
     n.play_t0 = 0.0
     return n
 
@@ -115,7 +124,7 @@ check("수락 전 취소는 보류된다", n.cancel_pending is True)
 check("발행 스레드에 끝 신호를 넣는다", n.outq.qsize() == 1)
 
 h = Handle(accepted=True)
-n._goal_accepted(Fut(h))                # 뒤늦게 수락됨
+n._goal_accepted("s1", Fut(h))          # 뒤늦게 수락됨
 check("수락되자마자 취소를 보낸다", h.cancels == 1, f"cancel {h.cancels}회")
 check("보류 표시를 지운다", n.cancel_pending is False)
 check("결과 콜백을 단다", h.result_cb is not None)
@@ -130,7 +139,7 @@ class RF:
         return types.SimpleNamespace(result=R())
 
 
-n._goal_result(RF())
+n._goal_result("s1", RF())
 check("결과 뒤 goal_handle 이 비워진다", n.goal_handle is None)
 check("결과 뒤 재생 완료가 선다", n.play_done.is_set())
 
@@ -138,9 +147,48 @@ check("결과 뒤 재생 완료가 선다", n.play_done.is_set())
 n2 = bare_node()
 n2.goal_sent = True
 h2 = Handle(accepted=True)
-n2._goal_accepted(Fut(h2))
+n2._goal_accepted("s1", Fut(h2))
 check("취소가 없으면 취소를 안 부른다", h2.cancels == 0)
 check("평소에는 handle 을 들고 있는다", n2.goal_handle is h2)
+
+# ④ 앞 스트림의 늦은 결과가 지금 재생을 끝내면 안 된다 ────────────────
+#    0초 A 시작 / 1초 A 취소 요청 / 4초 상한이 지나 B 시작 /
+#    5초 A 의 취소 결과 도착 → 그때 B 가 끝난 것으로 처리되면 안 된다.
+print("\n④ 앞 스트림의 늦은 결과")
+
+n4 = bare_node()
+n4.stream_id = "A"
+hA = Handle(accepted=True)
+n4._goal_accepted("A", Fut(hA))
+check("A 가 수락된다", n4.goal_handle is hA)
+
+# 상한이 지나 B 가 시작된 상태를 만든다
+n4.stream_id = "B"
+n4.play_done.clear()
+n4.goal_handle = None
+n4.sent_to_agent.clear()
+
+n4._goal_result("A", RF())              # A 의 늦은 결과
+check("B 가 끝난 것으로 처리되지 않는다", not n4.play_done.is_set())
+check("판단부에 완료를 보내지 않는다", SPEAK_DONE not in n4.sent_to_agent,
+      f"{[k.decode() for k in n4.sent_to_agent]}")
+
+# 지금 스트림(B)의 결과는 정상으로 처리된다
+n4._goal_result("B", RF())
+check("B 의 결과는 처리된다", n4.play_done.is_set())
+check("B 의 완료는 판단부로 간다", SPEAK_DONE in n4.sent_to_agent)
+check("완료에 발화 id 가 실린다",
+      any(p[:36].decode().strip() == "u1" for k, p in n4.done_payloads),
+      f"{[p[:36].decode().strip() for k, p in n4.done_payloads]}")
+
+# 앞 스트림이 뒤늦게 수락되면 그것만 취소하고 지금 것을 안 건드린다
+n5 = bare_node()
+n5.stream_id = "B"
+n5.goal_handle = "B의핸들"
+hLate = Handle(accepted=True)
+n5._goal_accepted("A", Fut(hLate))
+check("늦게 수락된 A 를 취소한다", hLate.cancels == 1, f"cancel {hLate.cancels}회")
+check("B 의 핸들을 안 덮는다", n5.goal_handle == "B의핸들")
 
 # ③ 마지막 오디오 프레임과 EOS 사이 간격 ──────────────────────────────
 print("\n③ 마지막 프레임과 EOS 순서")
