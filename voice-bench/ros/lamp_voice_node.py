@@ -69,21 +69,35 @@ FRAME_INTERVAL_S = 0.02
 # 버려져 스트림이 통째로 죽는다. TTS 합성과 겹치므로 실제 손해는 이보다 작다.
 
 
-def next_due(t0, seq, now, interval=FRAME_INTERVAL_S):
+MIN_GAP_S = FRAME_INTERVAL_S / 2   # 연속 두 발행 사이 최소 간격
+
+
+def next_due(t0, seq, now, interval=FRAME_INTERVAL_S, last=None,
+             min_gap=MIN_GAP_S):
     """이 프레임을 언제 보낼지. (보낼 시각, 새 t0, 밀린 시간).
 
     절대 시각으로 잡아야 20ms 오차가 쌓이지 않는다. 다만 큐가 비어
     기다린 동안에는 seq 가 안 늘어나므로 일정이 통째로 밀린다. 그대로
     두면 밀린 만큼 몰아 보내게 되고, 브리지가 순서를 뒤집어
-    out_of_order 로 스트림 전체가 죽는다.
+    out_of_order 로 스트림 전체가 죽는다. 한 프레임 넘게 밀렸으면
+    따라잡지 않고 지금으로 다시 잡는다.
 
-    따라잡지 않는다. 한 프레임 넘게 밀렸으면 지금으로 다시 잡는다.
+    한 프레임 안쪽으로 늦은 것은 절대 일정이 다음 간격을 줄여 따라잡는다.
+    그런데 앞 프레임이 OS 스케줄링으로 거의 20ms 늦으면 다음 간격이
+    거의 0 이 된다 — 두 프레임이 붙어서 나간다. 시험 60번에 한 번 EOS 가
+    마지막 프레임 0.1ms 뒤에 나갔다. 브리지가 순서를 뒤집는 바로 그
+    조건이라, 따라잡더라도 last 에서 min_gap 은 벌린다. 늦은 만큼은
+    프레임마다 최대 (interval - min_gap) 씩 나눠서 따라잡는다.
     """
     due = t0 + seq * interval
     behind = now - due
     if behind > interval:
-        return now, now - seq * interval, behind
-    return due, t0, 0.0
+        due, t0 = now, now - seq * interval
+    else:
+        behind = 0.0
+    if last is not None and due < last + min_gap:
+        due = last + min_gap
+    return due, t0, behind
 
 SENDER_READY_S = 0.6
 PREV_PLAY_WAIT_S = 3.0   # 앞 재생이 끝나기를 기다리는 상한
@@ -111,6 +125,38 @@ def pack_id(speech_id):
     return (speech_id or "").strip().ljust(SPEECH_ID_LEN).encode("ascii")
 
 
+class Stream:
+    """재생 한 번의 상태. 콜백은 자기 스트림 것만 건드린다.
+
+    전에는 goal_handle·cancel_pending·outq·accepted·speech_id 를 노드 필드로
+    두고 새 재생이 시작될 때 덮어썼다. 그러면 앞 재생의 늦은 콜백이 새
+    재생의 필드를 건드린다. 실제로 난 것:
+
+      - A 의 결과가 B 를 기다리는 3초 사이에 오면 speech_id 가 이미 B 라
+        A 의 완료를 B 의 이름으로 보냈다 → B 가 시작도 전에 끝남
+      - 상한이 지나 B 로 넘어가도 goal_handle 이 A 것이라, B 가 수락되기
+        전에 끼어들면 A 를 또 취소하고 B 취소는 사라졌다
+      - 0초 A / 1초 A 취소 / 4초 B / 5초 A 결과 → B 가 끝난 것으로 처리
+
+    필드 하나씩 막으면 다음 수정 때 또 샌다. 스트림마다 객체를 만들고
+    콜백에는 그 객체를 묶어 넘긴다.
+    """
+
+    def __init__(self, speech_id):
+        self.id = str(uuid.uuid4())
+        self.speech_id = speech_id
+        self.q = queue.Queue()
+        self.accepted = threading.Event()
+        self.handle = None
+        self.goal_sent = False
+        self.cancel_pending = False
+        self.cancelled = False
+        self.reported = False          # 판단부에 결과를 알렸는가 (한 번만)
+        self.sent = 0
+        self.t0 = time.time()
+        self.thread = None
+
+
 class LampVoiceNode(Node):
     def __init__(self, host, port, pi_host="192.168.100.2"):
         super().__init__("lamp_voice")
@@ -119,22 +165,19 @@ class LampVoiceNode(Node):
         self.sock = None
         self.send_lock = threading.Lock()
 
-        self.stream_id = ""
-        self.sent = 0
-        self.goal_handle = None
-        self.play_done = threading.Event()
-        # 발행은 반드시 한 곳에서만 한다. 모아둔 것을 한 스레드가 내보내는
-        # 동안 새로 온 것을 다른 스레드가 내보내면 순서가 뒤집히고 순번도
+        # 지금 재생. 재생마다 따로 상태를 둔다(Stream 참고).
+        # 발행은 스트림마다 스레드 하나만 한다. 모아둔 것을 한 스레드가
+        # 내보내는 동안 다른 스레드가 내보내면 순서가 뒤집히고 순번도
         # 겹친다. 브리지가 out_of_order 로 전부 거부했다.
-        self.cancelled = False
-        self.speech_id = ""           # 지금 재생 중인 발화
-        self.cancel_pending = False   # 수락 응답 전에 들어온 취소
-        self.goal_sent = False
+        self.cur = None
+        # 지금 재생이 끝났는가. 다음 재생은 이것을 기다린다(겹치면 파이가
+        # audio_busy 로 거부한다). 지금 스트림의 결과만 이것을 세운다.
+        self.play_done = threading.Event()
         self.play_done.set()          # 처음에는 기다릴 재생이 없다
-        self.accepted = threading.Event()
-        self.outq = queue.Queue()
-        self.pub_thread = None
-        self.play_t0 = 0.0
+        # 지금 재생을 바꾸는 것과 "지금 재생이 끝났다" 를 세우는 것을 묶는다.
+        # 안 묶으면 앞 재생의 결과가 "지금 것인가" 를 본 뒤 세우기 전에
+        # 다음 재생으로 바뀌어, 다음 재생의 완료가 켜진다.
+        self.play_lock = threading.Lock()
 
         sensor = QoSPresetProfiles.SENSOR_DATA.value
         self.create_subscription(AudioFrame, "/lamp/audio/capture",
@@ -255,10 +298,11 @@ class LampVoiceNode(Node):
         if kind == HEARD:
             self.get_logger().info(f"들은 말: {body.decode('utf-8', 'replace')}")
         elif kind == SPEAK_BEGIN:
-            # 어느 발화인지 들고 있다가 완료 신호에 되돌려 준다. 판단부가
-            # 그것으로 자기 턴의 완료인지 가린다.
-            self.speech_id = bytes(body)[:36].decode("ascii", "replace").strip()
-            self.start_playback()
+            # 어느 발화인지 스트림에 묶어 두었다가 완료 신호에 되돌려 준다.
+            # 노드 필드에 먼저 적으면 안 된다 — 앞 재생을 기다리는 사이에
+            # 온 앞 재생의 결과가 이 이름을 달고 나간다.
+            self.start_playback(
+                bytes(body)[:SPEECH_ID_LEN].decode("ascii", "replace").strip())
         elif kind == SPEAK_AUDIO:
             self.publish_frame(bytes(body))
         elif kind == SPEAK_END:
@@ -266,89 +310,79 @@ class LampVoiceNode(Node):
         elif kind == BARGE_IN:
             self.cancel_playback()
 
-    def start_playback(self):
-        # 앞 재생이 아직 끝나지 않았으면 기다린다. 겹쳐서 시작하면 파이가
-        # audio_busy 로 거부한다.
-        if self.goal_handle is not None or not self.play_done.is_set():
-            if not self.play_done.wait(PREV_PLAY_WAIT_S):
-                # 무한정 기다리지 않는다 — 안 끝나면 대화가 멈춘다. 대신
-                # 남은 목표를 취소해 액션 서버를 비운다. 안 그러면 다음
-                # 목표가 audio_busy 로 거부된다.
-                self.get_logger().warn(
-                    f"앞 재생이 {PREV_PLAY_WAIT_S:.0f}초 안에 안 끝난다 "
-                    "— 취소하고 다음으로 넘어간다")
-                if self.goal_handle is not None:
-                    self.goal_handle.cancel_goal_async()
-        self.stream_id = str(uuid.uuid4())
-        self.sent = 0
-        self.cancel_pending = False
-        self.goal_sent = False
-        self.play_done.clear()
-        self.accepted.clear()
-        self.cancelled = False
-        self.outq = queue.Queue()
-        self.play_t0 = time.time()
-        # 큐와 스트림 id 를 스레드에 넘긴다. 인스턴스 변수를 함께 쓰면
-        # 이전 스트림의 스레드가 살아 있을 때 섞인다.
-        self.pub_thread = threading.Thread(
-            target=self._publisher, args=(self.stream_id, self.outq), daemon=True)
-        self.pub_thread.start()
+    def start_playback(self, speech_id=""):
+        prev = self.cur
+        if prev is not None and not self.play_done.wait(PREV_PLAY_WAIT_S):
+            # 무한정 기다리지 않는다 — 취소가 10초까지 걸릴 수 있고 그동안
+            # 대화가 멈춘다. 앞 재생을 버리고 넘어가되, 액션 서버에 남은
+            # 목표는 취소한다. 안 그러면 다음 목표가 audio_busy 로 거부된다.
+            self.get_logger().warn(
+                f"앞 재생이 {PREV_PLAY_WAIT_S:.0f}초 안에 안 끝난다 "
+                "— 취소하고 다음으로 넘어간다")
+            self._abandon(prev)
+
+        st = Stream(speech_id)
+        with self.play_lock:
+            self.cur = st
+            self.play_done.clear()
+        st.thread = threading.Thread(target=self._publisher, args=(st,),
+                                     daemon=True)
+        st.thread.start()
 
         if not self.play_audio.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("/lamp/play_audio 가 없다")
+            st.cancelled = True
+            st.q.put(None)
+            self._report(st, "no_server")
             return
-        goal = PlayAudio.Goal(stream_id=self.stream_id, sample_rate=RATE,
+        goal = PlayAudio.Goal(stream_id=st.id, sample_rate=RATE,
                               channels=1, encoding="pcm_s16le")
-        self.goal_sent = True
+        st.goal_sent = True
         fut = self.play_audio.send_goal_async(goal)
-        # 스트림 id 를 콜백에 묶는다. 앞 스트림의 늦은 응답이 지금 스트림의
-        # 상태를 건드리면 안 된다 — 실제로 그럴 수 있다:
-        #   0초 A 시작 / 1초 A 취소 요청 / 4초 상한이 지나 B 시작 /
-        #   5초 A 의 취소 결과 도착 → B 가 끝난 것으로 처리된다
-        fut.add_done_callback(
-            functools.partial(self._goal_accepted, self.stream_id))
+        fut.add_done_callback(functools.partial(self._goal_accepted, st))
 
-    def _goal_accepted(self, stream_id, fut):
+    def _abandon(self, st):
+        """앞 재생을 버린다. 결과는 나중에 와도 그 스트림 것으로만 처리된다."""
+        if st.cancelled:
+            return                      # 끼어들 때 이미 취소를 보냈다
+        st.cancelled = True
+        st.q.put(None)
+        if st.handle is not None:
+            st.handle.cancel_goal_async()
+        elif st.goal_sent:
+            st.cancel_pending = True      # 수락되면 그때 취소한다
+
+    def _goal_accepted(self, st, fut):
         handle = fut.result()
-        if stream_id != self.stream_id:
-            # 지난 스트림의 뒤늦은 수락. 지금 재생을 건드리지 않고, 그
-            # 목표만 정리한다.
-            self.get_logger().info("지난 스트림이 뒤늦게 수락됐다 — 취소한다")
-            if handle.accepted:
-                handle.cancel_goal_async()
+        if not handle.accepted:
+            # 거부도 끝이다. 알리지 않으면 판단부는 상한까지 말하기 상태로
+            # 남고, 다음 재생은 이 재생이 끝나기를 3초 기다린다.
+            self.get_logger().error("PlayAudio 거부됨 — 프레임을 버린다")
+            st.cancelled = True
+            st.q.put(None)
+            self._report(st, "rejected")
             return
-        if handle.accepted and self.cancel_pending:
-            # 수락 응답을 기다리는 동안 취소가 들어왔다.
-            self.cancel_pending = False
-            self.goal_handle = handle
+        st.handle = handle
+        handle.get_result_async().add_done_callback(
+            functools.partial(self._goal_result, st))
+        if st.cancel_pending or st is not self.cur:
+            # 수락 응답을 기다리는 사이 취소가 들어왔거나, 그사이 다음
+            # 재생으로 넘어갔다. 여기서 취소를 안 보내면 로컬 발행만 멈추고
+            # 액션 서버 쪽 목표는 오디오와 EOS 를 기다리며 남는다.
+            st.cancel_pending = False
             self.get_logger().info("수락된 목표를 바로 취소한다")
             handle.cancel_goal_async()
-            handle.get_result_async().add_done_callback(
-                functools.partial(self._goal_result, stream_id))
             return
-        if not handle.accepted:
-            self.get_logger().error("PlayAudio 거부됨 — 프레임을 버린다")
-            self.cancelled = True
-            self.outq.put(None)
-            return
-        self.goal_handle = handle
-        handle.get_result_async().add_done_callback(
-            functools.partial(self._goal_result, stream_id))
-        self.accepted.set()
+        st.accepted.set()
 
-    def _goal_result(self, stream_id, fut):
+    def _goal_result(self, st, fut):
         r = fut.result().result
-        if stream_id != self.stream_id:
-            # 지난 스트림의 늦은 결과다. 기록만 하고 지금 상태는 건드리지
-            # 않는다. 여기서 play_done 을 세우거나 SPEAK_DONE 을 보내면
-            # 지금 재생 중인 것이 끝난 것으로 처리된다.
-            self.get_logger().info(
-                f"지난 스트림 결과 (무시) success={r.success} code={r.code}")
-            return
-        sent_s = self.sent * 0.02
-        took = time.time() - self.play_t0
+        st.handle = None
+        stale = st is not self.cur
         self.get_logger().info(
-            f"프레임 {self.sent}개({sent_s:.1f}초 분량)를 {took:.1f}초에 보냈다")
+            f"프레임 {st.sent}개({st.sent * 0.02:.1f}초 분량)를 "
+            f"{time.time() - st.t0:.1f}초에 보냈다"
+            + (" — 지난 재생" if stale else ""))
         # 심각도를 골라서 한 줄에서 부르면 안 된다. rclpy 는 호출 위치로
         # 심각도를 캐싱해서, 같은 줄에서 info 를 쓰다가 error 를 쓰면
         # ValueError 를 던지고 그게 executor 를 타고 올라와 노드가 죽는다.
@@ -358,26 +392,39 @@ class LampVoiceNode(Node):
             self.get_logger().info(msg)
         else:
             self.get_logger().error(msg)
-        self.goal_handle = None
-        self.cancel_pending = False
-        self.play_done.set()
-        # 판단부는 이 신호를 받고서야 말하기를 끝낸다. 프레임을 다 보낸
-        # 것과 소리가 다 난 것은 다르다.
-        self.send(SPEAK_DONE,
-                  pack_id(self.speech_id) + (r.code or "").encode("utf-8"))
+        self._report(st, r.code or "")
 
-    def _publisher(self, stream_id, q):
-        """이 스레드만 발행한다. 순번과 큐를 스트림마다 따로 둔다.
+    def _report(self, st, code):
+        """이 재생이 끝났다고 판단부에 한 번만 알린다.
+
+        지난 재생의 결과도 알린다 — 자기 발화 id 를 달고 가므로 판단부가
+        알아서 거른다. 다만 play_done 은 지금 재생 것이라 지난 재생이
+        세우면 안 된다. 세우면 지금 재생이 끝난 것으로 처리된다.
+        """
+        if st.reported:
+            return
+        st.reported = True
+        # 액션 서버가 끝났다고 했으면 더 보내지 않는다. 보통은 EOS 뒤라
+        # 발행이 이미 끝났지만, 파이가 재생 도중 실패로 끝내면 발행 스레드는
+        # 다음 재생이 시작될 때까지 죽은 스트림에 계속 보낸다.
+        st.cancelled = True
+        st.q.put(None)
+        with self.play_lock:
+            if st is self.cur:
+                self.play_done.set()
+        self.send(SPEAK_DONE, pack_id(st.speech_id) + code.encode("utf-8"))
+
+    def _publisher(self, st):
+        """이 스트림의 발행은 이 스레드만 한다. 순번도 스트림마다 따로다.
 
         앞서 self.sequence 를 공유하다가 이전 스트림의 발행 스레드가 아직
         살아 있을 때 둘이 같은 카운터를 증가시켰다. 브리지는 순번이 다음 것이
         아니면 거부하므로 out_of_order 로 전부 버려졌다.
         """
-        if not self.accepted.wait(5.0):
-            self.get_logger().error("수락되지 않았다 — 발행하지 않는다")
+        if not st.accepted.wait(5.0):
+            return                      # 거부·취소·수락 안 됨
+        if st is not self.cur or st.cancelled:
             return
-        if stream_id != self.stream_id:
-            return                      # 그사이 다음 스트림이 시작됐다
         # 수락돼도 브리지는 아직 송신기를 안 만들었을 수 있다. 실행 단계에서
         # 파이에 audio.play.start 를 보내고 나서야 대입하므로, 그 전에 보낸
         # 것은 sender is None 으로 조용히 버려진다. 준비됐다는 신호가 없어
@@ -391,9 +438,10 @@ class LampVoiceNode(Node):
 
         t0 = time.time()
         seq = 0
+        last = None                     # 마지막으로 발행한 시각
         while True:
-            data = q.get()
-            if self.cancelled or stream_id != self.stream_id:
+            data = st.q.get()
+            if st.cancelled or st is not self.cur:
                 return
             if data is None:            # 끝 신호
                 # EOS 도 자기 20ms 자리를 지킨다. 마지막 오디오 프레임 바로
@@ -404,20 +452,20 @@ class LampVoiceNode(Node):
                 #
                 # 실기기에서 역전을 본 적은 없다. 다만 간격을 지키는 것이
                 # 공짜라(20ms) 확인되지 않은 경합을 남겨 둘 이유가 없다.
-                due, t0, _ = next_due(t0, seq, time.time())
+                due, t0, _ = next_due(t0, seq, time.time(), last=last)
                 delay = due - time.time()
                 if delay > 0:
                     time.sleep(delay)
-                self.playback.publish(self._frame(b"", True, stream_id, seq))
-                self.sent = seq + 1
+                self.playback.publish(self._frame(b"", True, st.id, seq))
+                st.sent = seq + 1
                 return
             # 다음 프레임 시각까지 기다린다. 절대 시각으로 잡아야 오차가
             # 쌓이지 않는다.
             if seq == 0:
                 self.get_logger().info(
-                    f"첫 프레임 발행까지 {t_ready - self.play_t0:.2f}초 "
+                    f"첫 프레임 발행까지 {t_ready - st.t0:.2f}초 "
                     f"(대기 {SENDER_READY_S:.1f}초 포함)")
-            due, t0, behind = next_due(t0, seq, time.time())
+            due, t0, behind = next_due(t0, seq, time.time(), last=last)
             if behind > 0.2:
                 self.get_logger().info(
                     f"큐가 {behind:.1f}초 비었다 — 일정을 다시 잡는다"
@@ -425,18 +473,21 @@ class LampVoiceNode(Node):
             delay = due - time.time()
             if delay > 0:
                 time.sleep(delay)
-            self.playback.publish(self._frame(data, False, stream_id, seq))
+            self.playback.publish(self._frame(data, False, st.id, seq))
+            last = time.time()
             seq += 1
-            self.sent = seq
+            st.sent = seq
 
     def publish_frame(self, data):
         if len(data) != FRAME_BYTES:
             self.get_logger().error(f"보낼 프레임이 {len(data)}바이트다 — 버린다")
             return
-        self.outq.put(data)
+        if self.cur is not None:
+            self.cur.q.put(data)
 
     def finish_playback(self):
-        self.outq.put(None)
+        if self.cur is not None:
+            self.cur.q.put(None)
 
     def _frame(self, data, eos, stream_id, seq):
         msg = AudioFrame()
@@ -452,22 +503,24 @@ class LampVoiceNode(Node):
         return msg
 
     def cancel_playback(self):
-        self.cancelled = True
-        self.outq.put(None)        # 발행 스레드를 깨워 끝낸다
-        if self.goal_handle is not None:
+        st = self.cur
+        if st is None or st.reported:
+            return
+        st.cancelled = True
+        st.q.put(None)             # 발행 스레드를 깨워 끝낸다
+        if st.handle is not None:
             self.get_logger().info("barge-in — 재생 취소")
-            self.goal_handle.cancel_goal_async()
+            st.handle.cancel_goal_async()
             return
         # 목표를 보냈는데 아직 수락 응답이 안 온 구간이다. 여기서 그냥
         # 끝내면 로컬 발행만 멈추고 액션 서버 쪽 목표는 살아 있다. 그
         # 목표는 오디오 프레임과 EOS 를 기다리며 남아, 다음 재생이
         # audio_busy 로 거부된다. 수락되면 바로 취소하도록 남겨 둔다.
-        if self.goal_sent and not self.play_done.is_set():
-            self.cancel_pending = True
+        if st.goal_sent:
+            st.cancel_pending = True
             self.get_logger().info("barge-in — 수락 전이라 수락되면 취소한다")
             return
-        self.play_done.set()
-
+        self._report(st, "cancelled")
 
 def main() -> int:
     global SENDER_READY_S   # 이 이름을 쓰기 전에 선언해야 한다

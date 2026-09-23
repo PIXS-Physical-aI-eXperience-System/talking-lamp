@@ -288,6 +288,8 @@ def main() -> int:
     for _ in range(5):
         agent6.on_capture("", frame(-27))          # 끼어듦 28 dB
     after6 = [k for k, _ in sent6[n_before:]]
+    if not agent6._turn.done.is_set():
+        fails.append("끼어들었는데 재생 완료 대기를 안 풀었다")
     print(f"  ⑥-b 재생 중 끼어들기  {[k.decode() for k in after6]}   "
           f"상태 {agent6.state}")
     if link.BARGE_IN not in after6:
@@ -378,6 +380,83 @@ def main() -> int:
     print(f"  ⑨-b 지금 턴의 완료    상태 {agent9.state}")
     if agent9.state != IDLE:
         fails.append("자기 턴의 완료 신호로도 안 끝났다")
+
+    # ⑩ 끼어든 앞 턴의 대기가 지금 턴을 끝내면 안 된다 ──────────────────
+    #    앞 턴은 끼어듦 뒤에도 재생 완료를 기다리며 남아 있다. 그 결과가
+    #    늦어 걸러지면 상한까지 기다리다 풀리는데, 그때 다음 턴이 말하고
+    #    있으면 "말하기 중" 만 보고 대기로 바꿔 버린다.
+    import voice.agent as _A10
+    old10 = _A10.PLAY_WAIT_MARGIN_S
+    _A10.PLAY_WAIT_MARGIN_S = 0.3
+    try:
+        sent10 = []
+        agent10 = VoiceAgent(FakeStt(), FakeTts(), AlwaysWake(),
+                             on_utterance=lambda t: "네.",
+                             send=lambda k, p: sent10.append((k, p)),   # 완료 안 줌
+                             on_state=lambda s: None)
+        for sid, db, n in [(SID, -20, 50), ("", -60, 35)]:
+            for _ in range(n):
+                agent10.on_capture(sid, frame(db))
+                time.sleep(0.001)
+        for _ in range(60):
+            if any(k == link.SPEAK_END for k, _ in sent10):
+                break
+            time.sleep(0.02)
+        # 앞 턴은 지금 재생 완료를 기다리는 중(상한 0.5+0.3초)이다.
+        # 그 사이 다음 턴이 말하기를 시작한 상태를 만든다.
+        prev10 = agent10._turn
+        agent10._begin_turn("turn2")
+        with agent10._lock:
+            agent10._set(SPEAKING)
+        if not (prev10.stop.is_set() and prev10.done.is_set()):
+            fails.append("다음 턴이 시작돼도 앞 턴의 대기를 안 풀었다")
+        time.sleep(1.2)                   # 앞 턴의 상한이 지나간다
+        print(f"  ⑩ 앞 턴 대기가 풀림    상태 {agent10.state} (말하기여야 한다)")
+        if agent10.state != SPEAKING:
+            fails.append("끼어든 앞 턴의 대기가 풀리면서 지금 턴을 끝냈다")
+    finally:
+        _A10.PLAY_WAIT_MARGIN_S = old10
+
+    # ⑪ 앞 턴이 다음 턴의 스트림에 소리나 끝 신호를 섞으면 안 된다 ────────
+    #    끼어든 앞 턴의 스레드가 TTS(나 LLM) 에서 막혀 있다가 다음 턴이
+    #    시작된 뒤에 깨어나는 경우. 전에는 멈춤 표시가 공용이라 다음 턴이
+    #    지워 버려서, 앞 턴이 계속 합성해 다음 턴 스트림에 소리를 넣고
+    #    끝 신호로 다음 턴 재생을 끊었다.
+    gate = threading.Event()
+
+    class SlowTts:
+        samplerate = 16000
+
+        def synth(self, text):
+            gate.wait(3.0)          # 여기서 막혀 있다
+            return np.zeros(int(0.5 * self.samplerate), dtype=np.float32)
+
+    sent11 = []
+    agent11 = VoiceAgent(FakeStt(), SlowTts(), AlwaysWake(),
+                         on_utterance=lambda t: "하나. 둘. 셋.",
+                         send=lambda k, p: sent11.append((k, p)),
+                         on_state=lambda s: None)
+    for sid, db, n in [(SID, -20, 50), ("", -60, 35)]:
+        for _ in range(n):
+            agent11.on_capture(sid, frame(db))
+            time.sleep(0.001)
+    for _ in range(60):
+        if any(k == link.SPEAK_BEGIN for k, _ in sent11):
+            break
+        time.sleep(0.02)
+    time.sleep(0.1)                 # 앞 턴이 합성에서 막힌다
+    with agent11._lock:             # 끼어듦
+        agent11._turn.stop.set()
+        agent11._set(LISTENING)
+    t2 = agent11._begin_turn("turn2")               # 다음 턴 시작
+    agent11._send_as(t2, link.SPEAK_BEGIN, link.pack_id("turn2"))
+    mark = len(sent11)
+    gate.set()                      # 앞 턴이 깨어난다
+    time.sleep(0.5)
+    leaked = [k.decode() for k, _ in sent11[mark:]]
+    print(f"  ⑪ 앞 턴이 늦게 깨어남  다음 턴 시작 뒤 보낸 것 {leaked or '없음'}")
+    if leaked:
+        fails.append(f"앞 턴이 다음 턴의 스트림에 섞였다: {leaked}")
 
     print()
     if fails:

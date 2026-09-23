@@ -124,6 +124,7 @@ bench/                    측정 도구. 램프 런타임에 안 들어간다
   agent_test.py             판단부 회귀 시험 (장치 불필요)
   pacing_test.py            재생 일정 시험 (ROS 불필요)
   node_test.py              노드 취소 처리·EOS 순서 (ROS 불필요)
+  integration_test.py       판단부+노드 이음 (ROS 불필요)
   wake_*.py                 웨이크워드 학습·평가·측정 (아래)
   stt_sweep.py              STT 모델·스레드별 RTF 와 CER
   mem_profile.py            구간별 메모리. barge-in 겹침 포함
@@ -135,6 +136,26 @@ bench/                    측정 도구. 램프 런타임에 안 들어간다
 export/                   모델 변환 — 한 번만 실행하면 된다
 ```
 
+### 재생 상태는 재생마다 따로 둔다
+
+말하기 한 번 = 판단부의 `_Turn` 하나, 노드의 `Stream` 하나. 멈춤·완료·
+발화 id·액션 핸들·발행 큐가 전부 그 안에 있다. 콜백과 스레드는 자기 것만
+건드린다.
+
+끼어들면 앞 턴의 스레드와 콜백이 한동안 살아 있다(취소가 10초까지 걸린다).
+이 상태를 공용 필드로 두면 앞 턴이 다음 턴을 끝내거나, 다음 턴 스트림에
+소리를 섞는다. 실제로 그런 문제를 일곱 개 찾았고 전부 이 구조로 막았다
+([results/e2e-2026-09-21.md](results/e2e-2026-09-21.md) 의 "전체 점검").
+
+규칙 셋:
+
+- **완료는 재생마다 한 번, 자기 발화 id 를 달고** 판단부로 간다. 판단부는
+  지금 턴 것만 받는다.
+- **판단부는 지금 턴의 주인일 때만 보낸다**(`_send_as`). 다음 턴이 시작된
+  뒤로 앞 턴은 한 바이트도 못 보낸다.
+- **발행은 20ms 간격, 연속 두 발행 사이 최소 10ms.** 몰아 보내면 브리지가
+  순서를 뒤집어 스트림이 통째로 죽는다.
+
 ### 시험
 
 장치도 ROS도 없이 돈다. 고치고 나면 이것부터.
@@ -143,7 +164,12 @@ export/                   모델 변환 — 한 번만 실행하면 된다
 venvs/melo-onnx/bin/python bench/agent_test.py    # 판단부 상태·barge-in·재생 수명
 venvs/melo-onnx/bin/python bench/pacing_test.py   # 재생 일정 계산
 venvs/melo-onnx/bin/python bench/node_test.py     # 노드 취소 처리·EOS 순서
+venvs/melo-onnx/bin/python bench/integration_test.py  # 판단부+노드를 이어서
 ```
+
+`integration_test.py` 는 판단부와 노드를 **실제 코드 그대로** 큐로 이어,
+끼어들기 → 앞 재생 결과가 늦게 옴 → 다음 턴 시작 순서를 끝까지 돌린다.
+둘 사이 규약(발화 id 를 싣고 돌려주는 것)이 맞물리는지는 이어야 보인다.
 
 `node_test.py` 는 rclpy 를 가짜로 채우고 `Node.__init__` 없이 객체만 만들어
 메서드를 직접 부른다. 하드웨어도 ROS 도 없이 실제 코드를 시험하기 위해서다.

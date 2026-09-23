@@ -50,7 +50,9 @@ MIN_UTTERANCE_FRAMES = 20    # 0.4초보다 짧으면 발화로 치지 않는다
 PREROLL_FRAMES = 15          # 0.3초. 깨어나기 직전 소리도 함께 넘긴다
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
 BARGE_RISE_DB = 20.0         # 바닥 대비 이만큼 올라야 끼어든 것으로 본다
-PLAY_WAIT_MARGIN_S = 5.0     # 재생 완료 신호를 이만큼 더 기다린다
+PLAY_WAIT_MARGIN_S = 8.0     # 재생 완료 신호를 이만큼 더 기다린다. 노드가
+                             # 앞 재생을 3초 + 송신 준비 0.6초 + 파이 드레인
+                             # 을 거칠 수 있다. 노드가 정상이면 안 쓰인다
 
 
 def _db(x):
@@ -108,6 +110,28 @@ class BargeInDetector:
         return self._hits >= self.need_frames, v, floor
 
 
+class _Turn:
+    """말하기 한 번의 상태. 스레드는 자기 턴 것만 건드린다.
+
+    전에는 멈춤·재생 완료·발화 id 를 판단부 필드 하나씩으로 두고 턴마다
+    지우고 다시 썼다. 끼어든 앞 턴의 스레드는 그 뒤에도 살아 있어서:
+
+      - 상한에 걸려 풀리는 순간 "말하기 중" 만 보고 **다음 턴을** 대기로
+        바꿨다
+      - TTS·LLM 에서 막혀 있다 다음 턴이 멈춤 표시를 지운 뒤 깨어나면
+        계속 합성해 **다음 턴의 스트림에** 소리를 섞고, 끝 신호로 다음
+        턴 재생을 끊었다
+
+    턴마다 객체를 만들고, 보내기·상태 바꾸기는 지금 턴의 주인만 한다.
+    """
+
+    def __init__(self, speech_id):
+        self.speech_id = speech_id
+        self.stop = threading.Event()     # 끼어들었거나 다음 턴이 시작됨
+        self.done = threading.Event()     # 파이에서 재생이 실제로 끝남
+        self.sent_s = 0.0                 # 보낸 오디오 길이
+
+
 class VoiceAgent:
     def __init__(self, stt, tts, wake, on_utterance, send, on_state=None,
                  rise_db=BARGE_RISE_DB):
@@ -135,15 +159,11 @@ class VoiceAgent:
         self._grace_until = 0.0
         self._grace_floor = None
         self._quiet_run = 0
-        self._stop_speaking = threading.Event()
-        # 파이에서 재생이 실제로 끝났다는 신호. 프레임을 다 보낸 것과
-        # 소리가 다 난 것은 다르다 — 노드가 20ms 간격으로 발행하고 그 뒤에도
-        # 파이 재생 버퍼가 남는다. 이 신호를 기다려야 그 구간에 끼어든
-        # 사람에게도 barge-in 이 동작한다.
-        self._play_done = threading.Event()
-        self._play_done.set()
-        self._speaking_id = None      # 지금 재생을 기다리는 발화
-        self._sent_s = 0.0            # 이번 스트림에서 보낸 오디오 길이
+        # 지금 말하는 턴. 턴마다 따로 상태를 둔다(_Turn 참고).
+        self._turn = None
+        # 턴을 바꾸는 것과 보내는 것을 같은 잠금으로 묶는다. 그래야 다음
+        # 턴이 시작된 뒤로는 앞 턴이 한 바이트도 못 보낸다.
+        self._send_lock = threading.Lock()
         self._mic = []          # 말하는 동안의 (현재 dB, 바닥 dB)
         self._speak_thread = None
         self._lock = threading.Lock()
@@ -200,9 +220,34 @@ class VoiceAgent:
         턴이 바뀌는 그 짧은 사이에 결과가 도착하면 노드 쪽에서는 아직
         앞 스트림이 현재라 걸러지지 않는다.
         """
-        if speech_id and self._speaking_id and speech_id != self._speaking_id:
+        t = self._turn
+        if t is None:
             return
-        self._play_done.set()
+        if speech_id and speech_id != t.speech_id:
+            return          # 앞 턴의 늦은 결과
+        t.done.set()
+
+    @property
+    def _speaking_id(self):
+        return self._turn.speech_id if self._turn else None
+
+    def _begin_turn(self, speech_id):
+        """새 턴을 연다. 이 뒤로 앞 턴은 아무것도 보내지 못한다."""
+        turn = _Turn(speech_id)
+        with self._send_lock:
+            old, self._turn = self._turn, turn
+        if old is not None:
+            old.stop.set()      # 아직 합성 중이면 멈춘다
+            old.done.set()      # 재생 완료를 기다리고 있으면 풀어 준다
+        return turn
+
+    def _send_as(self, turn, kind, payload=b""):
+        """이 턴이 아직 지금 턴일 때만 보낸다."""
+        with self._send_lock:
+            if self._turn is not turn:
+                return False
+            self.send(kind, payload)
+            return True
 
     def on_orientation(self, speech_id, state):
         """파이의 방향 정렬 상태. 지금은 기록만 한다 —
@@ -281,7 +326,9 @@ class VoiceAgent:
         if hit:
             print(f"  barge-in: {cur:.1f} dB (바닥 {floor:.1f})")
             self.send(link.BARGE_IN, b"")
-            self._stop_speaking.set()
+            if self._turn is not None:
+                self._turn.stop.set()
+                self._turn.done.set()   # 재생 완료를 기다릴 이유가 없다
             self.barge.reset()
             # 끼어든 말부터 다시 듣는다. 파이 VAD 는 재생 직후 0.3초 더
             # 꺼져 있으므로 speech_id 를 기다리지 않고 바로 모은다.
@@ -324,14 +371,11 @@ class VoiceAgent:
             return
         chunks = [reply] if isinstance(reply, str) else reply
 
-        self._stop_speaking.clear()
-        self._speaking_id = speech_id
-        self._play_done.clear()
-        self._sent_s = 0.0
+        turn = self._begin_turn(speech_id)
         self.barge.reset()
         with self._lock:
             self._set(SPEAKING)
-        self.send(link.SPEAK_BEGIN, link.pack_id(speech_id))
+        self._send_as(turn, link.SPEAK_BEGIN, link.pack_id(speech_id))
         t0 = first = None
         # 스트리밍이면 여기서 한참 기다릴 수 있다. SPEAK_BEGIN 을 먼저 보내는
         # 것은 브리지가 송신기를 준비할 시간을 벌기 위해서다.
@@ -341,17 +385,17 @@ class VoiceAgent:
             # 문장 단위로 만들어 만드는 대로 보낸다. 통째로 만들면 첫 소리까지
             # 4.56초, 최고 메모리 1750 MB 다. 쪼개면 0.59초, 1245 MB.
             for chunk in chunks:
-                if self._stop_speaking.is_set():
+                if turn.stop.is_set():
                     break
                 for part in split_sentences(chunk):
-                    if self._stop_speaking.is_set():
+                    if turn.stop.is_set():
                         break
                     wav = self.tts.synth(part)
                     if first is None:
                         first = time.time() - t0
-                    if self._stop_speaking.is_set():
+                    if turn.stop.is_set():
                         break
-                    self._send_audio(wav, self.tts.samplerate)
+                    self._send_audio(turn, wav, self.tts.samplerate)
                     spoke = True
         except Exception as e:
             print(f"  ! TTS 실패: {type(e).__name__}: {e}")
@@ -360,7 +404,7 @@ class VoiceAgent:
                   f"TTS 첫문장 {first:.2f}s = {time.time()-t_end:.2f}s"
                   if first is not None else
                   f"  지연  STT {t_stt:.2f}s + 응답생성 {t_think:.2f}s")
-            self.send(link.SPEAK_END, b"")
+            self._send_as(turn, link.SPEAK_END, b"")
             # 프레임을 다 보냈다고 끝난 것이 아니다. 노드가 20ms 간격으로
             # 발행하고 그 뒤에도 파이 재생 버퍼가 남는다. 여기서 바로
             # 대기로 가면 스피커에서는 소리가 나는데 상태는 대기라, 그
@@ -368,26 +412,30 @@ class VoiceAgent:
             #
             # 노드가 신호를 못 주는 경우(구버전·죽음)에 영영 말하기 상태로
             # 남지 않도록 상한을 둔다. 보낸 오디오 길이보다 길게 잡는다.
-            if spoke and not self._play_done.wait(self._sent_s + PLAY_WAIT_MARGIN_S):
-                print(f"  ! 재생 완료 신호가 안 왔다 "
-                      f"({self._sent_s + PLAY_WAIT_MARGIN_S:.1f}초 기다림) — "
-                      "노드를 확인할 것")
+            # 끼어들었거나 다음 턴이 시작되면 done 이 서서 바로 풀린다.
+            limit = turn.sent_s + PLAY_WAIT_MARGIN_S
+            if spoke and not turn.stop.is_set() and not turn.done.wait(limit):
+                print(f"  ! 재생 완료 신호가 안 왔다 ({limit:.1f}초 기다림) "
+                      "— 노드를 확인할 것")
+            # 지금 턴의 주인일 때만 대기로 간다. 앞 턴의 스레드가 늦게
+            # 풀려 "말하기 중" 만 보고 바꾸면 다음 턴을 끝내 버린다.
             with self._lock:
-                if self.state == SPEAKING:
+                if self.state == SPEAKING and self._turn is turn:
                     self._set(IDLE)
 
-    def _send_audio(self, wav, src_rate):
+    def _send_audio(self, turn, wav, src_rate):
         """20 ms 프레임으로 잘라 보낸다. ROS AudioFrame 이 640바이트 고정이다."""
         if src_rate != link.RATE:
             from .audio import resample
             wav = resample(wav, src_rate, link.RATE)
         pcm = link.pcm_from(wav)
-        self._sent_s += len(pcm) / 2 / link.RATE
         step = FRAME_SAMPLES * 2
         for i in range(0, len(pcm), step):
-            if self._stop_speaking.is_set():
+            if turn.stop.is_set():
                 return
             chunk = pcm[i:i + step]
             if len(chunk) < step:
                 chunk = chunk + b"\x00" * (step - len(chunk))   # 마지막 프레임 채우기
-            self.send(link.SPEAK_AUDIO, chunk)
+            if not self._send_as(turn, link.SPEAK_AUDIO, chunk):
+                return
+            turn.sent_s += FRAME_SAMPLES / link.RATE
