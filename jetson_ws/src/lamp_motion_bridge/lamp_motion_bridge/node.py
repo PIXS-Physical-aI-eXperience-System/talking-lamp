@@ -151,9 +151,11 @@ class MotionBridgeNode(Node):
             terminal = self._request("motion.status", {}, timeout=2)
             data = terminal.get("data", {})
             message.state = str(data.get("state", "unknown"))
-            message.active_motion = str(data.get("active_motion", ""))
+            # None over the wire means "nothing playing"; str() would publish
+            # the literal "None" and every consumer would have to special-case it.
+            message.active_motion = str(data.get("active_motion") or "")
             message.busy = bool(data.get("busy", False))
-            message.fault = str(data.get("fault", ""))
+            message.fault = str(data.get("fault") or "")
             message.sent_ticks = int(data.get("sent_ticks", 0))
             message.deadline_misses = int(data.get("deadline_misses", 0))
         except (TransportError, TimeoutError) as exc:
