@@ -12,13 +12,15 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "matplotlib>=3.8"]
 pi-device = ["pyusb"]
+# Jetson vision runtime. CPU onnxruntime is enough: detectors run on CPU by design.
+vision = ["opencv-python-headless>=4.10", "onnxruntime>=1.20"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/motion", "src/device"]
+packages = ["src/motion", "src/device", "src/vision"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
