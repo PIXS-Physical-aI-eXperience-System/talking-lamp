@@ -412,7 +412,9 @@ def test_finishing_old_hold_preserves_new_same_id_ticket_after_cache_eviction(co
     for i in range(300):
         controller.submit(request("system.heartbeat", f"churn{i}"))
         controller.tick_once(now=21. + i / 100)
-    replacement = request("task_light.place", "same", point=[.24, .15, 0.])
+    # A different point from the original, and well inside what the servos can
+    # hold. The original .15 lateral put it 28 cm out, which is refused now.
+    replacement = request("task_light.place", "same", point=[.20, .05, 0.])
     new_ticket = controller.submit(replacement)
     assert new_ticket is not old_ticket
     controller.tick_once(now=25.)

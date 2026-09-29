@@ -96,12 +96,15 @@ def test_primitive_interrupt_is_fast():
 def test_task_light_layer_solves_and_holds():
     kin = ArmKinematics()
     ly = TaskLightLayer(kin)
-    res = ly.place(np.array([0.25, 0.0, 0.0]))
-    assert res.pos_err < 0.035
-    assert res.aim_err < np.deg2rad(3)
+    # 0.20 m out, not the 0.25 this used to use: past about 0.25 m the pose
+    # needs more than a servo's rated holding torque and is now refused.
+    res = ly.place(np.array([0.20, 0.0, 0.0]))
+    assert res.ok, res.message
+    assert res.ik.pos_err < 0.035
+    assert res.ik.aim_err < np.deg2rad(3)
     out = ly.update(ctx())
     assert not out.additive and out.gain > 0
-    assert np.allclose(out.value, res.q)
+    assert np.allclose(out.value, res.ik.q)
 
 
 def test_track_layer_fades_out_when_track_lost():
@@ -115,3 +118,46 @@ def test_track_layer_fades_out_when_track_lost():
     for i in range(200):
         ly.update(ctx(q=ly.q, t=2.0 + i * 0.01))
     assert ly.update(ctx(q=ly.q)).gain < 0.05
+
+
+def test_task_light_refuses_a_pose_the_servos_cannot_hold():
+    """Reaching far out over the desk is what cooked a servo on the real lamp:
+    the arm goes there, holds, overheats and cuts its own torque with nothing
+    reported. The layer must refuse instead, and not move."""
+    kin = ArmKinematics()
+    ly = TaskLightLayer(kin)
+    before = ly.q_hold.copy()
+    res = ly.place(np.array([0.45, 0.0, 0.0]))
+    assert not res.ok and res.code == "over_torque"
+    assert res.torque_nm > res.limit_nm
+    assert np.allclose(ly.q_hold, before)          # the arm was never sent there
+    assert not ly.busy
+    assert "exceeds" in res.message
+
+
+def test_task_light_refuses_a_point_the_arm_cannot_reach():
+    kin = ArmKinematics()
+    ly = TaskLightLayer(kin)
+    res = ly.place(np.array([1.5, 0.0, 0.0]))
+    assert not res.ok and res.code == "unreachable"
+    assert not ly.busy
+
+
+def test_holding_torque_grows_as_the_arm_reaches_out():
+    """The reason the limit bites: it is the moment arm, not the payload."""
+    kin = ArmKinematics()
+    ly = TaskLightLayer(kin)
+    near = ly.place(np.array([0.15, 0.0, 0.0]))
+    far = ly.place(np.array([0.45, 0.0, 0.0]))
+    assert near.ok and not far.ok
+    assert far.torque_nm > 2 * near.torque_nm
+
+
+def test_reach_is_held_to_the_same_limit_as_place():
+    """`reach` puts the head right at a point with no standoff, so it can ask
+    for even more torque than `place` does. Same guard."""
+    kin = ArmKinematics()
+    ly = TaskLightLayer(kin)
+    assert ly.reach(np.array([0.25, 0.0, 0.30])).ok
+    far = ly.reach(np.array([0.45, 0.0, 0.15]))
+    assert not far.ok and far.code == "over_torque"

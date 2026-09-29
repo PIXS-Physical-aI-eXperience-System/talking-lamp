@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .blender import BlendContext, LayerOutput
-from .config import NJ, REST_POSE
+from .config import HOLD_TORQUE_MARGIN, NJ, REST_POSE, SERVO_RATED_TORQUE_NM
 from .idle import IdleConfig, IdleMotion
 from .ik import IKResult, IKSolver
 from .kalman import TargetTrack, TrackConfig
@@ -261,9 +261,42 @@ class PrimitiveLayer:
 
 
 # ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class PlaceResult:
+    """Outcome of asking for a task-light pose.
+
+    ``ok`` false means the arm did not move: the pose was refused before it was
+    handed to the blender, so the caller can say why instead of watching the
+    arm strain at something it cannot do.
+    """
+
+    ok: bool
+    code: str                # "placed" | "unreachable" | "over_torque"
+    ik: IKResult
+    torque_nm: float         # worst joint's static holding torque at the pose
+    limit_nm: float
+
+    @property
+    def message(self) -> str:
+        if self.code == "unreachable":
+            return f"IK did not converge (position error {self.ik.pos_err * 100:.1f} cm)"
+        if self.code == "over_torque":
+            return (f"holding torque {self.torque_nm:.2f} N*m exceeds the "
+                    f"{self.limit_nm:.2f} N*m a servo can hold continuously")
+        return "placed"
+
+
 class TaskLightLayer:
     """L3 functional pose: light a desk point from up-and-back (so the beam clears
-    the user's hand shadow, per S1) and hold the pose."""
+    the user's hand shadow, per S1) and hold the pose.
+
+    A pose is only taken up if the arm can both reach it and *hold* it. Holding
+    is the binding constraint: this is a long light arm on 10 kg*cm servos, and
+    a pose reaching out over the desk needs roughly twice that at base_pitch.
+    Sending one anyway does not fail loudly -- the arm goes there, holds, heats
+    up and the servo cuts its torque, which looks from the outside like the
+    robot dying with no fault reported. Refusing up front is the only feedback
+    there is."""
 
     name = "task_light"
     priority = 30
@@ -276,7 +309,7 @@ class TaskLightLayer:
         self.q_hold = np.asarray(REST_POSE, float).copy()
         self._active = False
 
-    def place(self, target_point, q_seed=None) -> IKResult:
+    def place(self, target_point, q_seed=None) -> PlaceResult:
         target_point = np.asarray(target_point, float)
         # Stand off above and beyond the work point. With +x defined as the
         # physical front of the calibrated lamp, this produces a reachable
@@ -288,27 +321,48 @@ class TaskLightLayer:
         )
         offset = offset / np.linalg.norm(offset) * self.standoff
         approach = target_point + offset
-        res = self.ik.solve(
-            approach, q0=q_seed if q_seed is not None else REST_POSE,
-            aim_point=target_point, restarts=6,
-        )
-        self.q_hold = res.q
-        self._active = True
-        self.env.open()
-        return res
+        return self._admit(*self._cheapest(
+            lambda seed: self.ik.solve(approach, q0=seed, aim_point=target_point, restarts=6),
+            q_seed))
 
-    def reach(self, point, q_seed=None) -> IKResult:
+    def reach(self, point, q_seed=None) -> PlaceResult:
         """Put the head *at* `point` (head-shell centre), no standoff, no aim -
-        the "touch it" pose."""
-        res = self.ik.solve(
-            np.asarray(point, float),
-            q0=q_seed if q_seed is not None else REST_POSE,
-            restarts=4,
-        )
+        the "touch it" pose. Same holding limit as ``place``."""
+        point = np.asarray(point, float)
+        return self._admit(*self._cheapest(
+            lambda seed: self.ik.solve(point, q0=seed, restarts=4), q_seed))
+
+    def _cheapest(self, solve, q_seed) -> tuple[IKResult, float]:
+        """Solve from more than one seed and keep the pose that is cheapest to hold.
+
+        Most desk points are reachable in several arm configurations and they
+        do not cost the same to hold: seeding from wherever the head happens to
+        be can land on one that needs half again as much torque as seeding from
+        the rest pose. Refusing that without looking for the cheaper solution
+        would turn a holdable point into an unreachable one.
+        """
+        seeds = [] if q_seed is None else [np.asarray(q_seed, float)]
+        seeds.append(REST_POSE)
+        best: tuple[IKResult, float] | None = None
+        for seed in seeds:
+            res = solve(seed)
+            torque = float(self.kin.holding_torque(res.q).max())
+            # converged first, then cheapest to hold
+            if best is None or (res.converged, -torque) > (best[0].converged, -best[1]):
+                best = (res, torque)
+        return best
+
+    def _admit(self, res: IKResult, torque: float) -> PlaceResult:
+        """Take up the pose, or refuse it and leave the arm where it is."""
+        limit = SERVO_RATED_TORQUE_NM * HOLD_TORQUE_MARGIN
+        if not res.converged:
+            return PlaceResult(False, "unreachable", res, torque, limit)
+        if torque > limit:
+            return PlaceResult(False, "over_torque", res, torque, limit)
         self.q_hold = res.q
         self._active = True
         self.env.open()
-        return res
+        return PlaceResult(True, "placed", res, torque, limit)
 
     def clear(self) -> None:
         self._active = False

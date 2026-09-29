@@ -406,7 +406,13 @@ class MotionController:
             self._cancel_task("interrupted")
             self._safe_wait = True
         elif kind == "task_light.place":
-            self.runtime.place_task_light(payload["point"])
+            placed = self.runtime.place_task_light(payload["point"])
+            if not placed.ok:
+                # The arm has not moved. Say why, rather than letting it strain
+                # at a pose it cannot reach or cannot hold (see TaskLightLayer).
+                self._accept(ticket)
+                self._finish(ticket, "failed", placed.code, message=placed.message)
+                return
             self._cancel_task("replaced")
             self._task_ticket = ticket
             self._safe_wait = False

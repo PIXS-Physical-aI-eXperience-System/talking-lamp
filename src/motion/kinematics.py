@@ -68,6 +68,22 @@ class ArmKinematics:
     def head_position(self, q: np.ndarray) -> np.ndarray:
         return self.head_pose(q).pos
 
+    # -- statics ----------------------------------------------------------
+    def holding_torque(self, q: np.ndarray) -> np.ndarray:
+        """Per-joint torque needed to hold ``q`` against gravity, N*m.
+
+        Inverse dynamics at rest (zero velocity, zero acceleration), so what
+        comes back is the static gravity load. The arm is light but long, and
+        an extended pose puts the whole arm's weight on a long moment arm at
+        base_pitch: holding a task-light pose over the desk needs more than the
+        servo is rated for, and the servo eventually cuts its own torque.
+        See ``SERVO_RATED_TORQUE_NM`` and the measurements it points to.
+        """
+        self._apply(np.asarray(q, float))
+        self.data.qacc[:] = 0.0
+        mujoco.mj_inverse(self.model, self.data)
+        return np.abs(self.data.qfrc_inverse[self._jnt_dof].copy())
+
     # -- jacobian ---------------------------------------------------------
     def jacobian(self, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return (Jp, Jr): 3x5 positional and 3x5 rotational site Jacobians."""
