@@ -41,3 +41,10 @@ voice-bench/wake-data/
 # 비전 작업 산출물 (재현 가능하거나 사무실 사진이라 커밋하지 않음)
 vision-bench/images/
 vision-bench/models/
+vision-bench/calib/views/
+vision-bench/calib/desk.jpg
+vision-bench/calib/mount.jpg
+# 보드 이미지는 `calib.py board` 로 다시 만든다. 실제로 인쇄해 쓴 A4 PDF 만 남긴다.
+vision-bench/calib/charuco_7x5_35mm.png
+vision-bench/calib/charuco_7x5_35mm.svg
+vision-bench/calib/charuco_screen_*.png
