@@ -7,6 +7,7 @@ from contextlib import suppress
 from dataclasses import asdict
 import json
 import math
+import faulthandler
 import os
 from pathlib import Path
 import signal
@@ -248,6 +249,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Motion daemon preflight failed: {exc}", file=sys.stderr)
         return 2
 
+    # The daemon has wedged in the field with every socket and the serial port
+    # already closed, no log line, and systemd unable to restart it because the
+    # process never exited. Make it possible to ask a live process where it is:
+    # `kill -USR1 <pid>` prints every thread's Python stack to the journal.
+    try:
+        faulthandler.enable()
+        if hasattr(signal, "SIGUSR1"):
+            faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+    except (ValueError, OSError):
+        pass        # stderr is not a real file (captured under test)
+
     stopping = False
     previous_handlers = {}
     backend = controller = None
@@ -277,6 +289,8 @@ def main(argv: list[str] | None = None) -> int:
                     heartbeat_timeout=args.heartbeat_timeout)
                 local_server = MotionUnixServer(controller, args.local_socket)
                 asyncio.run(_serve(controller, tcp_server, local_server, lambda: stopping))
+                print(f"Motion daemon serve loop returned (stopping={stopping})",
+                      file=sys.stderr, flush=True)
         finally:
             if controller is not None:
                 controller.stop("daemon shutdown")
@@ -288,6 +302,18 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)
+    # Everything is shut down, so returning should end the process. It has not
+    # always: a thread outliving main leaves the interpreter joining it forever,
+    # which looks from outside like a live daemon serving nothing, ignores
+    # SIGTERM, and never triggers Restart=on-failure. Name the threads and go.
+    left = [t for t in threading.enumerate()
+            if t is not threading.current_thread() and not t.daemon]
+    if left:
+        print("Motion daemon: threads still running at exit: "
+              + ", ".join(f"{t.name}(alive={t.is_alive()})" for t in left),
+              file=sys.stderr, flush=True)
+        sys.stderr.flush()
+        os._exit(1)
     return 0
 
 
