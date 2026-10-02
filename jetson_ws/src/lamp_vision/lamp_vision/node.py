@@ -85,6 +85,11 @@ from vision.runtime import RuntimeConfig, VisionRuntime            # noqa: E402
 
 
 class VisionNode(Node):
+    # A flicker of `busy` shorter than this is not treated as the arm moving.
+    BUSY_SETTLE_S = 1.5
+    RECENTER_INTERVAL_S = 20.0      # floor between automatic return_center calls
+    RECENTER_MAX_FAILS = 3          # then stop and wait to be asked
+
     def __init__(self) -> None:
         super().__init__("lamp_vision")
         self.declare_parameter("camera_index", 0)
@@ -135,7 +140,10 @@ class VisionNode(Node):
         self.current_yaw: float | None = None
         self.motion_busy = False
         self._placing = False           # True while a task light D sent is being held
-        self._rest_at = -1e9
+        self._busy_since: float | None = None
+        self._recenter_at = -1e9
+        self._recenter_fails = 0
+        self._recenter_lock = threading.Lock()
         self._fps = 0.0
         self._object_fps = 0.0
         self._object_frames = 0
@@ -189,23 +197,33 @@ class VisionNode(Node):
     # -- status --------------------------------------------------------------
 
     def _motion(self, msg: MotionStatus) -> None:
+        now = time.monotonic()
         was, self.motion_busy = self.motion_busy, bool(msg.busy)
-        if not (self.motion_busy and not was and self.runtime.at_rest):
+        if not self.motion_busy:
+            self._busy_since = None
             return
-        # The bridge keeps reporting busy for a moment after return_center
-        # finishes. Taking that as "someone moved the arm" would drop the rest
-        # pose D has only just established, so ignore it just after settling.
-        if time.monotonic() - self._rest_at < 2.0:
+        if not was:
+            self._busy_since = now
+        named = msg.active_motion not in ("", "None")
+        # `busy` flickers for a second or two after any move, including the
+        # return_center D itself just asked for. Treating every flicker as
+        # "someone moved the arm" made the node drop the rest pose it had just
+        # established, re-centre, and trip over its own flicker again: three
+        # rounds of that were enough to lose S1 entirely. A real move either
+        # names a motion or stays busy for longer than this.
+        if not named and now - (self._busy_since or now) < self.BUSY_SETTLE_S:
             return
-        what = msg.active_motion if msg.active_motion not in ("", "None") else msg.state
+        if not self.runtime.at_rest:
+            return
+        what = msg.active_motion if named else msg.state
         mine = self._placing
         self.runtime.leave_rest("D가 조명을 배치 중" if mine else f"E가 {what} 실행 중")
         self.get_logger().info(
             "휴식 자세 해제: " + ("조명 배치(D)" if mine else f"E가 {what} 실행 중"))
         if mine:
             return          # the lamp is holding the light D asked for; leave it there
-        # Otherwise nothing else will ask for a return_center, and a single
-        # stray busy would leave S1 refusing for good.
+        # Otherwise nothing else will ask for a return_center, and a stray busy
+        # would leave S1 refusing for good.
         threading.Thread(target=self._recenter_when_idle, daemon=True).start()
 
     def _orientation(self, msg: OrientationStatus) -> None:
@@ -306,13 +324,29 @@ class VisionNode(Node):
         time.sleep(0.8)
         with self._lock:
             pose = self.runtime.enter_rest(yaw)
-            self._rest_at = time.monotonic()
         self.get_logger().info(
             f"휴식 자세 고정: 카메라 높이 {pose.height * 100:.1f} cm, "
             f"아래로 {pose.tilt_deg:.1f}°, base_yaw {np.degrees(yaw):.1f}°")
         return True, "휴식 자세에서 카메라 자세를 고정했다"
 
-    def _recenter_when_idle(self) -> None:
+    def _recenter_when_idle(self) -> None:          # noqa: C901
+        """See below. Rate limited: D must never hammer E's action server.
+
+        A recentring loop once issued return_center several times in twelve
+        seconds and the Pi's motion daemon wedged -- it stopped listening and
+        let go of the servo bus, and only a service restart brought it back.
+        Whatever the daemon should do about that, D has no business retrying
+        that fast.
+        """
+        with self._recenter_lock:
+            if time.monotonic() - self._recenter_at < self.RECENTER_INTERVAL_S:
+                return
+            if self._recenter_fails >= self.RECENTER_MAX_FAILS:
+                return
+            self._recenter_at = time.monotonic()
+        self._recenter_body()
+
+    def _recenter_body(self) -> None:
         """Re-establish the rest pose once E has finished whatever it was doing.
 
         Only when the arm is genuinely idle again. Centring while E still holds
@@ -328,9 +362,15 @@ class VisionNode(Node):
         if self.runtime.following or self.runtime.at_rest or self._placing:
             return                      # S2 owns the head, or someone beat us to it
         ok, why = self._center()
+        self._recenter_fails = 0 if ok else self._recenter_fails + 1
         self.get_logger().info(f"자동 복귀: {why}" if ok else f"자동 복귀 실패: {why}")
+        if self._recenter_fails >= self.RECENTER_MAX_FAILS:
+            self.get_logger().error(
+                f"자동 복귀를 {self._recenter_fails}번 실패해 더 시도하지 않는다. "
+                "/lamp/vision/center 로 수동 복귀한다")
 
     def _srv_center(self, _req, res):
+        self._recenter_fails = 0        # asked for by hand: start the budget over
         res.success, res.message = self._center()
         return res
 
