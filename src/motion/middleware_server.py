@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import asdict
 import json
 import math
@@ -164,12 +164,48 @@ class MotionTcpServer:
             self._connections.discard(connection)
 
 
+SHUTDOWN_DEADLINE_S = 15.0
+_shutdown_state = {"phase": "running"}
+
+
+def _phase(name: str) -> None:
+    _shutdown_state["phase"] = name
+
+
+@contextmanager
+def _shutdown_deadline():
+    """Guarantee a shutdown step finishes, and say where it stuck if not.
+
+    Parking takes up to about 9 s, and systemd kills the unit at 20 s with no
+    word of where it was. Fire in between: name the step that never returned,
+    dump every thread, and exit non-zero so Restart=on-failure brings the
+    daemon back instead of leaving it alive, serving nothing, servos holding.
+
+    Cancelled as soon as the block finishes, so a clean shutdown -- and a test
+    that drives one -- never trips it.
+    """
+    def fire() -> None:
+        print(f"Motion daemon shutdown stuck for {SHUTDOWN_DEADLINE_S:.0f} s "
+              f"in: {_shutdown_state['phase']}", file=sys.stderr, flush=True)
+        with suppress(Exception):
+            faulthandler.dump_traceback(all_threads=True)
+        os._exit(1)
+    timer = threading.Timer(SHUTDOWN_DEADLINE_S, fire)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+
+
 async def _serve(controller: MotionController, tcp_server: MotionTcpServer,
                  local_server: MotionUnixServer,
                  shutdown_requested: Callable[[], bool]) -> None:
     """Join the sole motion owner before the caller parks the backend."""
     owner = threading.Thread(target=controller.run, name="motion-owner")
     tcp_serving = local_serving = None
+    fault = ""
     try:
         if shutdown_requested():
             return
@@ -190,24 +226,41 @@ async def _serve(controller: MotionController, tcp_server: MotionTcpServer,
             if serving.done():
                 await serving  # Surface transport failures to systemd.
     finally:
-        controller.stop("daemon shutdown")
-        # No timeout: parking must never race a still-running motor writer.
-        if owner.ident is not None:
-            owner.join()
-        try:
-            for serving in (tcp_serving, local_serving):
-                if serving is not None:
-                    serving.cancel()
-            for serving in (tcp_serving, local_serving):
-                if serving is not None:
-                    with suppress(asyncio.CancelledError):
-                        await serving
-        finally:
+        with _shutdown_deadline():
+            _phase("stopping controller")
+            controller.stop("daemon shutdown")
+            # No timeout: parking must never race a still-running motor writer.
+            if owner.ident is not None:
+                _phase("joining motion owner")
+                owner.join()
+            # Say why the owner stopped before anything that can block. Raising it
+            # at the very end meant a hang anywhere below swallowed it: the daemon
+            # wedged several times a day and the cause was never once printed.
+            fault = controller.snapshot().fault
+            if fault:
+                print(f"Motion controller failed: {fault}", file=sys.stderr, flush=True)
             try:
+                # Our close() cancels live connections before waiting. It must run
+                # before the serve_forever() tasks are cancelled: on cancellation
+                # the stdlib's serve_forever() calls wait_closed() itself, which
+                # since Python 3.12 waits for every connection -- and the bridge
+                # and the device service never let go of theirs. Cancelling those
+                # tasks first deadlocked here with both listeners already closed.
+                _phase("closing tcp server")
                 await tcp_server.close()
             finally:
-                await local_server.close()
-    fault = controller.snapshot().fault
+                try:
+                    _phase("closing local server")
+                    await local_server.close()
+                finally:
+                    _phase("cancelling serve tasks")
+                    for serving in (tcp_serving, local_serving):
+                        if serving is not None:
+                            serving.cancel()
+                    for serving in (tcp_serving, local_serving):
+                        if serving is not None:
+                            with suppress(asyncio.CancelledError):
+                                await serving
     if fault:
         raise RuntimeError(f"Motion controller failed: {fault}")
 
@@ -298,10 +351,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Motion daemon serve loop returned (stopping={stopping})",
                       file=sys.stderr, flush=True)
         finally:
-            if controller is not None:
-                controller.stop("daemon shutdown")
-            if backend is not None:
-                backend.close()
+            with _shutdown_deadline():
+                if controller is not None:
+                    _phase("stopping controller (main)")
+                    controller.stop("daemon shutdown")
+                if backend is not None:
+                    _phase("parking arm and releasing torque")
+                    backend.close()
     except Exception as exc:
         print(f"Motion daemon failed: {exc}", file=sys.stderr)
         return 1
