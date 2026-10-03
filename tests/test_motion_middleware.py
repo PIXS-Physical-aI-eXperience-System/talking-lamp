@@ -1054,3 +1054,56 @@ def test_local_eof_cannot_cancel_colliding_remote_ticket(tmp_path):
             await local.close()
             await remote.close()
     asyncio.run(scenario())
+
+
+class _IdleMailbox:
+    """A controller that accepts nothing; enough to stand a server up."""
+
+    def submit(self, request):
+        return None
+
+    def remote_disconnected(self):
+        pass
+
+
+def test_tcp_server_closes_while_a_peer_holds_its_connection_open():
+    """The Jetson bridge keeps one connection open for as long as it runs.
+
+    Waiting for the server before cancelling that connection deadlocked
+    shutdown on Python 3.12: the listener was gone, the process stayed alive,
+    SIGTERM was ignored and systemd never restarted it. In the field that
+    looked like the robot freezing with its servos still holding torque.
+    """
+    async def scenario():
+        # A long heartbeat timeout stands in for the bridge's 1 s heartbeats:
+        # at the default 2.5 s the server drops an idle peer on its own, and the
+        # deadlock never gets the chance to show.
+        server = MotionTcpServer(_IdleMailbox(), token=TOKEN, host="127.0.0.1", port=0,
+                                 heartbeat_timeout=60)
+        await server.start()
+        port = server.sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            await asyncio.sleep(0.1)                     # the peer says nothing, like an idle bridge
+            await asyncio.wait_for(server.close(), timeout=3)
+        finally:
+            writer.close()
+            with suppress(ConnectionError):
+                await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_closes_while_a_peer_holds_its_connection_open(tmp_path):
+    """Same deadlock on the local socket, which the device service holds open."""
+    async def scenario():
+        server = MotionUnixServer(_IdleMailbox(), tmp_path / "motion.sock")
+        await server.start()
+        reader, writer = await asyncio.open_unix_connection(str(tmp_path / "motion.sock"))
+        try:
+            await asyncio.sleep(0.1)
+            await asyncio.wait_for(server.close(), timeout=3)
+        finally:
+            writer.close()
+            with suppress(ConnectionError):
+                await writer.wait_closed()
+    asyncio.run(scenario())

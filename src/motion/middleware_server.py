@@ -60,12 +60,18 @@ class MotionTcpServer:
     async def close(self) -> None:
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
-            self._server = None
+        # Cancel live connections before waiting for the server. Since Python
+        # 3.12 wait_closed() waits for every connection to finish, and the
+        # Jetson bridge holds one open for as long as it runs: waiting first
+        # deadlocked shutdown with the listener already gone, the process
+        # alive, SIGTERM ignored and Restart=on-failure never firing.
         tasks = list(self._connections)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if self._server is not None:
+            await self._server.wait_closed()
+            self._server = None
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         connection = asyncio.current_task()

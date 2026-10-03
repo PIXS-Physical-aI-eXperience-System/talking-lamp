@@ -67,12 +67,18 @@ class MotionUnixServer:
     async def close(self) -> None:
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
-            self._server = None
+        # Cancel live connections before waiting for the server. Since Python
+        # 3.12 wait_closed() waits for every connection to finish, and the
+        # device service holds one open for as long as it runs: waiting first
+        # deadlocked shutdown with the listener already gone, the process
+        # alive, SIGTERM ignored and Restart=on-failure never firing.
         tasks = list(self._connections)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if self._server is not None:
+            await self._server.wait_closed()
+            self._server = None
         self._remove_owned_socket()
 
     def _remove_stale_socket(self) -> None:
