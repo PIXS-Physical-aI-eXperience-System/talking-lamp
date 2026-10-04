@@ -14,7 +14,7 @@ from vision import Intrinsics
 from vision.detector import FaceDetection
 from vision.follow import FaceFollower, FollowConfig
 from vision.geometry import IPD_M
-from vision.head_camera import HeadCameraMount
+from vision.head_camera import HeadCameraMount, joints_in_order
 
 CAM = Intrinsics(1920, 1080, 1050.0, 1050.0, 959.5, 539.5, (-0.30, 0.09, 0.001, -0.0005, -0.01))
 
@@ -199,3 +199,19 @@ def test_fit_mount_is_exact_when_the_head_is_perfectly_still():
     fitted, rms = fit_mount(obs, CAM, head_R, head_t)
     assert rms < 0.5
     assert np.allclose(fitted.t, MOUNT.t, atol=1e-3)
+
+
+def test_joint_states_are_matched_by_name_not_position():
+    order = ("base_yaw", "base_pitch", "elbow_pitch")
+    q = joints_in_order(["elbow_pitch", "base_yaw", "base_pitch"], [3.0, 1.0, 2.0], order)
+    assert list(q) == [1.0, 2.0, 3.0]
+
+
+@pytest.mark.parametrize("names, values", [
+    (["base_yaw", "base_pitch"], [1.0, 2.0]),                   # elbow missing
+    (["base_yaw", "base_pitch", "elbow_pitch"], [1.0, 2.0]),    # one value short
+    (["base_yaw", "base_yaw", "elbow_pitch"], [1.0, 2.0, 3.0]),  # duplicate name
+])
+def test_an_incomplete_joint_state_is_refused(names, values):
+    with pytest.raises(ValueError):
+        joints_in_order(names, values, ("base_yaw", "base_pitch", "elbow_pitch"))

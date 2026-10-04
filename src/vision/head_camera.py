@@ -93,14 +93,30 @@ class HeadCameraMount:
 
 # -- FK glue (needs E's motion package and MuJoCo) ---------------------------
 
+def joints_in_order(names, values, order) -> np.ndarray:
+    """``values`` keyed by ``names``, rearranged into ``order``.
+
+    A JointState carries its own names; matching on them rather than on
+    position keeps a reordering on the Pi from silently swapping two joints.
+    """
+    by_name = dict(zip(names, values))
+    if len(by_name) != len(names) or len(names) != len(values):
+        raise ValueError(f"joint names and values do not pair up: {list(names)}")
+    missing = [n for n in order if n not in by_name]
+    if missing:
+        raise ValueError(f"joint state is missing {missing}")
+    return np.array([float(by_name[n]) for n in order])
+
+
 class HeadKinematics:
     """Thin wrapper over E's FK so vision never touches MuJoCo directly."""
 
     def __init__(self, world_xml: str | Path | None = None):
-        from motion.config import REST_POSE
+        from motion.config import JOINT_NAMES, REST_POSE
         from motion.kinematics import ArmKinematics
         self._kin = ArmKinematics(None if world_xml is None else str(world_xml))
         self.rest_pose = np.asarray(REST_POSE, float).copy()
+        self.joint_names = tuple(JOINT_NAMES)
 
     def rest_q(self, base_yaw: float | None = None) -> np.ndarray:
         """REST_POSE, with base_yaw replaced by the measured value if given."""

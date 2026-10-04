@@ -1,24 +1,28 @@
 """What D publishes, frame by frame. No ROS here -- the node is a thin shell.
 
-The whole design turns on one fact: **the camera rides on the head, and the
-head's joint angles never leave the Pi.** So D can only convert pixels into
-``lamp_base`` points at a posture whose angles it already knows, and the only
-such posture is the rest pose that ``/lamp/return_center`` restores.
+The whole design turns on one fact: **the camera rides on the head**, so the
+camera pose is the arm pose run through E's FK and the mount calibration. D can
+turn pixels into ``lamp_base`` points only while it knows that pose.
 
-That splits D's two jobs cleanly:
+It learns it one of two ways:
 
-- **S1 (task light)** needs absolute positions, so it runs **only at rest**.
-  ``ObjectAverager`` keeps a rolling average the whole time the head sits
-  there, so when the trigger comes the answer is already settled and there is
-  no capture delay (see ``tracking`` for why averaging is needed at all).
-- **S2 (look at the user)** needs no absolute position: ``FaceFollower``
-  measures the error in the image and nudges the target E is already tracking.
-  It keeps working after the head has left the rest pose, which S1 cannot.
+- **Joint states** (``update_joints``). The Pi reads the servos back and the
+  bridge publishes them at 5 Hz. The pose is known in any posture, for as long
+  as they keep arriving.
+- **The rest pose** (``enter_rest``), the fallback when no joint states arrive:
+  after ``/lamp/return_center`` the angles are REST_POSE, so the pose is known
+  there and nowhere else. Any move voids it (``leave_rest``).
 
-Publishing a track point makes the head move, so the runtime marks itself off
-rest at that moment and drops the averages: they were computed from a pose that
-no longer holds. Getting back to absolute positions needs another
-``/lamp/return_center``.
+That splits D's two jobs:
+
+- **S1 (task light)** needs absolute positions. ``ObjectAverager`` keeps a
+  rolling average while the pose is known, so when the trigger comes the answer
+  is already settled (see ``tracking`` for why averaging is needed at all).
+  Averages are in ``lamp_base``, so a head that moves to a new known pose keeps
+  them; only frames taken mid-move are left out, because the 5 Hz pose lags a
+  deliberate motion by centimetres on the desk.
+- **S2 (look at the user)** needs an absolute point only for its first aim.
+  After that ``FaceFollower`` works from the error in the image.
 """
 
 from __future__ import annotations
@@ -46,9 +50,16 @@ class RuntimeConfig:
     # desk do not move, so they get their own slow rate and faces keep the full
     # frame rate. 0.5 s still fills the averager within one breath period.
     object_period_s: float = 0.5
-    # While following, object positions are void anyway (the head is off the
-    # rest pose). Objects then run only to keep the cognition labels fresh.
+    # While following, the head is busy with the user and objects run mostly
+    # to keep the cognition labels fresh.
     object_period_following_s: float = 2.0
+    # Joint states come at 5 Hz. Older than this, the Pi or the bridge has
+    # stopped and the camera pose is unknown.
+    joints_stale_s: float = 0.6
+    # Faster than this on any joint, the head is in a deliberate motion and a
+    # pose up to 0.2 s old is centimetres off on the desk, so the frame is not
+    # averaged. The idle sway peaks near 0.06 rad/s and stays below it.
+    moving_rad_s: float = 0.15
     follow: FollowConfig = field(default_factory=FollowConfig)
 
 
@@ -75,6 +86,8 @@ class VisionRuntime:
         self.presence = PresenceGate(self.cfg.presence_on_s, self.cfg.presence_off_s)
         self.at_rest = False
         self.off_rest_since = "not yet centred"
+        self.joints_at: float | None = None     # when update_joints last ran
+        self.moving = False
         self.following = False
         self.follower: FaceFollower | None = None
         self.head_pos = np.array([0.18, 0.0, 0.35])
@@ -83,11 +96,38 @@ class VisionRuntime:
 
     # -- posture -------------------------------------------------------------
 
+    def update_joints(self, q, qd, stamp: float) -> Pose:
+        """The arm pose as the Pi read it back. Supersedes the rest pose."""
+        if self.kin is None or self.mount is None:
+            raise RuntimeError("joint states need both a mount calibration and E's kinematics")
+        head_R, head_t = self.kin.head(np.asarray(q, float))
+        self.head_pos = np.asarray(head_t, float)
+        self.pipeline.pose = self.mount.camera_pose(head_R, head_t)
+        self.joints_at = stamp
+        self.moving = bool(np.max(np.abs(np.asarray(qd, float))) > self.cfg.moving_rad_s)
+        self.at_rest = False
+        return self.pipeline.pose
+
+    def joints_live(self, stamp: float) -> bool:
+        return self.joints_at is not None and stamp - self.joints_at <= self.cfg.joints_stale_s
+
+    def pose_known(self, stamp: float) -> bool:
+        if self.joints_at is not None:
+            return self.joints_live(stamp)
+        return self.at_rest
+
+    def _pose_unknown_why(self, stamp: float) -> str:
+        if self.joints_at is not None:
+            return (f"관절 각도가 {stamp - self.joints_at:.1f} s 째 오지 않는다 "
+                    "(Pi 모션 데몬이나 모션 브릿지 확인)")
+        return f"머리가 휴식 자세에 있지 않다 ({self.off_rest_since}). return_center 먼저"
+
     def enter_rest(self, base_yaw: float | None = None) -> Pose:
         """Call once ``/lamp/return_center`` has finished and the head is settled.
 
         Fixes the camera pose from E's FK of the rest pose, so desk
-        back-projection is meaningful again.
+        back-projection is meaningful again. Only for when no joint states
+        arrive: it switches the runtime back to trusting the rest pose.
         """
         if self.kin is None or self.mount is None:
             raise RuntimeError("rest pose needs both a mount calibration and E's kinematics")
@@ -97,6 +137,8 @@ class VisionRuntime:
         self.pipeline.pose = self.mount.camera_pose(head_R, head_t)
         self.averager.reset()
         self.at_rest = True
+        self.joints_at = None
+        self.moving = False
         self.follower = None
         return self.pipeline.pose
 
@@ -137,7 +179,7 @@ class VisionRuntime:
         out = RuntimeOutput(frame=frame)
         if had_objects:
             self._last_objects_at = stamp
-            if self.at_rest:
+            if self.pose_known(stamp) and not self.moving:
                 self.averager.add(frame)
             labels = frame.labels_ko()
             if labels != self._labels:
@@ -158,9 +200,9 @@ class VisionRuntime:
             return None, ""
 
         if self.follower is None:
-            # First aim needs an absolute point, which only the rest pose gives.
-            if not self.at_rest:
-                return None, "cannot start following away from the rest pose"
+            # First aim needs an absolute point, so a known camera pose.
+            if not self.pose_known(stamp):
+                return None, "cannot start following: camera pose unknown (no joint states, not at rest)"
             target = face_point(face.right_eye, face.left_eye, self.pipeline.cam,
                                 self.pipeline.pose, face.box)
             if target is None:
@@ -169,8 +211,9 @@ class VisionRuntime:
                 self.pipeline.cam, float(np.linalg.norm(target - self.head_pos)))
             self.follower = FaceFollower(self.pipeline.cam, self.head_pos, target,
                                          self.cfg.follow, gaze_uv=gaze, stamp=stamp)
-            self.leave_rest("looking at the user")
-            return target, "first aim from the rest pose"
+            if self.joints_at is None:
+                self.leave_rest("looking at the user")      # the rest pose is about to go
+            return target, "first aim"
 
         upd = self.follower.update(face, stamp)
         if upd is None:
@@ -182,14 +225,16 @@ class VisionRuntime:
     def task_light_target(self, stamp: float | None = None) -> tuple[ObjectTarget | None, str]:
         """The point to send to ``/lamp/place_task_light``, or why there is none."""
         stamp = time.monotonic() if stamp is None else stamp
-        if not self.at_rest:
-            return None, f"머리가 휴식 자세에 있지 않다 ({self.off_rest_since}) — return_center 먼저"
         best = self.averager.best(stamp)
-        if best is None:
-            if not self.averager.tracks:
-                return None, "책상 위에 조명 대상이 보이지 않는다"
-            return None, "평균이 아직 덜 쌓였다 (휴식 자세로 몇 초 더 필요)"
-        return best, ""
+        if best is not None:
+            return best, ""
+        if not self.pose_known(stamp):
+            return None, self._pose_unknown_why(stamp)
+        if not self.averager.tracks:
+            if self.moving:
+                return None, "머리가 움직이는 중이라 위치를 쌓지 않는다"
+            return None, "책상 위에 조명 대상이 보이지 않는다"
+        return None, "평균이 아직 덜 쌓였다 (머리가 멈춘 채로 몇 초 더 필요)"
 
 
 def _nearest_raw_face(frame: VisionFrame):

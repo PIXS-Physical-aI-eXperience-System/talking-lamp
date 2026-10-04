@@ -1,9 +1,10 @@
 """D's publishing logic: when a target is valid, and when it must not be sent.
 
 The property that matters most is negative. Desk back-projection is only
-meaningful at the rest pose, so the runtime must refuse to produce a task-light
-target at any other posture rather than quietly returning a point computed from
-a camera pose that no longer holds.
+meaningful while D knows the camera pose (fresh joint states, or the rest pose
+when there are none), so the runtime must refuse to produce a task-light target
+otherwise rather than quietly returning a point computed from a camera pose that
+no longer holds.
 """
 
 import numpy as np
@@ -186,12 +187,12 @@ def test_following_starts_from_the_rest_pose_and_then_leaves_it():
     assert not rt.at_rest                          # the head is about to move
 
 
-def test_following_cannot_start_off_rest():
-    rt = make_runtime(at_rest=False)
+def test_following_cannot_start_without_a_known_pose():
+    rt = make_runtime(at_rest=False)          # no joint states and not at rest
     rt.set_following(True)
     out = feed(rt, [], [face_at(FACE)], n=1)[0]
     assert out.track_point is None
-    assert "rest pose" in out.note
+    assert "pose unknown" in out.note
 
 
 def test_no_track_point_while_not_following():
@@ -251,3 +252,108 @@ def test_objects_slow_down_while_following():
     rt.consume(rt.pipeline.locate([book_det()], [], 0.0), 0.0, had_objects=True)
     assert not rt.due_for_objects(1.0)          # 0.5 s rate does not apply while following
     assert rt.due_for_objects(2.1)
+
+
+# -- joint states ------------------------------------------------------------
+
+class _SlideKin:
+    """Stand-in for E's FK: q[0] slides the head forward, nothing else moves."""
+
+    joint_names = ("base_yaw", "base_pitch", "elbow_pitch", "wrist_roll", "wrist_pitch")
+
+    def head(self, q):
+        return np.eye(3), HEAD + np.array([q[0], 0.0, 0.0])
+
+    def rest_q(self, base_yaw=None):
+        return np.zeros(5)
+
+
+class _LookAhead:
+    """Stand-in mount: the camera sits at the head and looks as at rest."""
+
+    def camera_pose(self, R, t):
+        return Pose.look_at(t, t + np.array([0.8, 0.0, -0.58]))
+
+    def gaze_uv(self, cam, dist):
+        return None
+
+
+STILL = np.zeros(5)
+
+
+def joint_runtime(**kw):
+    return VisionRuntime(CAM, mount=_LookAhead(), kin=_SlideKin(),
+                         pipeline=VisionPipeline(CAM, POSE, workspace=SEEN_AT_REST),
+                         cfg=RuntimeConfig(**kw))
+
+
+def feed_joints(rt, q, qd=STILL, pos=BOOK, t0=0.0, n=20, dt=0.3):
+    """Frames of a book, each after a fresh joint state, rendered from that pose."""
+    for k in range(n):
+        stamp = t0 + k * dt
+        pose = rt.update_joints(q, qd, stamp)
+        det = Detection("book", 0.8, box_at(pos, pose=pose))
+        rt.consume(rt.pipeline.locate([det], [], stamp), stamp)
+
+
+def test_joint_states_give_a_target_without_any_rest_pose():
+    rt = joint_runtime()
+    assert not rt.at_rest
+    feed_joints(rt, STILL)
+    target, why = rt.task_light_target(5.7)
+    assert why == "" and np.linalg.norm(target.pos - BOOK) < 0.02
+
+
+def test_a_head_that_moved_to_a_known_pose_keeps_its_averages():
+    """lamp_base points do not care where the head was, as long as D knew."""
+    rt = joint_runtime()
+    feed_joints(rt, STILL, n=10)
+    feed_joints(rt, np.array([0.06, 0, 0, 0, 0]), t0=3.0, n=10)
+    track = rt.averager.tracks[0]
+    assert len(rt.averager.tracks) == 1 and len(track.samples) == 20
+    assert np.linalg.norm(rt.task_light_target(5.7)[0].pos - BOOK) < 0.02
+
+
+def test_frames_taken_mid_motion_are_left_out():
+    rt = joint_runtime()
+    fast = np.array([0.0, 0.4, 0.0, 0.0, 0.0])          # rad/s, a deliberate move
+    feed_joints(rt, STILL, qd=fast)
+    assert rt.averager.tracks == []
+    assert "움직이는 중" in rt.task_light_target(5.7)[1]
+
+
+def test_idle_sway_still_counts_as_still():
+    rt = joint_runtime()
+    sway = np.array([0.06, 0.03, 0.0, 0.0, 0.01])       # L0 peak, rad/s
+    feed_joints(rt, STILL, qd=sway)
+    assert rt.task_light_target(5.7)[0] is not None
+
+
+def test_no_target_once_joint_states_stop():
+    rt = joint_runtime()
+    feed_joints(rt, STILL)
+    det = book_det()
+    for k in range(10):                                  # frames keep coming, joints do not
+        stamp = 6.0 + 0.3 * k
+        rt.consume(rt.pipeline.locate([det], [], stamp), stamp)
+    target, why = rt.task_light_target(9.0)
+    assert target is None and "관절 각도" in why
+
+
+def test_following_starts_anywhere_with_joint_states_and_keeps_the_averages():
+    rt = joint_runtime()
+    feed_joints(rt, np.array([0.04, 0, 0, 0, 0]))
+    rt.set_following(True)
+    pose = rt.pipeline.pose
+    out = rt.consume(rt.pipeline.locate([], [face_at(FACE, pose=pose)], 5.75), 5.75)
+    assert out.track_point is not None
+    assert np.linalg.norm(out.track_point - FACE) < 0.10
+    assert rt.task_light_target(5.75)[0] is not None
+
+
+def test_entering_rest_hands_the_pose_back_to_the_rest_fallback():
+    rt = joint_runtime()
+    feed_joints(rt, STILL, n=2)
+    rt.enter_rest()
+    assert rt.at_rest and rt.joints_at is None
+    assert rt.pose_known(100.0)                          # no staleness at rest

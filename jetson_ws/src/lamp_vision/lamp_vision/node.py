@@ -7,11 +7,14 @@ Wiring
 ------
 
 Subscribes
-  ``/lamp/motion_status``       E's state. ``busy`` means the head is moving,
-                                so the rest pose no longer holds.
-  ``/lamp/orientation_status``  ``current_yaw``, the one joint angle E
-                                publishes. Used to correct the assumed rest
-                                pose for whichever way the base is turned.
+  ``/lamp/joint_states``        JointState, 5 Hz. The arm pose the Pi read back
+                                from the servos; with E's FK and the mount
+                                calibration it is the camera pose, in any
+                                posture. Everything below about the rest pose
+                                is the fallback for when these do not arrive.
+  ``/lamp/motion_status``       E's state. Without joint states, ``busy`` means
+                                the head is moving, so the rest pose no longer
+                                holds.
 
 Publishes
   ``/lamp/track_point``         PointStamped, S2. Where E should look.
@@ -23,8 +26,9 @@ Publishes
   ``/lamp/vision/status``       String (JSON), 1 Hz. Diagnostics.
 
 Calls
-  ``/lamp/return_center``       Action. To restore the rest pose, which is the
-                                only posture where D knows the camera pose.
+  ``/lamp/return_center``       Action. Without joint states, to restore the
+                                rest pose, the only posture whose angles D
+                                then knows.
   ``/lamp/place_task_light``    Action, S1. The desk point to light.
 
 Services offered
@@ -53,11 +57,12 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from geometry_msgs.msg import PointStamped
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool, Trigger
 
 from lamp_interfaces.action import PlaceTaskLight, ReturnCenter
-from lamp_interfaces.msg import MotionStatus, OrientationStatus
+from lamp_interfaces.msg import MotionStatus
 
 
 def _find_src() -> Path | None:
@@ -80,7 +85,7 @@ if _SRC is not None and str(_SRC) not in sys.path:
 
 from vision import FRAME_ID, Intrinsics, VisionPipeline            # noqa: E402
 from vision.detector import FaceDetector, ObjectDetector           # noqa: E402
-from vision.head_camera import HeadCameraMount, HeadKinematics     # noqa: E402
+from vision.head_camera import HeadCameraMount, HeadKinematics, joints_in_order  # noqa: E402
 from vision.runtime import RuntimeConfig, VisionRuntime            # noqa: E402
 
 
@@ -89,6 +94,7 @@ class VisionNode(Node):
     BUSY_SETTLE_S = 1.5
     RECENTER_INTERVAL_S = 20.0      # floor between automatic return_center calls
     RECENTER_MAX_FAILS = 3          # then stop and wait to be asked
+    JOINTS_GRACE_S = 3.0            # at startup, how long to wait for joint states
 
     def __init__(self) -> None:
         super().__init__("lamp_vision")
@@ -121,10 +127,10 @@ class VisionNode(Node):
         self.presence_pub = self.create_publisher(Bool, "/lamp/vision/presence", latest)
         self.labels_pub = self.create_publisher(String, "/lamp/vision/labels", latest)
         self.status_pub = self.create_publisher(String, "/lamp/vision/status", latest)
+        self.create_subscription(JointState, "/lamp/joint_states", self._joints, latest,
+                                 callback_group=self.group)
         self.create_subscription(MotionStatus, "/lamp/motion_status", self._motion, latest,
                                  callback_group=self.group)
-        self.create_subscription(OrientationStatus, "/lamp/orientation_status",
-                                 self._orientation, latest, callback_group=self.group)
         self.center_client = ActionClient(self, ReturnCenter, "/lamp/return_center",
                                           callback_group=self.group)
         self.light_client = ActionClient(self, PlaceTaskLight, "/lamp/place_task_light",
@@ -137,8 +143,8 @@ class VisionNode(Node):
                             callback_group=self.group)
         self.create_timer(1.0, self._publish_status, callback_group=self.group)
 
-        self.current_yaw: float | None = None
         self.motion_busy = False
+        self._joint_error = ""
         self._placing = False           # True while a task light D sent is being held
         self._busy_since: float | None = None
         self._recenter_at = -1e9
@@ -156,11 +162,20 @@ class VisionNode(Node):
             threading.Thread(target=self._center_at_start, daemon=True).start()
 
     def _center_at_start(self) -> None:
-        """Centre once at startup, and say so either way.
+        """Centre once at startup, unless joint states make it unnecessary.
 
-        Failing silently here left the node running with no rest pose and no
-        hint why, which is how a whole test session got lost.
+        Say so either way: failing silently here left the node running with no
+        rest pose and no hint why, which is how a whole test session got lost.
         """
+        deadline = time.monotonic() + self.JOINTS_GRACE_S
+        while time.monotonic() < deadline and not self._joints_live():
+            time.sleep(0.1)
+        if self._joints_live():
+            self.get_logger().info("관절 각도 수신 중: 휴식 자세 복귀 없이 시작한다")
+            return
+        if self.runtime.kin is not None:
+            self.get_logger().warn(
+                "/lamp/joint_states 가 오지 않는다. 휴식 자세에서만 위치를 계산한다")
         ok, why = self._center(timeout=12.0)
         if not ok:
             self.get_logger().error(f"시작 시 휴식 자세 복귀 실패: {why}")
@@ -196,9 +211,29 @@ class VisionNode(Node):
 
     # -- status --------------------------------------------------------------
 
+    def _joints_live(self) -> bool:
+        return self.runtime.joints_live(time.monotonic())
+
+    def _joints(self, msg: JointState) -> None:
+        kin = self.runtime.kin
+        if kin is None or self.runtime.mount is None:
+            return
+        try:
+            q = joints_in_order(msg.name, msg.position, kin.joint_names)
+            qd = joints_in_order(msg.name, msg.velocity, kin.joint_names)
+            with self._lock:
+                self.runtime.update_joints(q, qd, time.monotonic())
+            self._joint_error = ""
+        except Exception as exc:                 # say it once, not five times a second
+            if str(exc) != self._joint_error:
+                self._joint_error = str(exc)
+                self.get_logger().error(f"관절 각도를 쓸 수 없다: {exc}")
+
     def _motion(self, msg: MotionStatus) -> None:
         now = time.monotonic()
         was, self.motion_busy = self.motion_busy, bool(msg.busy)
+        if self._joints_live():
+            return          # the pose is measured; nothing about rest to maintain
         if not self.motion_busy:
             self._busy_since = None
             return
@@ -226,12 +261,13 @@ class VisionNode(Node):
         # would leave S1 refusing for good.
         threading.Thread(target=self._recenter_when_idle, daemon=True).start()
 
-    def _orientation(self, msg: OrientationStatus) -> None:
-        self.current_yaw = float(msg.current_yaw)
-
     def _publish_status(self) -> None:
         tgt, why = self.runtime.task_light_target()
+        now = time.monotonic()
         self.status_pub.publish(String(data=json.dumps({
+            "pose": ("joints" if self.runtime.joints_live(now) else
+                     "rest" if self.runtime.pose_known(now) else "unknown"),
+            "moving": self.runtime.moving,
             "at_rest": self.runtime.at_rest,
             "following": self.runtime.following,
             "fps": round(self._fps, 1),
@@ -322,6 +358,8 @@ class VisionNode(Node):
         while self.motion_busy and time.monotonic() < deadline:
             time.sleep(0.05)
         time.sleep(0.8)
+        if self._joints_live():
+            return True, "휴식 자세로 돌아왔다 (카메라 자세는 관절 각도로 계속 안다)"
         with self._lock:
             pose = self.runtime.enter_rest(yaw)
         self.get_logger().info(
@@ -359,8 +397,9 @@ class VisionNode(Node):
         if self.motion_busy:
             self.get_logger().info("자동 복귀 보류: E 가 아직 자세를 잡고 있다")
             return
-        if self.runtime.following or self.runtime.at_rest or self._placing:
-            return                      # S2 owns the head, or someone beat us to it
+        if (self.runtime.following or self.runtime.at_rest or self._placing
+                or self._joints_live()):
+            return                      # S2 owns the head, someone beat us, or no need
         ok, why = self._center()
         self._recenter_fails = 0 if ok else self._recenter_fails + 1
         self.get_logger().info(f"자동 복귀: {why}" if ok else f"자동 복귀 실패: {why}")
@@ -403,8 +442,8 @@ class VisionNode(Node):
             self.runtime.set_following(bool(req.data))
         res.success = True
         res.message = "얼굴 추종 " + ("시작" if req.data else "정지")
-        if req.data and not self.runtime.at_rest:
-            res.message += " (주의: 휴식 자세가 아니라 첫 조준을 못 한다. center 먼저)"
+        if req.data and not self.runtime.pose_known(time.monotonic()):
+            res.message += " (주의: 카메라 자세를 몰라 첫 조준을 못 한다. center 먼저)"
         return res
 
     def destroy_node(self) -> None:
