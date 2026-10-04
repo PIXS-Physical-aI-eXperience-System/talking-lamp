@@ -11,7 +11,7 @@ import pytest
 
 from vision import Intrinsics, Pose
 from vision.detector import Detection, FaceDetection
-from vision.pipeline import VisionPipeline
+from vision.pipeline import VisionPipeline, Workspace
 from vision.runtime import RuntimeConfig, VisionRuntime
 from vision.tracking import ObjectAverager, PresenceGate
 from vision.geometry import IPD_M
@@ -19,6 +19,11 @@ from vision.geometry import IPD_M
 CAM = Intrinsics(1920, 1080, 705.0, 705.0, 1014.5, 503.6)
 HEAD = np.array([0.184, 0.0, 0.347])
 POSE = Pose.look_at(HEAD, [0.184 + 0.8, 0.0, 0.347 - 0.58])      # ~36 deg down, as at rest
+# At rest the head sees the desk from about 0.4 m out, past what the arm can
+# hold (Workspace, tested in test_vision_geometry). These tests are about the
+# runtime's rules, not the reach limit, so they widen the workspace to keep the
+# objects in view.
+SEEN_AT_REST = Workspace(max_radius_m=0.80)
 
 
 def box_at(p_base, pose=POSE, w=120.0, h=80.0):
@@ -38,7 +43,7 @@ def face_at(p_base, pose=POSE, conf=0.9):
 
 
 def make_runtime(at_rest=True, **kw):
-    rt = VisionRuntime(CAM, pipeline=VisionPipeline(CAM, POSE), cfg=RuntimeConfig(**kw))
+    rt = VisionRuntime(CAM, pipeline=VisionPipeline(CAM, POSE, workspace=SEEN_AT_REST), cfg=RuntimeConfig(**kw))
     if at_rest:
         rt.at_rest = True                 # as enter_rest() leaves it, without MuJoCo
     return rt

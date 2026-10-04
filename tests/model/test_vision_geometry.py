@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from vision import Intrinsics, Pose, VisionPipeline, desk_point, face_point, to_korean
+from vision.pipeline import Workspace
 from vision.detector import Detection, decode, nms
 from vision.geometry import IPD_M
 
@@ -130,19 +131,35 @@ def test_pipeline_filters_by_class_and_workspace():
         u, v = CAM.project(POSE.to_cam(target))
         return Detection(label, 0.9, (u - 40, v - 80, u + 40, v))
     vf = pipe.locate([
-        det("book", [0.45, 0.0, 0.0]),        # kept
-        det("mouse", [0.40, 0.1, 0.0]),       # on the desk, but not something to light
+        det("book", [0.20, 0.0, 0.0]),        # kept
+        det("mouse", [0.18, 0.1, 0.0]),       # within reach, but not something to light
         det("laptop", [0.05, 0.0, 0.0]),      # under the lamp base
-        det("keyboard", [1.20, 0.0, 0.0]),    # beyond reach
+        det("keyboard", [0.45, 0.0, 0.0]),    # visible, but further than the arm can hold
     ], [], stamp=12.5)
     assert [o.label for o in vf.objects] == ["book"]
-    assert np.allclose(vf.objects[0].pos, [0.45, 0.0, 0.0], atol=1e-6)
+    assert np.allclose(vf.objects[0].pos, [0.20, 0.0, 0.0], atol=1e-6)
     assert vf.objects[0].frame_id == "lamp_base" and vf.objects[0].stamp == 12.5
     reasons = dict(vf.rejected)
     assert reasons == {"mouse": "not a task-light class", "laptop": "outside workspace",
                        "keyboard": "outside workspace"}
     # Cognition sees the whole scene, not just the light targets.
     assert vf.labels_ko() == ["책", "마우스", "노트북", "키보드"]
+
+
+def _at(r, bearing_deg):
+    a = math.radians(bearing_deg)
+    return np.array([r * math.cos(a), r * math.sin(a), 0.0])
+
+
+@pytest.mark.parametrize("r, bearing, inside", [
+    (0.23, 0, True), (0.23, -90, True), (0.23, 55, True), (0.12, 30, True),
+    (0.25, 0, False),        # the shoulder cannot hold it (E's guard refuses)
+    (0.10, 0, False),        # under the base
+    (0.20, 65, False),       # base_yaw does not turn that far left
+    (0.20, -120, False),     # behind the lamp
+])
+def test_workspace_is_what_the_arm_can_hold(r, bearing, inside):
+    assert Workspace().contains(_at(r, bearing)) is inside
 
 
 def test_labels_for_cognition():

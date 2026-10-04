@@ -30,17 +30,27 @@ class Workspace:
     """Where on the desk a task-light target is allowed to be.
 
     Anything outside is dropped: the ray hit the desk somewhere the lamp cannot
-    light (behind it, under its own base, off the far edge). This also removes
-    most detections of the lamp's own body, whose boxes project to points at or
-    behind the base.
+    light (behind it, under its own base, further out than the arm can hold).
+    This also removes most detections of the lamp's own body, whose boxes
+    project to points at or behind the base.
+
+    The authority is E's guard (``TaskLightLayer.place``), which refuses a pose
+    before the arm moves. These bounds mirror it so D never asks for a point it
+    will refuse. Swept on 2026-10-04: the shoulder holds a target out to 0.24 m
+    at every bearing (97 % of its limit) and refuses 0.25 m; bearings past about
+    +58 deg (to the lamp's left) are out of reach at any radius. The margins
+    below cover D's desk error (0.6 to 0.9 cm, vision-bench/results).
     """
     min_radius_m: float = 0.12     # lamp base footprint plus margin
-    max_radius_m: float = 0.80     # beyond this the light is too weak (500 lx design point is 0.5 m)
-    min_x_m: float = 0.0           # in front of the base only
+    max_radius_m: float = 0.23     # shoulder holding torque; 0.25 m is over the servo rating
+    min_bearing_deg: float = -90.0  # in front of the base only
+    max_bearing_deg: float = 55.0   # base_yaw cannot turn further to the left
 
     def contains(self, p: np.ndarray) -> bool:
         r = math.hypot(p[0], p[1])
-        return self.min_radius_m <= r <= self.max_radius_m and p[0] >= self.min_x_m
+        bearing = math.degrees(math.atan2(p[1], p[0]))
+        return (self.min_radius_m <= r <= self.max_radius_m
+                and self.min_bearing_deg <= bearing <= self.max_bearing_deg)
 
 
 @dataclass(frozen=True)
