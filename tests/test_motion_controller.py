@@ -921,3 +921,29 @@ def test_feasible_orientation_tightening_preserves_outward_motion_limits(endpoin
     assert sign * (runtime.backend.measured()[0] - before) > .05
     assert ticket.completed.result().code == "aligned"
     np.testing.assert_array_equal(runtime.traj.position_limits, hard)
+
+
+class _SaggingBackend(NullBackend):
+    """The shoulder reads 3 degrees below what it was told: a loaded servo."""
+
+    def measured(self):
+        return None if self._last is None else self._last - np.array([0., np.radians(3), 0., 0., 0.])
+
+
+def test_status_reports_the_measured_arm_pose_for_the_head_camera():
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    runtime = MotionRuntime(primitives=catalog.library(), backend=_SaggingBackend(),
+                            idle_cfg=IdleConfig(enabled=False))
+    controller = MotionController(runtime, catalog)
+    for k in range(3):
+        controller.tick_once(now=1. + .01 * k)
+    status = controller.submit(request("motion.status", "status"))
+    controller.tick_once(now=1.03)
+
+    data = status.completed.result().data
+    assert list(data["joint_names"]) == ["base_yaw", "base_pitch", "elbow_pitch", "wrist_roll", "wrist_pitch"]
+    assert len(data["joint_position"]) == len(data["joint_velocity"]) == 5
+    # The readback, not the command: D must see where the head really is.
+    np.testing.assert_allclose(data["joint_position"], runtime.measured_pose)
+    assert data["joint_position"][1] == pytest.approx(runtime.traj.pos[1] - np.radians(3))
+    np.testing.assert_allclose(data["joint_velocity"], runtime.traj.vel)
