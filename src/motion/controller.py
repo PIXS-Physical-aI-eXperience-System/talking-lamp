@@ -18,7 +18,7 @@ from typing import Callable
 import numpy as np
 
 from .catalog import MotionCatalog
-from .config import DEADLINE_JITTER_SECONDS
+from .config import DEADLINE_JITTER_SECONDS, JOINT_NAMES
 from .orientation import OrientationError
 from .primitives import DEFAULT_SCALE
 from .protocol import Request
@@ -43,6 +43,14 @@ class ControllerStatus:
     orientation_safe_yaw_min: float = 0.0
     orientation_safe_yaw_max: float = 0.0
     primitive_yaw_scale: float = 1.0
+    # Arm pose in JOINT_NAMES order, radians. Position is read back from the
+    # servos (so it includes the shoulder sagging under load); velocity is the
+    # commanded trajectory's, which is exact where a finite difference of the
+    # 20 Hz readback would be noisy. D derives the head camera's pose from
+    # these, so desk points can be measured in any still pose, not only rest.
+    joint_position: tuple[float, ...] = ()
+    joint_velocity: tuple[float, ...] = ()
+    joint_names: tuple[str, ...] = JOINT_NAMES
 
 
 @dataclass(frozen=True)
@@ -406,7 +414,13 @@ class MotionController:
             self._cancel_task("interrupted")
             self._safe_wait = True
         elif kind == "task_light.place":
-            self.runtime.place_task_light(payload["point"])
+            placed = self.runtime.place_task_light(payload["point"])
+            if not placed.ok:
+                # The arm has not moved. Say why, rather than letting it strain
+                # at a pose it cannot reach or cannot hold (see TaskLightLayer).
+                self._accept(ticket)
+                self._finish(ticket, "failed", placed.code, message=placed.message)
+                return
             self._cancel_task("replaced")
             self._task_ticket = ticket
             self._safe_wait = False
@@ -483,6 +497,8 @@ class MotionController:
                 orientation.current_yaw, orientation.clamped, orientation.center_yaw,
                 orientation.safe_yaw_min, orientation.safe_yaw_max,
                 self._primitive_yaw_scale,
+                tuple(float(v) for v in self.runtime.measured_pose),
+                tuple(float(v) for v in self.runtime.traj.vel),
             )
 
     def _shutdown(self) -> None:

@@ -15,7 +15,7 @@ def test_motion_bridge_exposes_exact_ros_names_and_parameters():
     for name in (
         "/lamp/play_motion", "/lamp/place_task_light", "/lamp/interrupt_motion",
         "/lamp/list_motions", "/lamp/track_point", "/lamp/track_bearing",
-        "/lamp/motion_status",
+        "/lamp/motion_status", "/lamp/joint_states",
     ):
         assert name in text
     for parameter in ("pi_host", "motion_port", "token_env"):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from geometry_msgs.msg import PointStamped, Vector3Stamped
+from sensor_msgs.msg import JointState
 
 from lamp_interfaces.action import PlaceTaskLight, PlayMotion
 from lamp_interfaces.msg import MotionStatus
@@ -44,6 +46,8 @@ class MotionBridgeNode(Node):
         latest = QoSProfile(depth=1)
         self.status_pub = self.create_publisher(
             MotionStatus, "/lamp/motion_status", latest)
+        self.joint_pub = self.create_publisher(
+            JointState, "/lamp/joint_states", latest)
         self.create_subscription(
             PointStamped, "/lamp/track_point", self._track_point, latest,
             callback_group=self.command_group)
@@ -151,16 +155,43 @@ class MotionBridgeNode(Node):
             terminal = self._request("motion.status", {}, timeout=2)
             data = terminal.get("data", {})
             message.state = str(data.get("state", "unknown"))
-            message.active_motion = str(data.get("active_motion", ""))
+            # None over the wire means "nothing playing"; str() would publish
+            # the literal "None" and every consumer would have to special-case it.
+            message.active_motion = str(data.get("active_motion") or "")
             message.busy = bool(data.get("busy", False))
-            message.fault = str(data.get("fault", ""))
+            message.fault = str(data.get("fault") or "")
             message.sent_ticks = int(data.get("sent_ticks", 0))
             message.deadline_misses = int(data.get("deadline_misses", 0))
+            self._publish_joints(data)
         except (TransportError, TimeoutError) as exc:
             message.connected = False
             message.state = "disconnected"
             message.fault = str(exc)
         self.status_pub.publish(message)
+
+    def _publish_joints(self, data):
+        """The arm pose the Pi read back from its servos, for the head camera.
+
+        Stamped on arrival: the Pi snapshot is at most one control tick older
+        than the reply. Nothing is published unless the reply is complete, so
+        a subscriber never mistakes a partial pose for a real one.
+        """
+        try:
+            names = [str(n) for n in data.get("joint_names") or ()]
+            position = [float(v) for v in data.get("joint_position") or ()]
+            velocity = [float(v) for v in data.get("joint_velocity") or ()]
+        except (TypeError, ValueError):
+            return
+        if not names or not len(names) == len(position) == len(velocity):
+            return
+        if not all(math.isfinite(v) for v in position + velocity):
+            return
+        joints = JointState()
+        joints.header.stamp = self.get_clock().now().to_msg()
+        joints.name = names
+        joints.position = position
+        joints.velocity = velocity
+        self.joint_pub.publish(joints)
 
     def destroy_node(self):
         self.runner.submit(self.transport.close()).result(timeout=5)

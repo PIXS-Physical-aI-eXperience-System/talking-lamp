@@ -79,7 +79,8 @@ def test_task_light_then_clear(rt):
     for _ in range(30):
         rt.step()
     res = rt.place_task_light(np.array([0.24, 0.0, 0.0]))
-    assert res.pos_err < 0.04
+    assert res.ok, res.message
+    assert res.ik.pos_err < 0.04
     for _ in range(300):
         rt.step()
     held = rt.kin.head_pose(rt.traj.pos)
@@ -97,7 +98,8 @@ def test_reach_puts_head_on_the_point(rt):
         rt.step()
     point = np.array([0.30, 0.10, 0.22])
     res = rt.reach_to(point)
-    assert res.pos_err < 0.02
+    assert res.ok, res.message
+    assert res.ik.pos_err < 0.02
     for _ in range(400):
         rt.step()
     assert np.linalg.norm(rt.kin.head_position(rt.traj.pos) - point) < 0.03
@@ -122,8 +124,9 @@ def test_orientation_layer_order_keeps_task_light_yaw_authority(rt):
     ]
 
     rt.acquire_orientation("speech-1", .5, now=0.0)
-    result = rt.place_task_light([.24, .1, 0.0])
-    assert result.pos_err < .04
+    result = rt.place_task_light([.18, .08, 0.0])
+    assert result.ok, result.message
+    assert result.ik.pos_err < .04
     states = rt.run(.6)
 
     assert abs(rt.task_light.q_hold[0] - .5) > .1

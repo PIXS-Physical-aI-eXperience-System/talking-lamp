@@ -1054,3 +1054,108 @@ def test_local_eof_cannot_cancel_colliding_remote_ticket(tmp_path):
             await local.close()
             await remote.close()
     asyncio.run(scenario())
+
+
+class _IdleMailbox:
+    """A controller that accepts nothing; enough to stand a server up."""
+
+    def submit(self, request):
+        return None
+
+    def remote_disconnected(self):
+        pass
+
+
+def test_tcp_server_closes_while_a_peer_holds_its_connection_open():
+    """The Jetson bridge keeps one connection open for as long as it runs.
+
+    Waiting for the server before cancelling that connection deadlocked
+    shutdown on Python 3.12: the listener was gone, the process stayed alive,
+    SIGTERM was ignored and systemd never restarted it. In the field that
+    looked like the robot freezing with its servos still holding torque.
+    """
+    async def scenario():
+        # A long heartbeat timeout stands in for the bridge's 1 s heartbeats:
+        # at the default 2.5 s the server drops an idle peer on its own, and the
+        # deadlock never gets the chance to show.
+        server = MotionTcpServer(_IdleMailbox(), token=TOKEN, host="127.0.0.1", port=0,
+                                 heartbeat_timeout=60)
+        await server.start()
+        port = server.sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            await asyncio.sleep(0.1)                     # the peer says nothing, like an idle bridge
+            await asyncio.wait_for(server.close(), timeout=3)
+        finally:
+            writer.close()
+            with suppress(ConnectionError):
+                await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_unix_server_closes_while_a_peer_holds_its_connection_open(tmp_path):
+    """Same deadlock on the local socket, which the device service holds open."""
+    async def scenario():
+        server = MotionUnixServer(_IdleMailbox(), tmp_path / "motion.sock")
+        await server.start()
+        reader, writer = await asyncio.open_unix_connection(str(tmp_path / "motion.sock"))
+        try:
+            await asyncio.sleep(0.1)
+            await asyncio.wait_for(server.close(), timeout=3)
+        finally:
+            writer.close()
+            with suppress(ConnectionError):
+                await writer.wait_closed()
+    asyncio.run(scenario())
+
+
+def test_serve_shuts_down_while_peers_hold_their_connections_open(tmp_path):
+    """The whole shutdown, not just one server's close().
+
+    Fixing close() alone did not unwedge the real daemon: _serve cancelled the
+    serve_forever() tasks first, and on cancellation the stdlib's
+    serve_forever() waits for every connection itself -- before our close()
+    ever ran to cancel them. The bridge and the device service each hold one
+    open for as long as they run.
+    """
+    import types
+    from motion import middleware_server as server
+
+    class Controller:
+        def run(self):
+            time.sleep(0.3)                  # the motion owner ends, as it did in the field
+        def stop(self, reason):
+            pass
+        def snapshot(self):
+            return types.SimpleNamespace(fault="")
+        def submit(self, request):
+            return None
+        def remote_disconnected(self):
+            pass
+
+    async def scenario():
+        controller = Controller()
+        tcp = MotionTcpServer(controller, token=TOKEN, host="127.0.0.1", port=0,
+                              heartbeat_timeout=60)
+        local = MotionUnixServer(controller, tmp_path / "motion.sock")
+        await tcp.start()
+        await local.start()
+        bridge = await asyncio.open_connection("127.0.0.1", tcp.sockets[0].getsockname()[1])
+        device = await asyncio.open_unix_connection(str(tmp_path / "motion.sock"))
+        try:
+            await server._serve(controller, tcp, local, lambda: False)
+        finally:
+            for _, writer in (bridge, device):
+                writer.close()
+
+    # Run it on a thread with a deadline rather than under asyncio.wait_for:
+    # this deadlock does not yield to cancellation -- the stdlib re-awaits
+    # wait_closed() inside its own CancelledError handler -- so wait_for, like
+    # SIGTERM on the real daemon, never gets it to stop. A regression must fail
+    # this test, not hang the whole suite.
+    done = threading.Event()
+    def run():
+        asyncio.run(scenario())
+        done.set()
+    threading.Thread(target=run, daemon=True).start()
+    assert done.wait(10), "_serve did not shut down: a peer's open connection deadlocked it"
