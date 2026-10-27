@@ -9,8 +9,8 @@ ROS 를 여기서 import 하지 않는다. 직접 빌드한 onnxruntime·ctransl
 ROS 의존성과 부딪히는 것이 가장 깨지기 쉬운 지점이라, 노드는 시스템 파이썬에
 두고 이 프로세스와는 localhost 소켓으로만 잇는다.
 
-답을 만드는 것은 --llm 으로 붙인다(OpenAI 호환, 스트리밍). 모델은 아직
-정하지 않았고, 주지 않으면 들은 말을 되받아 말한다.
+답을 만드는 것은 --llm 으로 붙인다(OpenAI 호환, 스트리밍). A파트가 선정한
+HyperCLOVA 모델을 기본으로 쓰며, --llm 을 주지 않으면 들은 말을 되받아 말한다.
 """
 import argparse
 import os
@@ -26,7 +26,7 @@ from voice import link                    # noqa: E402
 from voice.agent import BARGE_RISE_DB, VoiceAgent   # noqa: E402
 from voice.stt import Stt                 # noqa: E402
 from voice.tts import Tts                 # noqa: E402
-from voice.llm import load_llm          # noqa: E402
+from voice.llm import COGNITION_MODEL, load_llm  # noqa: E402
 from voice.wake import (NEED_FRAMES as WAKE_NEED_FRAMES,  # noqa: E402
                         PHRASE, THRESHOLD as WAKE_THRESHOLD, load_wake)
 
@@ -113,8 +113,8 @@ def main() -> int:
                          "오디오 내용 문제인지 전송 경로 문제인지 가른다 — "
                          "저쪽 검수에서 440Hz 톤은 들렸다고 기록돼 있다")
     ap.add_argument("--llm", help="OpenAI 호환 엔드포인트. 없으면 되받아 말한다. "
-                                  "예: http://127.0.0.1:8080/v1/chat/completions")
-    ap.add_argument("--llm-model", default="local")
+                                  "기본 모델의 Ollama 주소: http://127.0.0.1:11434/v1/chat/completions")
+    ap.add_argument("--llm-model", default=COGNITION_MODEL)
     ap.add_argument("--llm-timeout", type=float, default=20.0)
     ap.add_argument("--end-silence", type=float, default=None,
                     help="발화가 끝났다고 보는 무음 길이(초). 기본 0.6. "

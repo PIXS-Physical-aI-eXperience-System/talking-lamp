@@ -11,7 +11,7 @@
   ─────────────                   ──────────────
   XVF3800 마이크 ──┐               ┌─ 웨이크워드  "픽스야"
   스피커        ──┤   랜 (ROS 2)   ├─ STT        faster-whisper small
-  방향·LED·모션 ──┘               ├─ LLM        (붙일 자리만 있음)
+  방향·LED·모션 ──┘               ├─ LLM        HyperCLOVA X SEED 1.5B (Ollama)
                                   └─ TTS        MeloTTS ONNX
 ```
 
@@ -70,7 +70,7 @@ python3 ros/lamp_voice_node.py --agent 127.0.0.1:5150
 | `--end-silence` | 0.6 | 이만큼 조용하면 말이 끝난 것으로 본다 |
 | `--rise-db` | 20 | 재생 중 바닥 대비 이만큼 오르면 끼어든 것 |
 | `--llm` | 없음 | OpenAI 호환 엔드포인트. 없으면 되받아 말한다 |
-| `--llm-model` | `local` | |
+| `--llm-model` | HyperCLOVA X SEED 1.5B GGUF | A파트 선정 모델. 다른 모델이면 명시 |
 | `--llm-timeout` | 20 | |
 | `--stt-device` | `cuda` | |
 | `--providers` | `CUDAExecutionProvider,CPUExecutionProvider` | |
@@ -212,11 +212,19 @@ venvs/melo-onnx/bin/python bench/wake_field.py                    # 실제 마�
 
 ## LLM 붙이기
 
-자리는 준비돼 있다. 모델이 정해지면 플래그 하나다.
+A파트가 선정한 HyperCLOVA X SEED 1.5B의 **평문 프롬프트와 temperature 0.2**를
+음성 스트리밍 경로에 적용했다. Ollama 모델 설치와 GPU 설정은
+[인지 연계 가이드](../docs/인지-연계-가이드.md)를 따른다. 모델이 준비된 Jetson에서는:
 
 ```bash
-venvs/melo-onnx/bin/python bench/voice_agent.py     --llm http://127.0.0.1:8080/v1/chat/completions --llm-model <이름>
+venvs/melo-onnx/bin/python bench/voice_agent.py \
+  --llm http://127.0.0.1:11434/v1/chat/completions
 ```
+
+`--llm`을 빼면 기존처럼 입력을 되받아 말하는 시험 모드다. Ollama가 떠 있는
+것만으로 대화가 되는 것은 아니다. 모델을 설치·적재하고 위 플래그로 음성
+판단부를 실행해야 한다. 이 경로는 **평문 대화만** 내보낸다. A파트의 JSON
+행동 태그와 시선·몸 동작 연결은 시스템통합 작업에 남아 있다.
 
 OpenAI 호환 엔드포인트를 가정한다(llama.cpp 서버·vLLM·Ollama 전부 이 형식).
 의존성을 늘리지 않으려고 urllib 로 직접 읽는다.

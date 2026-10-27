@@ -294,11 +294,12 @@ python3 ros/playback_probe.py --no-pace      # 몰아 보내기 (실패해야 �
 
 ## LLM 붙이기
 
-모델은 젯슨에 올릴 예정이고 아직 없다. 붙일 자리는 준비돼 있다.
+A파트가 선정한 HyperCLOVA X SEED 1.5B의 평문 프롬프트와 temperature 0.2를
+음성 스트리밍 경로에 적용했다. 모델 설치와 적재 후 다음처럼 실행한다.
 
 ```bash
 venvs/melo-onnx/bin/python bench/voice_agent.py \
-    --llm http://127.0.0.1:8080/v1/chat/completions --llm-model <이름>
+    --llm http://127.0.0.1:11434/v1/chat/completions
 ```
 
 OpenAI 호환 엔드포인트를 가정한다. llama.cpp 서버, vLLM, Ollama(호환 모드)가
@@ -317,7 +318,8 @@ LLM 이 답을 다 만들 때까지 기다렸다 TTS 를 돌리면 그 시간이
 
 ### 램프답게 답하게 하는 것
 
-`voice/llm.py` 의 `SYSTEM_PROMPT` 에 있다. 두 문장을 넘기지 않고, 목록이나
+`voice/llm.py` 의 `SYSTEM_PROMPT` 에 있다. A파트의 평문 프롬프트를 쓰며,
+두 문장을 넘기지 않고 목록이나
 기호를 쓰지 않게 했다. 길게 답하면 지연도 메모리도 같이 커진다 —
 138자(오디오 27초)를 통째로 합성하면 최고 메모리가 655 MB 튄다.
 `MAX_REPLY_CHARS` 로 200자에서 자른다.
