@@ -23,7 +23,7 @@ for name in ("rclpy", "rclpy.node", "rclpy.qos", "rclpy.action",
              "rclpy.callback_groups", "rclpy.executors",
              "lamp_interfaces", "lamp_interfaces.msg",
              "lamp_interfaces.action", "builtin_interfaces",
-             "builtin_interfaces.msg"):
+             "builtin_interfaces.msg", "std_msgs", "std_msgs.msg"):
     sys.modules.setdefault(name, types.ModuleType(name))
 for mod, attrs in (("rclpy.node", ["Node"]),
                    ("rclpy.qos", ["HistoryPolicy", "QoSPresetProfiles",
@@ -37,6 +37,7 @@ for mod, attrs in (("rclpy.node", ["Node"]),
                    ("builtin_interfaces.msg", ["Time"])):
     for a in attrs:
         setattr(sys.modules[mod], a, type(a, (), {}))
+sys.modules["std_msgs.msg"].String = lambda data: types.SimpleNamespace(data=data)
 
 sys.path.insert(0, os.path.join(ROOT, "ros"))
 import lamp_voice_node as N  # noqa: E402
@@ -133,6 +134,7 @@ def node():
     n.play_done.set()
     n.play_lock = threading.Lock()
     n.play_audio = Client()
+    n.voice_events = types.SimpleNamespace(publish=lambda _: None)
     n.published = []
     n.playback = types.SimpleNamespace(
         publish=lambda m: n.published.append((time.time(), m)))

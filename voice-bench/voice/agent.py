@@ -29,6 +29,7 @@ barge-in 감지가 가능하다는 것은 실측으로 확인했다. 램프가 �
 바닥 대비 얼마나 올랐는지로 판정한다.
 """
 import collections
+import re
 import threading
 import time
 import uuid
@@ -58,9 +59,16 @@ MIN_UTTERANCE_FRAMES = 20    # 0.4초보다 짧으면 발화로 치지 않는다
 PREROLL_FRAMES = 15          # 0.3초. 깨어나기 직전 소리도 함께 넘긴다
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
 BARGE_RISE_DB = 20.0         # 바닥 대비 이만큼 올라야 끼어든 것으로 본다
+COMMAND_WAIT_S = 8.0         # 호출 응답 뒤에는 다시 부르지 않아도 듣는다
 PLAY_WAIT_MARGIN_S = 15.0    # 재생 완료 신호를 이만큼 더 기다린다. 노드가
                              # 앞 재생을 최대 12초 + 송신 준비 0.6초 + 파이
                              # 드레인을 거칠 수 있다. 노드가 정상이면 안 쓰인다
+WAKE_ONLY = re.compile(r"^(?:(?:픽스|빅스|픽세|빅세)\s*(?:야|아)?[\s,.!?~…]*)+$")
+
+
+def is_wake_only(text):
+    """Recognize a call with no request, including common wake-word spellings."""
+    return bool(WAKE_ONLY.fullmatch(text.strip()))
 
 
 def _db(x):
@@ -142,7 +150,8 @@ class _Turn:
 
 class VoiceAgent:
     def __init__(self, stt, tts, wake, on_utterance, send, on_state=None,
-                 rise_db=BARGE_RISE_DB):
+                 rise_db=BARGE_RISE_DB, orientation_wait_s=0.0,
+                 ack_on_wake=False):
         self.stt = stt
         self.tts = tts
         self.wake = wake
@@ -150,6 +159,10 @@ class VoiceAgent:
         self.send = send                      # send(kind, payload)
         self.on_state = on_state or (lambda s: None)
         self.barge = BargeInDetector(rise_db=rise_db)
+        self.orientation_wait_s = orientation_wait_s
+        self.ack_on_wake = ack_on_wake
+        self._orientation_cv = threading.Condition()
+        self._orientation_states = {}
 
         self.state = IDLE
         self.speech_id = ""
@@ -158,6 +171,9 @@ class VoiceAgent:
         self._preroll = collections.deque(maxlen=PREROLL_FRAMES)
         self._pi_quiet = 0
         self._voiced = 0          # 실제로 소리가 난 프레임 수
+        self._wake_sent = False
+        self._wake_ack_pending = False
+        self._awaiting_command_until = 0.0
         self._buf = []
         self._t0 = 0.0
         # 끼어든 직후에는 파이 VAD 를 믿을 수 없다. self-playback guard 로
@@ -258,20 +274,52 @@ class VoiceAgent:
             return True
 
     def on_orientation(self, speech_id, state):
-        """파이의 방향 정렬 상태. 지금은 기록만 한다 —
-        정렬 완료를 기다리는 것은 TurnOrchestrator 가 한다."""
-        pass
+        """Record the Pi alignment result for this spoken turn."""
+        if not speech_id:
+            return
+        with self._orientation_cv:
+            self._orientation_states[speech_id] = state
+            if len(self._orientation_states) > 16:
+                self._orientation_states.pop(next(iter(self._orientation_states)))
+            self._orientation_cv.notify_all()
+
+    def _wait_orientation(self, speech_id):
+        if self.orientation_wait_s <= 0:
+            return
+        terminal = {"aligned", "rejected", "failed", "centered"}
+        deadline = time.monotonic() + self.orientation_wait_s
+        with self._orientation_cv:
+            while self._orientation_states.get(speech_id) not in terminal:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    print("  ! 방향 정렬을 기다리다 시간이 지나서 음성만 계속한다")
+                    return
+                self._orientation_cv.wait(remaining)
 
     # ── 내부 ────────────────────────────────────────────────────────────
     def _while_listening(self, speech_id, pcm):
         active = bool(speech_id)
         if self.state == IDLE:
             self._preroll.append(pcm)
+            if active and time.time() < self._awaiting_command_until:
+                self._awaiting_command_until = 0.0
+                self.speech_id = speech_id
+                self._wake_sent = False
+                self._wake_ack_pending = False
+                self._buf = list(self._preroll)
+                self._preroll.clear()
+                self._pi_quiet = 0
+                self._voiced = 1
+                self._t0 = time.time()
+                self._set(LISTENING)
+                return
             # 파이가 말하는 중이라고 표시한 프레임만 웨이크워드에 넣는다.
             # 조용한 프레임까지 넣으면 헛일이고 오작동만 늘어난다.
             if active and self.wake.detect(pcm):
                 self.wake.reset()
                 self.speech_id = speech_id
+                self._wake_sent = False
+                self._wake_ack_pending = self.ack_on_wake
                 self._buf = list(self._preroll)
                 self._preroll.clear()
                 self._pi_quiet = 0
@@ -284,11 +332,16 @@ class VoiceAgent:
         self._buf.append(pcm)
         if active:
             self._voiced += 1
+            if self._voiced >= MIN_UTTERANCE_FRAMES and not self._wake_sent:
+                self._wake_sent = True
+                self.send(link.WAKE, link.pack_id(self.speech_id))
         too_long = time.time() - self._t0 > MAX_UTTERANCE_S
 
         if time.time() < self._grace_until:
             loud = (self._grace_floor is None
                     or _db(pcm) - self._grace_floor >= self.barge.rise_db / 2)
+            if loud and not active:
+                self._voiced += 1
             self._quiet_run = 0 if loud else self._quiet_run + 1
             ended = self._quiet_run >= END_SILENCE_FRAMES
         else:
@@ -323,17 +376,21 @@ class VoiceAgent:
             why = "길이 상한" if too_long else "무음"
             print(f"  발화 {dur:.1f}초 모음 (소리 난 프레임 {self._voiced}개, "
                   f"{why}로 끊음)")
+            wake_ack = self._wake_ack_pending
+            self._wake_ack_pending = False
             # 발화가 끝났다고 판단한 시각. 여기부터 첫 소리까지가 체감 지연이다.
-            threading.Thread(target=self._think_and_speak,
-                             args=(audio, self.speech_id, time.time()), daemon=True).start()
             self._set(THINKING)
+            threading.Thread(target=self._think_and_speak,
+                             args=(audio, self.speech_id, time.time(), wake_ack),
+                             daemon=True).start()
 
     def _while_speaking(self, pcm):
         hit, cur, floor = self.barge.update(pcm)
         self._mic.append((cur, floor))
         if hit:
             print(f"  barge-in: {cur:.1f} dB (바닥 {floor:.1f})")
-            self.send(link.BARGE_IN, b"")
+            old_id = self._turn.speech_id if self._turn is not None else ""
+            self.send(link.BARGE_IN, link.pack_id(old_id))
             if self._turn is not None:
                 self._turn.stop.set()
                 self._turn.done.set()   # 재생 완료를 기다릴 이유가 없다
@@ -341,6 +398,9 @@ class VoiceAgent:
             # 끼어든 말부터 다시 듣는다. 파이 VAD 는 재생 직후 0.3초 더
             # 꺼져 있으므로 speech_id 를 기다리지 않고 바로 모은다.
             self.speech_id = str(uuid.uuid4())
+            self._voiced = 1
+            self._wake_sent = True
+            self.send(link.WAKE, link.pack_id(self.speech_id))
             self._buf = [pcm]
             self._t0 = time.time()
             self._grace_until = time.time() + BARGE_GRACE_S
@@ -348,14 +408,15 @@ class VoiceAgent:
             self._quiet_run = 0
             self._set(LISTENING)
 
-    def _think_and_speak(self, audio, speech_id, t_end=None):
+    def _think_and_speak(self, audio, speech_id, t_end=None, wake_ack=False):
         t_end = t_end or time.time()
-        text = ""
         t0 = time.time()
-        try:
-            text = self.stt.transcribe(audio, link.RATE)
-        except Exception as e:
-            print(f"  ! STT 실패: {type(e).__name__}: {e}")
+        text = "픽스야" if wake_ack else ""
+        if not wake_ack:
+            try:
+                text = self.stt.transcribe(audio, link.RATE)
+            except Exception as e:
+                print(f"  ! STT 실패: {type(e).__name__}: {e}")
         t_stt = time.time() - t0
         if not text:
             with self._lock:
@@ -363,12 +424,13 @@ class VoiceAgent:
             return
         self.send(link.HEARD, text.encode("utf-8"))
 
+        # 호출어만 말한 경우에는 LLM이 주제를 지어내지 않게 짧게 응답한다.
         # on_utterance 는 문자열 하나를 돌려줘도 되고, 문장이 완성될 때마다
         # 하나씩 내보내도 된다(LLM 스트리밍). 뒤쪽이면 첫 문장이 나오는 즉시
         # 합성이 시작되므로 말을 훨씬 빨리 시작한다.
         t0 = time.time()
         try:
-            reply = self.on_utterance(text)
+            reply = "네?" if wake_ack or is_wake_only(text) else self.on_utterance(text)
         except Exception as e:
             print(f"  ! 응답 생성 실패: {type(e).__name__}: {e}")
             reply = None
@@ -378,6 +440,8 @@ class VoiceAgent:
                 self._set(IDLE)
             return
         chunks = [reply] if isinstance(reply, str) else reply
+
+        self._wait_orientation(speech_id)
 
         turn = self._begin_turn(speech_id)
         self.barge.reset()
@@ -430,6 +494,8 @@ class VoiceAgent:
             with self._lock:
                 if self.state == SPEAKING and self._turn is turn:
                     self._set(IDLE)
+                    if wake_ack and not turn.stop.is_set():
+                        self._awaiting_command_until = time.time() + COMMAND_WAIT_S
 
     def _send_audio(self, turn, wav, src_rate):
         """20 ms 프레임으로 잘라 보낸다. ROS AudioFrame 이 640바이트 고정이다."""

@@ -9,6 +9,19 @@ CUDA 로 돌리려면 ctranslate2 를 직접 빌드한 휠이 필요하다. PyPI
 """
 import numpy as np
 
+# 짧은 조명 명령이 "끝내줘", "불 펴져"로 잘못 들려서 단어를 미리 알려 준다.
+HOTWORDS = "픽스야 불 켜줘 불 꺼줘 밝게 어둡게 조명"
+_HOT_SET = set(HOTWORDS.split())
+_HOT_ACTIONS = {"켜줘", "꺼줘", "밝게", "어둡게"}
+
+
+def echoes_hotwords(text):
+    """힌트 단어만으로 된 문장에 명령이 두 번 이상 나오면 Whisper가 힌트를 베낀 것이다.
+    barge-in 직후 "불 켜줘 불 켜줘", "불 켜줘 불 켜줘 밝게 어둡게 조명"이 실제로 나왔다."""
+    words = "".join(c if c.isalnum() or c.isspace() else " " for c in text).split()
+    return (bool(words) and all(w in _HOT_SET for w in words)
+            and sum(w in _HOT_ACTIONS for w in words) >= 2)
+
 
 class Stt:
     def __init__(self, model="small", device="cuda", compute_type=None, cpu_threads=0):
@@ -40,5 +53,10 @@ class Stt:
         if samplerate != 16000:
             from .audio import resample
             x = resample(x, samplerate, 16000)
-        segs, _ = self.m.transcribe(x, language="ko", beam_size=1)
-        return "".join(s.text for s in segs).strip()
+        segs, _ = self.m.transcribe(x, language="ko", beam_size=1,
+                                  hotwords=HOTWORDS)
+        text = "".join(s.text for s in segs).strip()
+        if echoes_hotwords(text):
+            print(f"  ! 힌트 단어를 베낀 받아쓰기를 버린다: {text}", flush=True)
+            return ""
+        return text

@@ -116,6 +116,10 @@ def main() -> int:
                                   "기본 모델의 Ollama 주소: http://127.0.0.1:11434/v1/chat/completions")
     ap.add_argument("--llm-model", default=COGNITION_MODEL)
     ap.add_argument("--llm-timeout", type=float, default=20.0)
+    ap.add_argument("--orientation-wait", type=float, default=2.0,
+                    help="방향 정렬 완료를 기다리는 최대 시간. 실패하면 음성만 계속한다")
+    ap.add_argument("--wake-ack", action=argparse.BooleanOptionalAction,
+                    default=True, help="호출어 뒤에 '네?'라고 답하고 다음 말을 기다린다")
     ap.add_argument("--end-silence", type=float, default=None,
                     help="발화가 끝났다고 보는 무음 길이(초). 기본 0.6. "
                          "줄이면 응답이 그만큼 빨라지지만, 말하다 숨 쉬는 "
@@ -166,7 +170,9 @@ def main() -> int:
     mark = {"대기": "·", "듣기": "◉", "생각": "…", "말하기": "▶"}
     serve(lambda send: VoiceAgent(stt, tts, wake, think, send,
                                   on_state=lambda s: print(f"  [{mark.get(s,' ')}] {s}"),
-                                  rise_db=args.rise_db),
+                                  rise_db=args.rise_db,
+                                  orientation_wait_s=args.orientation_wait,
+                                  ack_on_wake=args.wake_ack),
           args.host, args.port)
     return 0
 

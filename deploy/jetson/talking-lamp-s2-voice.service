@@ -1,0 +1,15 @@
+[Unit]
+Description=Talking Lamp S2 voice agent and ROS audio node
+Requires=talking-lamp-bridges.service
+After=talking-lamp-bridges.service
+
+[Service]
+Type=simple
+User=asdf
+WorkingDirectory=/home/asdf/talking-lamp/voice-bench
+Environment=TALKING_LAMP_REPO=/home/asdf/talking-lamp-integration
+Environment=TALKING_LAMP_VOICE_ROOT=/home/asdf/talking-lamp/voice-bench
+ExecStart=/home/asdf/talking-lamp-integration/deploy/jetson/run-s2-voice.sh
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
