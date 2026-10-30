@@ -17,11 +17,16 @@ ros2 run lamp_device_bridge lamp_device_bridge --ros-args \
     -p token_env:=TALKING_LAMP_DEVICE_TOKEN \
     -p audio_frame_ms:=20 -p jitter_buffer_ms:=40 &
 device_pid=$!
+ros2 run lamp_interaction lamp_interaction &
+interaction_pid=$!
+vision_python=${TALKING_LAMP_VISION_PYTHON:-/home/asdf/vision-venv/bin/python}
+"$vision_python" -m lamp_vision.node --ros-args -p center_on_start:=false &
+vision_pid=$!
 
 cleanup() {
-    kill -TERM "$motion_pid" "$device_pid" 2>/dev/null || true
-    wait "$motion_pid" "$device_pid" 2>/dev/null || true
+    kill -TERM "$motion_pid" "$device_pid" "$interaction_pid" "$vision_pid" 2>/dev/null || true
+    wait "$motion_pid" "$device_pid" "$interaction_pid" "$vision_pid" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
-wait -n "$motion_pid" "$device_pid"
+wait -n "$motion_pid" "$device_pid" "$interaction_pid" "$vision_pid"
 exit 1

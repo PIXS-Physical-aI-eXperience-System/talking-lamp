@@ -24,9 +24,14 @@ REMOTE_COMMAND_TYPES = frozenset(
         "track.point",
         "track.bearing",
         "track.clear",
+        "face.step",
+        "face.clear",
         "task_light.place",
         "task_light.cancel",
         "task_light.clear",
+        "away.hold",
+        "away.clear",
+        "orientation.hold",
         "system.heartbeat",
     }
 )
@@ -45,7 +50,8 @@ _REQUIRED_FIELDS = frozenset({"version", "id", "type", "ttl_ms", "token", "paylo
 _LOCAL_REQUIRED_FIELDS = frozenset({"version", "id", "type", "ttl_ms", "payload"})
 _MOTION_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _EMPTY_PAYLOAD_TYPES = frozenset(
-    {"motion.interrupt", "motion.status", "motion.list", "track.clear", "task_light.clear", "system.heartbeat"}
+    {"motion.interrupt", "motion.status", "motion.list", "track.clear", "face.clear", "task_light.clear",
+     "away.hold", "away.clear", "orientation.hold", "system.heartbeat"}
 )
 
 
@@ -243,6 +249,16 @@ def _validate_payload(request_type: str, payload: dict[str, object]) -> None:
 
     if request_type in _EMPTY_PAYLOAD_TYPES:
         _require_exact_fields(payload, set())
+        return
+
+    if request_type == "face.step":
+        _require_exact_fields(payload, {"yaw_deg", "wrist_deg"})
+        for name in ("yaw_deg", "wrist_deg"):
+            value = payload[name]
+            if not _is_number(value) or not math.isfinite(value):
+                raise ProtocolError("invalid_payload", f"{name} must be finite")
+            if abs(value) > 2.0:
+                raise ProtocolError("out_of_range", f"{name} exceeds two degrees")
         return
 
     if request_type in {"track.point", "task_light.place"}:

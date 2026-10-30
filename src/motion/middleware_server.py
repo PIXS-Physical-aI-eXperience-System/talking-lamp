@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import asdict
 import json
 import math
+import faulthandler
 import os
 from pathlib import Path
 import signal
@@ -59,12 +60,18 @@ class MotionTcpServer:
     async def close(self) -> None:
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
-            self._server = None
+        # Cancel live connections before waiting for the server. Since Python
+        # 3.12 wait_closed() waits for every connection to finish, and the
+        # Jetson bridge holds one open for as long as it runs: waiting first
+        # deadlocked shutdown with the listener already gone, the process
+        # alive, SIGTERM ignored and Restart=on-failure never firing.
         tasks = list(self._connections)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if self._server is not None:
+            await self._server.wait_closed()
+            self._server = None
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         connection = asyncio.current_task()
@@ -157,12 +164,48 @@ class MotionTcpServer:
             self._connections.discard(connection)
 
 
+SHUTDOWN_DEADLINE_S = 15.0
+_shutdown_state = {"phase": "running"}
+
+
+def _phase(name: str) -> None:
+    _shutdown_state["phase"] = name
+
+
+@contextmanager
+def _shutdown_deadline():
+    """Guarantee a shutdown step finishes, and say where it stuck if not.
+
+    Parking takes up to about 9 s, and systemd kills the unit at 20 s with no
+    word of where it was. Fire in between: name the step that never returned,
+    dump every thread, and exit non-zero so Restart=on-failure brings the
+    daemon back instead of leaving it alive, serving nothing, servos holding.
+
+    Cancelled as soon as the block finishes, so a clean shutdown -- and a test
+    that drives one -- never trips it.
+    """
+    def fire() -> None:
+        print(f"Motion daemon shutdown stuck for {SHUTDOWN_DEADLINE_S:.0f} s "
+              f"in: {_shutdown_state['phase']}", file=sys.stderr, flush=True)
+        with suppress(Exception):
+            faulthandler.dump_traceback(all_threads=True)
+        os._exit(1)
+    timer = threading.Timer(SHUTDOWN_DEADLINE_S, fire)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+
+
 async def _serve(controller: MotionController, tcp_server: MotionTcpServer,
                  local_server: MotionUnixServer,
                  shutdown_requested: Callable[[], bool]) -> None:
     """Join the sole motion owner before the caller parks the backend."""
     owner = threading.Thread(target=controller.run, name="motion-owner")
     tcp_serving = local_serving = None
+    fault = ""
     try:
         if shutdown_requested():
             return
@@ -183,24 +226,41 @@ async def _serve(controller: MotionController, tcp_server: MotionTcpServer,
             if serving.done():
                 await serving  # Surface transport failures to systemd.
     finally:
-        controller.stop("daemon shutdown")
-        # No timeout: parking must never race a still-running motor writer.
-        if owner.ident is not None:
-            owner.join()
-        try:
-            for serving in (tcp_serving, local_serving):
-                if serving is not None:
-                    serving.cancel()
-            for serving in (tcp_serving, local_serving):
-                if serving is not None:
-                    with suppress(asyncio.CancelledError):
-                        await serving
-        finally:
+        with _shutdown_deadline():
+            _phase("stopping controller")
+            controller.stop("daemon shutdown")
+            # No timeout: parking must never race a still-running motor writer.
+            if owner.ident is not None:
+                _phase("joining motion owner")
+                owner.join()
+            # Say why the owner stopped before anything that can block. Raising it
+            # at the very end meant a hang anywhere below swallowed it: the daemon
+            # wedged several times a day and the cause was never once printed.
+            fault = controller.snapshot().fault
+            if fault:
+                print(f"Motion controller failed: {fault}", file=sys.stderr, flush=True)
             try:
+                # Our close() cancels live connections before waiting. It must run
+                # before the serve_forever() tasks are cancelled: on cancellation
+                # the stdlib's serve_forever() calls wait_closed() itself, which
+                # since Python 3.12 waits for every connection -- and the bridge
+                # and the device service never let go of theirs. Cancelling those
+                # tasks first deadlocked here with both listeners already closed.
+                _phase("closing tcp server")
                 await tcp_server.close()
             finally:
-                await local_server.close()
-    fault = controller.snapshot().fault
+                try:
+                    _phase("closing local server")
+                    await local_server.close()
+                finally:
+                    _phase("cancelling serve tasks")
+                    for serving in (tcp_serving, local_serving):
+                        if serving is not None:
+                            serving.cancel()
+                    for serving in (tcp_serving, local_serving):
+                        if serving is not None:
+                            with suppress(asyncio.CancelledError):
+                                await serving
     if fault:
         raise RuntimeError(f"Motion controller failed: {fault}")
 
@@ -220,6 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
                         default=Path("/run/talking-lamp/motion-control.sock"))
     parser.add_argument("--heartbeat-timeout", type=float, default=2.5)
     parser.add_argument("--feedback-hz", type=float, default=20.)
+    parser.add_argument("--release-in-place", action="store_true",
+                        help="Supervised bench only: release torque without parking on shutdown")
     return parser
 
 
@@ -248,6 +310,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Motion daemon preflight failed: {exc}", file=sys.stderr)
         return 2
 
+    # The daemon has wedged in the field with every socket and the serial port
+    # already closed, no log line, and systemd unable to restart it because the
+    # process never exited. Make it possible to ask a live process where it is:
+    # `kill -USR1 <pid>` prints every thread's Python stack to the journal.
+    try:
+        faulthandler.enable()
+        if hasattr(signal, "SIGUSR1"):
+            faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+    except (ValueError, OSError):
+        pass        # stderr is not a real file (captured under test)
+
     stopping = False
     previous_handlers = {}
     backend = controller = None
@@ -270,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
                                          feedback_hz=args.feedback_hz)
             if not stopping:
                 runtime = MotionRuntime(backend=backend, initial_pose=backend.measured(),
+                                        hold_initial_pose=not args.null_backend,
                                         primitives=library)
                 controller = MotionController(runtime, catalog)
                 tcp_server = MotionTcpServer(controller, token=token, host=args.bind,
@@ -277,17 +351,40 @@ def main(argv: list[str] | None = None) -> int:
                     heartbeat_timeout=args.heartbeat_timeout)
                 local_server = MotionUnixServer(controller, args.local_socket)
                 asyncio.run(_serve(controller, tcp_server, local_server, lambda: stopping))
+                print(f"Motion daemon serve loop returned (stopping={stopping})",
+                      file=sys.stderr, flush=True)
         finally:
-            if controller is not None:
-                controller.stop("daemon shutdown")
-            if backend is not None:
-                backend.close()
+            with _shutdown_deadline():
+                if controller is not None:
+                    _phase("stopping controller (main)")
+                    controller.stop("daemon shutdown")
+                if backend is not None:
+                    _phase("releasing torque in place" if args.release_in_place
+                           else "parking arm and releasing torque")
+                    if args.null_backend:
+                        backend.close()
+                    elif args.release_in_place:
+                        backend.close(park=False)
+                    else:
+                        backend.close()
     except Exception as exc:
         print(f"Motion daemon failed: {exc}", file=sys.stderr)
         return 1
     finally:
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)
+    # Everything is shut down, so returning should end the process. It has not
+    # always: a thread outliving main leaves the interpreter joining it forever,
+    # which looks from outside like a live daemon serving nothing, ignores
+    # SIGTERM, and never triggers Restart=on-failure. Name the threads and go.
+    left = [t for t in threading.enumerate()
+            if t is not threading.current_thread() and not t.daemon]
+    if left:
+        print("Motion daemon: threads still running at exit: "
+              + ", ".join(f"{t.name}(alive={t.is_alive()})" for t in left),
+              file=sys.stderr, flush=True)
+        sys.stderr.flush()
+        os._exit(1)
     return 0
 
 

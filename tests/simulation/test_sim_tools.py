@@ -66,7 +66,7 @@ def test_drive_releases_task_pose_when_switching_to_tracking(monkeypatch, mode):
         runtime.step = recorded_step
         return runtime
 
-    point = ".24 0 0" if mode == "light" else ".30 .10 .22"
+    point = ".15 0 0" if mode == "light" else ".30 .10 .22"
     monkeypatch.setattr(drive, "MotionRuntime", make_runtime)
     monkeypatch.setattr(drive.sys, "argv", [
         "drive", "--headless", "--interactive", "--no-file", "--mode", mode,

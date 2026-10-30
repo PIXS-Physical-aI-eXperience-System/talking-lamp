@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from uuid import uuid4
 
@@ -12,6 +13,8 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from geometry_msgs.msg import PointStamped, Vector3Stamped
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool, Float32
 
 from lamp_interfaces.action import PlaceTaskLight, PlayMotion
 from lamp_interfaces.msg import MotionStatus
@@ -44,11 +47,29 @@ class MotionBridgeNode(Node):
         latest = QoSProfile(depth=1)
         self.status_pub = self.create_publisher(
             MotionStatus, "/lamp/motion_status", latest)
+        self.joint_pub = self.create_publisher(
+            JointState, "/lamp/joint_states", latest)
+        # The Pi reads the shoulder once a second and filters spikes. Nothing
+        # else can read it while the bridge owns the motion connection.
+        self.temperature_pub = self.create_publisher(
+            Float32, "/lamp/motion/shoulder_temperature_c", latest)
         self.create_subscription(
             PointStamped, "/lamp/track_point", self._track_point, latest,
             callback_group=self.command_group)
         self.create_subscription(
+            Vector3Stamped, "/lamp/vision/face_step", self._face_step, latest,
+            callback_group=self.command_group)
+        self.create_subscription(
+            Bool, "/lamp/vision/face_follow_active", self._face_active, latest,
+            callback_group=self.command_group)
+        self.create_subscription(
             Vector3Stamped, "/lamp/track_bearing", self._track_bearing, latest,
+            callback_group=self.command_group)
+        self.create_subscription(
+            Bool, "/lamp/away_pose", self._away_pose, latest,
+            callback_group=self.command_group)
+        self.create_subscription(
+            Bool, "/lamp/orientation_hold", self._orientation_hold, latest,
             callback_group=self.command_group)
         self.create_service(
             ListMotions, "/lamp/list_motions", self._list,
@@ -127,7 +148,13 @@ class MotionBridgeNode(Node):
         return response
 
     def _interrupt(self, _request, response):
-        terminal = self._request("motion.interrupt", {})
+        try:
+            terminal = self._request("motion.interrupt", {})
+        except (TransportError, TimeoutError) as exc:
+            response.success = False
+            response.code = exc.code if isinstance(exc, TransportError) else "timeout"
+            response.message = str(exc)
+            return response
         response.success = terminal.get("state") == "completed"
         response.code = str(terminal.get("code", "invalid_response"))
         response.message = str(terminal.get("message", ""))
@@ -137,6 +164,25 @@ class MotionBridgeNode(Node):
         p = message.point
         self.runner.submit(self.transport.request(
             "track.point", {"point": [p.x, p.y, p.z]}, ttl_ms=250))
+
+    def _face_step(self, message):
+        self.runner.submit(self.transport.request(
+            "face.step", {"yaw_deg": message.vector.x,
+                          "wrist_deg": message.vector.y}, ttl_ms=250))
+
+    def _face_active(self, message):
+        if not message.data:
+            self.runner.submit(self.transport.request(
+                "face.clear", {}, ttl_ms=250))
+
+    def _away_pose(self, message):
+        self.runner.submit(self.transport.request(
+            "away.clear" if not message.data else "away.hold", {}, ttl_ms=250))
+
+    def _orientation_hold(self, message):
+        if message.data:
+            self.runner.submit(self.transport.request(
+                "orientation.hold", {}, ttl_ms=250))
 
     def _track_bearing(self, message):
         v = message.vector
@@ -151,16 +197,52 @@ class MotionBridgeNode(Node):
             terminal = self._request("motion.status", {}, timeout=2)
             data = terminal.get("data", {})
             message.state = str(data.get("state", "unknown"))
-            message.active_motion = str(data.get("active_motion", ""))
+            # None over the wire means "nothing playing"; str() would publish
+            # the literal "None" and every consumer would have to special-case it.
+            message.active_motion = str(data.get("active_motion") or "")
             message.busy = bool(data.get("busy", False))
-            message.fault = str(data.get("fault", ""))
+            message.fault = str(data.get("fault") or "")
             message.sent_ticks = int(data.get("sent_ticks", 0))
             message.deadline_misses = int(data.get("deadline_misses", 0))
+            self._publish_joints(data)
+            self._publish_temperature(data)
         except (TransportError, TimeoutError) as exc:
             message.connected = False
             message.state = "disconnected"
             message.fault = str(exc)
         self.status_pub.publish(message)
+
+    def _publish_temperature(self, data):
+        try:
+            value = float(data.get("shoulder_temperature_c"))
+        except (TypeError, ValueError):
+            return          # older Pi daemon, or a mock without the sensor
+        if math.isfinite(value):
+            self.temperature_pub.publish(Float32(data=value))
+
+    def _publish_joints(self, data):
+        """The arm pose the Pi read back from its servos, for the head camera.
+
+        Stamped on arrival: the Pi snapshot is at most one control tick older
+        than the reply. Nothing is published unless the reply is complete, so
+        a subscriber never mistakes a partial pose for a real one.
+        """
+        try:
+            names = [str(n) for n in data.get("joint_names") or ()]
+            position = [float(v) for v in data.get("joint_position") or ()]
+            velocity = [float(v) for v in data.get("joint_velocity") or ()]
+        except (TypeError, ValueError):
+            return
+        if not names or not len(names) == len(position) == len(velocity):
+            return
+        if not all(math.isfinite(v) for v in position + velocity):
+            return
+        joints = JointState()
+        joints.header.stamp = self.get_clock().now().to_msg()
+        joints.name = names
+        joints.position = position
+        joints.velocity = velocity
+        self.joint_pub.publish(joints)
 
     def destroy_node(self):
         self.runner.submit(self.transport.close()).result(timeout=5)

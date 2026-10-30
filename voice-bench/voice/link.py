@@ -41,6 +41,7 @@ SPEAK_AUDIO = b"SPKA" # 재생할 조각 (S16LE)
 SPEAK_END = b"SPKE"   # 말 끝
 BARGE_IN = b"BRGI"    # 사용자가 끼어들었다 — 재생을 즉시 멈출 것
 HEARD = b"HERD"       # 받아쓴 글 (기록용, UTF-8)
+WAKE = b"WAKE"        # 웨이크워드 감지. [speech_id 36바이트]
 SPEAK_DONE = b"SPKD"  # 파이에서 재생이 실제로 끝났다.
                       # [speech_id 36바이트][code UTF-8]. 재생마다 한 번.
                       #

@@ -5,6 +5,7 @@ from motion import MotionRuntime
 from motion.config import ACC_LIMIT, CONTROL_DT, REST_POSE, VEL_LIMIT
 from motion.trajectory import TrajectoryGenerator
 from motion.hardware_alignment import HardwareAlignment
+from motion.idle import IdleConfig
 
 RUCKIG = TrajectoryGenerator(np.zeros(5)).backend == "ruckig"
 
@@ -18,6 +19,58 @@ def test_idle_only_stays_near_rest(rt):
     for _ in range(600):
         rt.step()
     assert np.max(np.abs(rt.traj.pos - REST_POSE)) < np.deg2rad(8)
+
+
+def test_nod_moves_only_wrist_pitch_and_resumes_idle_afterward():
+    runtime = MotionRuntime(initial_pose=REST_POSE, hold_initial_pose=True)
+    runtime.run(0.5)
+    held = runtime.measured_pose.copy()
+    runtime.play_primitive("nod", scale=np.array([.35, .12, .15, .35, .25]) * .4)
+    during = runtime.run(5.0)
+    targets = np.array([state.q_blend for state in during])
+    assert np.max(np.abs(targets[:, :4] - held[:4])) < 1e-10
+    assert np.ptp(targets[:, 4]) > np.deg2rad(3)
+    runtime.run(3.0)
+    assert runtime.nod_hold.env.closed
+
+
+def test_nod_wrist_amplitude_is_doubled_against_the_shared_scale():
+    def wrist_span(name):
+        runtime = MotionRuntime(initial_pose=REST_POSE, hold_initial_pose=True)
+        runtime.run(0.5)
+        runtime.play_primitive(name, scale=np.array([0, 0, 0, 0, .25]) * .5)
+        return np.ptp([state.q_blend[4] for state in runtime.run(6.0)])
+
+    from motion.runtime import NOD_WRIST_GAIN
+    assert NOD_WRIST_GAIN == 2.0
+    assert wrist_span("nod") > np.deg2rad(5)
+
+
+def test_face_steps_hold_the_measured_arm_and_return_to_its_start_pose():
+    initial = REST_POSE.copy()
+    initial[1] += np.deg2rad(20)
+    runtime = MotionRuntime(initial_pose=initial, hold_initial_pose=True,
+                            idle_cfg=IdleConfig(enabled=False))
+    np.testing.assert_allclose(runtime.step().q_blend, initial)
+    runtime.face_step(2.0, -2.0)
+    runtime.run(1.5)
+    assert runtime.traj.pos[0] > initial[0] + np.deg2rad(1)
+    assert runtime.traj.pos[4] < initial[4] - np.deg2rad(1)
+    np.testing.assert_allclose(runtime.traj.pos[1:4], initial[1:4], atol=.01)
+    runtime.clear_face_follow()
+    runtime.run(2.0)
+    np.testing.assert_allclose(runtime.traj.pos, initial, atol=.01)
+
+
+def test_face_follow_stays_within_a_small_region_of_its_start_pose():
+    initial = REST_POSE.copy()
+    runtime = MotionRuntime(initial_pose=initial, hold_initial_pose=True,
+                            idle_cfg=IdleConfig(enabled=False))
+    for _ in range(20):
+        runtime.face_step(2.0, -2.0)
+        runtime.run(1.0)
+    assert runtime.traj.pos[0] <= initial[0] + np.deg2rad(12.1)
+    assert runtime.traj.pos[4] >= initial[4] - np.deg2rad(20.1)
 
 
 def test_commands_never_break_kinematic_limits(rt):
@@ -78,12 +131,13 @@ def test_barge_in_drops_primitive_fast(rt):
 def test_task_light_then_clear(rt):
     for _ in range(30):
         rt.step()
-    res = rt.place_task_light(np.array([0.24, 0.0, 0.0]))
-    assert res.pos_err < 0.04
+    res = rt.place_task_light(np.array([0.15, 0.0, 0.0]))
+    assert res.ok, res.message
+    assert res.ik.pos_err < 0.04
     for _ in range(300):
         rt.step()
     held = rt.kin.head_pose(rt.traj.pos)
-    aim = np.array([0.24, 0.0, 0.0]) - held.pos
+    aim = np.array([0.15, 0.0, 0.0]) - held.pos
     aim /= np.linalg.norm(aim)
     assert np.dot(held.forward, aim) > np.cos(np.deg2rad(12))
     rt.clear_task_light()
@@ -97,7 +151,8 @@ def test_reach_puts_head_on_the_point(rt):
         rt.step()
     point = np.array([0.30, 0.10, 0.22])
     res = rt.reach_to(point)
-    assert res.pos_err < 0.02
+    assert res.ok, res.message
+    assert res.ik.pos_err < 0.02
     for _ in range(400):
         rt.step()
     assert np.linalg.norm(rt.kin.head_position(rt.traj.pos) - point) < 0.03
@@ -118,12 +173,14 @@ def test_orientation_anchor_overrides_tracking_yaw_but_not_other_tracking_joints
 def test_orientation_layer_order_keeps_task_light_yaw_authority(rt):
     """Moving TaskLight below orientation would prevent its full pose from winning."""
     assert [layer.name for layer in rt.blender.layers] == [
-        "idle", "track", "orientation", "primitive", "task_light",
+        "idle", "track", "orientation", "face_follow", "primitive", "away_pose", "task_light",
+        "nod_hold",
     ]
 
     rt.acquire_orientation("speech-1", .5, now=0.0)
-    result = rt.place_task_light([.24, .1, 0.0])
-    assert result.pos_err < .04
+    result = rt.place_task_light([.15, .05, 0.0])
+    assert result.ok, result.message
+    assert result.ik.pos_err < .04
     states = rt.run(.6)
 
     assert abs(rt.task_light.q_hold[0] - .5) > .1
@@ -333,3 +390,34 @@ def test_autonomous_return_refits_primitive_release_before_next_blend():
         state = rt.step()
         assert state.q_blend[0] <= hi + 1e-9
         assert state.q_cmd[0] <= hi + 1e-9
+
+
+def test_away_pose_moves_to_the_taught_pose_and_back():
+    from motion.config import AWAY_POSE
+    runtime = MotionRuntime(initial_pose=REST_POSE, hold_initial_pose=True)
+    runtime.run(0.5)
+    start = runtime.measured_pose.copy()
+    assert runtime.hold_away_pose() is not None
+    runtime.run(8.0)
+    assert np.max(np.abs(runtime.measured_pose[1:] - AWAY_POSE[1:])) < np.deg2rad(4)
+    runtime.clear_away_pose()
+    runtime.run(8.0)
+    assert runtime.away_pose.busy is False
+    assert np.max(np.abs(runtime.measured_pose[1:] - start[1:])) < np.deg2rad(4)
+
+
+def test_away_pose_is_refused_when_it_cannot_be_held():
+    runtime = MotionRuntime()
+    runtime.away_pose.pose = np.array([0.0, 1.6, -1.2, 0.0, 0.0])
+    assert runtime.hold_away_pose() is None
+    assert runtime.away_pose.active is False
+
+
+def test_held_start_pose_is_where_orientation_returns():
+    initial = REST_POSE.copy()
+    initial[0] -= np.deg2rad(17)
+    runtime = MotionRuntime(initial_pose=initial, hold_initial_pose=True,
+                            idle_cfg=IdleConfig(enabled=False))
+    assert runtime.orientation_snapshot().center_yaw == pytest.approx(initial[0])
+    default = MotionRuntime(initial_pose=initial, idle_cfg=IdleConfig(enabled=False))
+    assert default.orientation_snapshot().center_yaw == pytest.approx(REST_POSE[0])

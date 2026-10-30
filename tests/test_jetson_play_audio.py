@@ -1,5 +1,6 @@
 """Exercise the real ROS callbacks with only ROS/GStreamer/Pi boundaries faked."""
 import importlib.util
+from collections import deque
 from pathlib import Path
 import sys
 import threading
@@ -35,8 +36,10 @@ def bridge(monkeypatch):
     node._playback_owner = None
     node._playback_sender = node._playback_stream = None
     node._playback_session = PlaybackSession()
+    node._playback_early = deque(maxlen=module.EARLY_FRAME_LIMIT)
     node.get_parameter = lambda _: SimpleNamespace(value=5006)
-    node.get_logger = lambda: SimpleNamespace(error=lambda _: None)
+    node.get_logger = lambda: SimpleNamespace(
+        error=lambda _: None, warn=lambda _: None, info=lambda _: None)
     senders = []
     class Sender:
         def __init__(self, stream_id, **kwargs):
@@ -155,3 +158,35 @@ def test_cancelled_playback_releases_own_sender_and_allows_next_goal(bridge):
     assert len(senders) == 2 and all(sender.closed for sender in senders)
     assert calls == [(kind, stream) for stream in ('10000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002')
                      for kind in ('audio.play.start', 'audio.play.stop')]
+
+
+def test_frames_before_sender_ready_are_replayed_in_order(bridge):
+    node, senders = bridge
+    stream = '10000000-0000-0000-0000-000000000001'
+    entered, release = threading.Event(), threading.Event()
+
+    def request(kind, payload, **kwargs):
+        if kind == 'audio.play.start':
+            entered.set()
+            assert release.wait(3)
+        return {'state': 'completed', 'data': {'code': 'drained'}}
+
+    node._request = request
+    handle = goal(stream)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(node._play_audio, handle)
+        try:
+            assert entered.wait(3)
+            for sequence, eos in enumerate((False, False, True)):
+                node._playback_frame(SimpleNamespace(
+                    stream_id=stream, speech_id='', sequence=sequence,
+                    sample_rate=16000, channels=1, encoding='pcm_s16le',
+                    data=b'' if eos else bytes(640), end_of_stream=eos))
+            release.set()
+            assert future.result(timeout=3).success
+            assert [frame.sequence for frame in senders[0].frames] == [0, 1, 2]
+            assert not node._playback_early
+        finally:
+            release.set()
+            handle.is_cancel_requested = True
+            node._playback_session.finish()

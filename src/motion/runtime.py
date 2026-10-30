@@ -15,7 +15,7 @@ Wiring for the rest of the team:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Protocol
 
 import numpy as np
@@ -25,15 +25,19 @@ from .config import CONTROL_DT, NJ, REST_POSE
 from .idle import IdleConfig
 from .hardware_alignment import HardwareAlignment
 from .kinematics import ArmKinematics
-from .layers import IdleLayer, PrimitiveLayer, PrimitivePlayInfo, TaskLightLayer, TrackLayer
+from .layers import AwayPoseLayer, FaceFollowLayer, IdleLayer, NodHoldLayer, PrimitiveLayer, PrimitivePlayInfo, TaskLightLayer, TrackLayer
 from .orientation import (
     BaseYawOrientationLayer,
     OrientationConfig,
     OrientationCoordinator,
     OrientationSnapshot,
 )
-from .primitives import PrimitiveLibrary
+from .primitives import DEFAULT_SCALE, PrimitiveLibrary
 from .trajectory import TrajectoryGenerator
+
+# The first physical nod at intensity 0.5 moved the wrist about 4.4 deg, which
+# read as too small. Only nod uses this; other clips keep the shared scale.
+NOD_WRIST_GAIN = 2.0
 
 
 class Backend(Protocol):
@@ -75,6 +79,7 @@ class MotionRuntime:
         backend: Backend | None = None,
         rest_pose: np.ndarray = REST_POSE,
         initial_pose: np.ndarray | None = None,
+        hold_initial_pose: bool = False,
         idle_cfg: IdleConfig | None = None,
         orientation_cfg: OrientationConfig | None = None,
         dt: float = CONTROL_DT,
@@ -83,6 +88,9 @@ class MotionRuntime:
         self.kin = kin or ArmKinematics()
         self.dt = float(dt)
         self.rest_pose = np.asarray(rest_pose, float)
+        initial = self.rest_pose if initial_pose is None else np.asarray(initial_pose, float)
+        if initial.shape != (NJ,) or not np.all(np.isfinite(initial)):
+            raise ValueError("initial_pose must contain five finite radians")
 
         self.idle = IdleLayer(idle_cfg, rest_pose=self.rest_pose)
         self.track = TrackLayer(self.kin)
@@ -90,17 +98,27 @@ class MotionRuntime:
         self.task_light = TaskLightLayer(self.kin)
         position_limits = HardwareAlignment.load().joint_limits
         orientation_cfg = orientation_cfg or OrientationConfig()
+        if hold_initial_pose:
+            # The pose the arm was in at start-up is the user's chosen rest
+            # pose. Return turns there too, not to the fixed REST_POSE yaw:
+            # once that sent the head 17 deg away from the user after every
+            # sound turn (2026-10-30).
+            lo = position_limits[0, 0] + orientation_cfg.yaw_margin
+            hi = position_limits[0, 1] - orientation_cfg.yaw_margin
+            orientation_cfg = replace(
+                orientation_cfg, center_yaw=float(np.clip(initial[0], lo, hi)))
         self.orientation = BaseYawOrientationLayer(orientation_cfg, position_limits)
         self.orientation_control = OrientationCoordinator(self.orientation, orientation_cfg)
+        self.face_follow = FaceFollowLayer(initial, position_limits)
+        self.nod_hold = NodHoldLayer()
+        self.away_pose = AwayPoseLayer(self.kin)
         self.blender = MotionBlender(
-            [self.idle, self.track, self.orientation, self.primitive, self.task_light],
-            self.rest_pose,
+            [self.idle, self.track, self.orientation, self.face_follow,
+             self.away_pose, self.nod_hold, self.primitive, self.task_light],
+            initial if hold_initial_pose else self.rest_pose,
         )
 
         self.backend = backend or NullBackend()
-        initial = self.rest_pose if initial_pose is None else np.asarray(initial_pose, float)
-        if initial.shape != (NJ,) or not np.all(np.isfinite(initial)):
-            raise ValueError("initial_pose must contain five finite radians")
         # Preserve the exact measured range, including valid initial poses
         # at its endpoints; the generated MJCF rounds these same limits.
         self.traj = TrajectoryGenerator(initial, dt=self.dt, position_limits=position_limits)
@@ -110,15 +128,30 @@ class MotionRuntime:
 
     # -- team-facing controls ----------------------------------------
     def play_primitive(self, name: str, **load_kw) -> PrimitivePlayInfo:
+        nod_moves = False
+        if name == "nod":
+            scale = np.asarray(load_kw.get("scale", DEFAULT_SCALE), float).copy()
+            if scale.shape != (NJ,):
+                raise ValueError("nod scale must contain five joints")
+            scale[:4] = 0.0
+            scale[4] *= NOD_WRIST_GAIN
+            nod_moves = bool(scale[4])
+            load_kw["scale"] = scale
         if self.orientation.target_yaw is not None:
-            return self.primitive.play(
+            info = self.primitive.play(
                 name,
                 self.t,
                 yaw_anchor=self.orientation.target_yaw,
                 yaw_limits=self.orientation.safe_yaw_limits,
                 **load_kw,
             )
-        return self.primitive.play(name, self.t, **load_kw)
+        else:
+            info = self.primitive.play(name, self.t, **load_kw)
+        if nod_moves:
+            self.nod_hold.hold(self.measured_pose)
+        else:
+            self.nod_hold.release()
+        return info
 
     def observe_point(self, point) -> None:
         self.track.observe_point(point)
@@ -129,6 +162,12 @@ class MotionRuntime:
 
     def clear_tracking(self) -> None:
         self.track.clear()
+
+    def face_step(self, yaw_deg: float, wrist_deg: float) -> None:
+        self.face_follow.step(self.measured_pose, yaw_deg, wrist_deg)
+
+    def clear_face_follow(self) -> None:
+        self.face_follow.clear()
 
     def acquire_orientation(self, speech_id: str, target_yaw: float, *, now: float):
         snapshot = self.orientation_control.acquire(
@@ -173,6 +212,14 @@ class MotionRuntime:
     def clear_task_light(self) -> None:
         self.task_light.clear()
 
+    def hold_away_pose(self) -> float | None:
+        """Take up the S4 away pose. Returns the predicted torque, or None if refused."""
+        self.face_follow.clear()
+        return self.away_pose.hold()
+
+    def clear_away_pose(self) -> None:
+        self.away_pose.clear()
+
     def barge_in(self) -> None:
         """C detected the user talking over the lamp - drop expressive + task
         motion fast and let reflex/idle take the head to a neutral listening pose."""
@@ -191,6 +238,8 @@ class MotionRuntime:
         self.t += h
         ctx = BlendContext(q_current=self.traj.pos.copy(), t=self.t, dt=h)
         trace = self.blender.compute(ctx)
+        if self.primitive.active_name != "nod":
+            self.nod_hold.release()
         limits = None
         if anchor is not None and not self.task_light.busy:
             limits = self.traj.position_limits.copy()

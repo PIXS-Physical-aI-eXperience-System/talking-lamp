@@ -11,7 +11,7 @@
   ─────────────                   ──────────────
   XVF3800 마이크 ──┐               ┌─ 웨이크워드  "픽스야"
   스피커        ──┤   랜 (ROS 2)   ├─ STT        faster-whisper small
-  방향·LED·모션 ──┘               ├─ LLM        (붙일 자리만 있음)
+  방향·LED·모션 ──┘               ├─ LLM        HyperCLOVA X SEED 1.5B (Ollama)
                                   └─ TTS        MeloTTS ONNX
 ```
 
@@ -58,6 +58,17 @@ python3 ros/lamp_voice_node.py --agent 127.0.0.1:5150
 
 ## 설정
 
+### 뒤쪽에 장착한 마이크의 좌우 방향
+
+Pi의 장치 서비스는 `/home/pixs/talking-lamp/voice-bench/out/doa/calibration.json`을 읽는다.
+2026-10-28 실물 시험에서는 `doa_zero_deg`를 `90.49852890666492`로 유지했다.
+`doa_direction_sign`은 `1`에서 `-1`로 바꿨다.
+`front_half_angle_deg`는 `90.0`이다.
+사용자가 램프의 왼쪽에서 말했을 때 램프가 왼쪽으로 도는 것을 확인했다.
+변경 전 파일은 Pi에 `calibration.json.s2-before-rear-flip-20261028`로 보관했다.
+이 값은 현재 설치 위치에만 적용된다.
+마이크 위치를 다시 바꾸면 정면 기준 각도와 좌우 방향을 함께 확인해야 한다.
+
 기본값은 전부 실측으로 정했다. 근거는 [results/](results/).
 
 ### 판단부 (`bench/voice_agent.py`)
@@ -70,7 +81,7 @@ python3 ros/lamp_voice_node.py --agent 127.0.0.1:5150
 | `--end-silence` | 0.6 | 이만큼 조용하면 말이 끝난 것으로 본다 |
 | `--rise-db` | 20 | 재생 중 바닥 대비 이만큼 오르면 끼어든 것 |
 | `--llm` | 없음 | OpenAI 호환 엔드포인트. 없으면 되받아 말한다 |
-| `--llm-model` | `local` | |
+| `--llm-model` | HyperCLOVA X SEED 1.5B GGUF | A파트 선정 모델. 다른 모델이면 명시 |
 | `--llm-timeout` | 20 | |
 | `--stt-device` | `cuda` | |
 | `--providers` | `CUDAExecutionProvider,CPUExecutionProvider` | |
@@ -212,11 +223,19 @@ venvs/melo-onnx/bin/python bench/wake_field.py                    # 실제 마�
 
 ## LLM 붙이기
 
-자리는 준비돼 있다. 모델이 정해지면 플래그 하나다.
+A파트가 선정한 HyperCLOVA X SEED 1.5B의 **평문 프롬프트와 temperature 0.2**를
+음성 스트리밍 경로에 적용했다. Ollama 모델 설치와 GPU 설정은
+[인지 연계 가이드](../docs/인지-연계-가이드.md)를 따른다. 모델이 준비된 Jetson에서는:
 
 ```bash
-venvs/melo-onnx/bin/python bench/voice_agent.py     --llm http://127.0.0.1:8080/v1/chat/completions --llm-model <이름>
+venvs/melo-onnx/bin/python bench/voice_agent.py \
+  --llm http://127.0.0.1:11434/v1/chat/completions
 ```
+
+`--llm`을 빼면 기존처럼 입력을 되받아 말하는 시험 모드다. Ollama가 떠 있는
+것만으로 대화가 되는 것은 아니다. 모델을 설치·적재하고 위 플래그로 음성
+판단부를 실행해야 한다. 이 경로는 **평문 대화만** 내보낸다. A파트의 JSON
+행동 태그와 시선·몸 동작 연결은 시스템통합 작업에 남아 있다.
 
 OpenAI 호환 엔드포인트를 가정한다(llama.cpp 서버·vLLM·Ollama 전부 이 형식).
 의존성을 늘리지 않으려고 urllib 로 직접 읽는다.
@@ -401,6 +420,29 @@ $P bench/long_utterance.py
 ---
 
 ## 남은 작업
+
+### S2 대화 연결 (2026-10-29)
+
+음성 판단부는 길이가 0.4초 이상인 호출에 발화 ID가 붙은 `WAKE`를 보낸다.
+ROS 음성 노드는 `WAKE`, 말하기 시작, 끼어들기, 재생 완료를 `/lamp/voice/events`에 발행한다.
+`lamp_interaction` 노드는 Pi가 같은 발화 ID의 방향 정렬을 완료하면 얼굴 추종을 켠다.
+재생이 끝나면 얼굴 추종을 끄고 중앙 복귀를 요청한다.
+끼어든 이전 발화의 늦은 완료 신호는 새 발화를 바꾸지 않는다.
+음성 판단부는 방향 정렬을 최대 2초 기다리고, 정렬에 실패하면 음성 응답만 계속한다.
+
+호출어가 검출되면 첫 발화는 STT를 거치지 않고 `네?`라고 답한다.
+사용자가 8초 안에 다음 말을 하면 다시 호출하지 않아도 STT와 대화 모델이 처리한다.
+실물 시험에서 `픽스야 → 네? → 안녕 → 안녕하세요`를 스피커로 확인했다.
+현재 카메라 자세에서는 얼굴 두 개를 검출했다.
+얼굴 검출에서 모터까지 이어지는 5초 시험에서는 얼굴 방향으로 작은 회전을 확인했다.
+얼굴이 움직일 때 계속 따라가는지와 화면 중심에 안정적으로 맞추는지는 아직 확인하지 못했다.
+인지 모델이 고른 행동 태그와 말하는 동안의 미세 끄덕임도 아직 연결되지 않았다.
+부팅 자동 시작은 켜지 않았다.
+
+Jetson에서 S2 음성 프로그램을 함께 실행할 때는
+`talking-lamp-s2-voice.service`를 수동으로 시작한다.
+이 서비스는 브리지를 먼저 시작한 뒤 음성 모델이 준비되면 ROS 음성 노드를 연결한다.
+서비스 파일은 자동 시작 항목이 없으므로 부팅 시에는 실행되지 않는다.
 
 **웨이크워드가 가장 급하다.** 자세한 것은
 [results/wake-2026-09-17.md](results/wake-2026-09-17.md) 의 "다음" 절.

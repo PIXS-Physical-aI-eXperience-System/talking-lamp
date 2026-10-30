@@ -5,13 +5,20 @@ and sampled by command count, so ``measured()`` never adds serial traffic.
 """
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from typing import Callable
 
 import numpy as np
 
 from .config import CONTROL_HZ, JOINT_NAMES, NJ
 from .hardware_alignment import HardwareAlignment
+
+# The over-temperature stop (55 C) once tripped while the shoulder read 35 C
+# minutes later, most likely on one bad sample. Report the median of the last
+# five 1 Hz samples, so up to two bad readings in a row are ignored and a real rise
+# shows up two or three seconds later.
+TEMPERATURE_SAMPLES = 5
+TEMPERATURE_SAMPLES_AT_CONNECT = 3
 
 
 def _hardware_dependencies():
@@ -60,6 +67,9 @@ class FeetechBackend:
         self._park = park
         self.feedback_hz = float(feedback_hz)
         self._feedback_phase = 0.0
+        self._temperature_phase = 0.0
+        self._shoulder_temperature_c: float | None = None
+        self._temperature_samples: deque[float] = deque(maxlen=TEMPERATURE_SAMPLES)
         self.sent_ticks = 0
         self.clamped_ticks = 0
         self.clamped_joints: Counter[str] = Counter()
@@ -72,6 +82,8 @@ class FeetechBackend:
             self.alignment.validate_calibration(self.robot.calibration)
             self.robot.connect(calibrate=False)
             self._measured = self._read_pose()
+            for _ in range(TEMPERATURE_SAMPLES_AT_CONNECT):
+                self._sample_shoulder_temperature()
         except BaseException:
             self.close()
             raise
@@ -85,6 +97,23 @@ class FeetechBackend:
 
     def measured(self) -> np.ndarray:
         return self._measured.copy()
+
+    def shoulder_temperature_c(self) -> float | None:
+        """Return the last shoulder reading without touching the serial bus."""
+        return self._shoulder_temperature_c
+
+    def _sample_shoulder_temperature(self) -> None:
+        self._temperature_samples.append(self._read_shoulder_temperature())
+        self._shoulder_temperature_c = float(np.median(self._temperature_samples))
+
+    def _read_shoulder_temperature(self) -> float:
+        value = self.robot.bus.sync_read(
+            "Present_Temperature", motors=["base_pitch"], normalize=False,
+        )["base_pitch"]
+        temperature = float(value)
+        if not np.isfinite(temperature) or not -10.0 <= temperature <= 120.0:
+            raise ValueError("Invalid shoulder temperature feedback")
+        return temperature
 
     def send(self, q_cmd: np.ndarray) -> None:
         if self._closed:
@@ -104,12 +133,21 @@ class FeetechBackend:
         if self._feedback_phase >= CONTROL_HZ - 1e-9:
             self._feedback_phase -= CONTROL_HZ
             self._measured = self._read_pose()
+        self._temperature_phase += 1.0
+        if self._temperature_phase >= CONTROL_HZ:
+            self._temperature_phase -= CONTROL_HZ
+            self._sample_shoulder_temperature()
 
-    def close(self) -> None:
+    def close(self, *, park: bool = True) -> None:
         if self._closed:
             return
         # Do not release torque if parking fails: the established helper keeps
         # the arm supported and propagates that failure to the operator.
         if self.robot.is_connected:
-            self._park(self.robot)
+            if park:
+                self._park(self.robot)
+            else:
+                # Supervised bench shutdown: the operator supports the arm
+                # while disconnect releases torque at its current position.
+                self.robot.disconnect()
         self._closed = True

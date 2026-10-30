@@ -15,6 +15,7 @@ setup(
     zip_safe=True,
     maintainer="Talking Lamp maintainers",
     maintainer_email="maintainers@example.com",
-    description="Turn ordering helper for Talking Lamp conversation integration.",
+    description="Talking Lamp S2 conversation and gaze coordinator.",
     license="Apache-2.0",
+    entry_points={"console_scripts": ["lamp_interaction = lamp_interaction.node:main"]},
 )

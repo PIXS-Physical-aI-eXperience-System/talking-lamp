@@ -18,11 +18,21 @@ from typing import Callable
 import numpy as np
 
 from .catalog import MotionCatalog
-from .config import DEADLINE_JITTER_SECONDS
+from .config import AWAY_MAX_TEMP_C, DEADLINE_JITTER_SECONDS, JOINT_NAMES
 from .orientation import OrientationError
 from .primitives import DEFAULT_SCALE
 from .protocol import Request
 from .runtime import MotionRuntime, StepState
+
+TASK_LIGHT_TEMP_STOP_C = 55.0
+TASK_LIGHT_TEMP_RESUME_C = 45.0
+# The Jetson renews this while the user's face is in view. A lease, so sound
+# turns come back on their own if the Jetson stops sending.
+ORIENTATION_HOLD_S = 2.5
+# A sound turn refused because of the away pose is made after all if the away
+# pose ends this soon after: the wake word in that utterance is what ended it,
+# and the user is out of view, so the lamp should turn toward them.
+DEFERRED_TURN_S = 10.0
 
 
 @dataclass(frozen=True)
@@ -43,6 +53,16 @@ class ControllerStatus:
     orientation_safe_yaw_min: float = 0.0
     orientation_safe_yaw_max: float = 0.0
     primitive_yaw_scale: float = 1.0
+    # Arm pose in JOINT_NAMES order, radians. Position is read back from the
+    # servos (so it includes the shoulder sagging under load); velocity is the
+    # commanded trajectory's, which is exact where a finite difference of the
+    # 20 Hz readback would be noisy. D derives the head camera's pose from
+    # these, so desk points can be measured in any still pose, not only rest.
+    joint_position: tuple[float, ...] = ()
+    joint_velocity: tuple[float, ...] = ()
+    joint_names: tuple[str, ...] = JOINT_NAMES
+    shoulder_temperature_c: float | None = None
+    task_light_alert: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,9 +118,12 @@ class MotionController:
         self._task_settled_ticks = 0
         self._orientation_ticket: CommandTicket | None = None
         self._return_ticket: CommandTicket | None = None
+        self._orientation_hold_until = 0.0
+        self._deferred_turn: tuple[str, float, float] | None = None
         self._last_measured_yaw: float | None = None
         self._primitive_yaw_scale = 1.0
         self._safe_wait = False
+        self._task_light_alert: str | None = None
         self._fault: str | None = None
         self._sent_ticks = 0
         self._deadline_misses = 0
@@ -255,6 +278,8 @@ class MotionController:
             self._disconnect = False
             self._clear_mailbox("cancelled", "disconnected")
         self.runtime.clear_tracking()
+        self.runtime.clear_face_follow()
+        self.runtime.clear_away_pose()
         self.runtime.barge_in()
         self._tracking_expires.clear()
         self._cancel_motion("disconnected")
@@ -280,6 +305,9 @@ class MotionController:
             if entry is None:
                 continue
             request, ticket = entry
+            if self._task_light_alert is not None:
+                self._finish(ticket, "failed", self._task_light_alert)
+                continue
             if now >= request.expires_at:
                 self._finish(ticket, "failed", "expired")
                 continue
@@ -330,6 +358,14 @@ class MotionController:
             self._finish(ticket, "failed", "expired")
             return
         kind, payload = request.type, request.payload
+        if self._task_light_alert is not None and kind not in {
+            "motion.status", "motion.list", "system.heartbeat",
+            "motion.interrupt", "task_light.clear", "track.clear", "face.clear",
+            "away.clear",
+        }:
+            self._finish(ticket, "failed", self._task_light_alert,
+                         "Wait for the shoulder motor to cool before moving again")
+            return
         if kind == "motion.play":
             if payload["name"] not in self.catalog.names():
                 self._finish(ticket, "failed", "unknown_motion")
@@ -349,6 +385,24 @@ class MotionController:
             previous = self.runtime.orientation_snapshot()
             if previous.speech_id is not None and payload.get("speech_id") == previous.speech_id:
                 self._finish(ticket, "completed", "duplicate", data=asdict(previous))
+                return
+            # A sound turn must not pull the head out of the S4 away pose or
+            # away from a face S2 is already following: both layers outrank
+            # orientation, so the base would only strain or jump on release.
+            if self.runtime.away_pose.active:
+                self._deferred_turn = (payload["speech_id"], payload["target_yaw"], now)
+                self._finish(ticket, "failed", "away_pose_active",
+                             "The away pose holds the head")
+                return
+            if self.runtime.face_follow.active and not self.runtime.face_follow.returning:
+                self._finish(ticket, "failed", "face_follow_active",
+                             "Face following holds the head")
+                return
+            # Turning toward a voice while the user is already in front of the
+            # camera only turns the head away from them.
+            if now < self._orientation_hold_until:
+                self._finish(ticket, "failed", "user_in_view",
+                             "The user is in view")
                 return
             try:
                 snapshot = self.runtime.acquire_orientation(
@@ -402,11 +456,20 @@ class MotionController:
             self._cancel_task("interrupted")
         elif kind == "motion.interrupt":
             self.runtime.barge_in()
+            self.runtime.clear_face_follow()
             self._cancel_motion("interrupted")
             self._cancel_task("interrupted")
             self._safe_wait = True
         elif kind == "task_light.place":
-            self.runtime.place_task_light(payload["point"])
+            placed = self.runtime.place_task_light(payload["point"])
+            if not placed.ok:
+                # The rejected target has not moved the arm. Release any older
+                # task-light hold so a failed retarget returns toward rest.
+                self.runtime.clear_task_light()
+                self._cancel_task("unsafe_target")
+                self._accept(ticket)
+                self._finish(ticket, "failed", placed.code, message=placed.message)
+                return
             self._cancel_task("replaced")
             self._task_ticket = ticket
             self._safe_wait = False
@@ -423,6 +486,33 @@ class MotionController:
         elif kind == "track.clear":
             self.runtime.clear_tracking()
             self._tracking_expires.clear()
+        elif kind == "face.step":
+            if self.runtime.task_light.busy or self._active is not None:
+                self._finish(ticket, "failed", "busy")
+                return
+            try:
+                self.runtime.face_step(payload["yaw_deg"], payload["wrist_deg"])
+            except ValueError as exc:
+                self._finish(ticket, "failed", "unsafe_face_step", str(exc))
+                return
+        elif kind == "face.clear":
+            self.runtime.clear_face_follow()
+        elif kind == "orientation.hold":
+            self._orientation_hold_until = now + ORIENTATION_HOLD_S
+        elif kind == "away.hold":
+            temperature = self._shoulder_temperature_c()
+            if temperature is not None and temperature > AWAY_MAX_TEMP_C:
+                self._finish(ticket, "failed", "shoulder_warm")
+                return
+            if self.runtime.task_light.busy or self._active is not None:
+                self._finish(ticket, "failed", "busy")
+                return
+            if self.runtime.hold_away_pose() is None:
+                self._finish(ticket, "failed", "over_torque")
+                return
+        elif kind == "away.clear":
+            self.runtime.clear_away_pose()
+            self._turn_deferred(now)
         elif kind not in {"motion.list", "motion.status", "system.heartbeat"}:
             self._finish(ticket, "failed", "unknown_type")
             return
@@ -433,6 +523,18 @@ class MotionController:
             data = asdict(self.snapshot())
         self._accept(ticket)
         self._finish(ticket, "completed", "completed", data=data)
+
+    def _turn_deferred(self, now: float) -> None:
+        deferred, self._deferred_turn = self._deferred_turn, None
+        # A user back in view gets the greeting and face following instead.
+        if (deferred is None or now - deferred[2] > DEFERRED_TURN_S
+                or now < self._orientation_hold_until):
+            return
+        speech_id, target_yaw, _ = deferred
+        try:
+            self.runtime.acquire_orientation(speech_id, target_yaw, now=now)
+        except OrientationError:
+            pass
 
     def _update_active_ticket(self, step: StepState) -> None:
         slow = np.max(np.abs(step.vel)) < self.settling_tolerance
@@ -477,15 +579,50 @@ class MotionController:
             )) / repeat
         with self._lock:
             self._status = ControllerStatus(
-                state, self.runtime.primitive.active_name, busy, self._fault,
+                state, self.runtime.primitive.active_name, busy,
+                self._fault or self._task_light_alert,
                 self._sent_ticks, self._deadline_misses, progress,
                 orientation.state, orientation.speech_id, orientation.target_yaw,
                 orientation.current_yaw, orientation.clamped, orientation.center_yaw,
                 orientation.safe_yaw_min, orientation.safe_yaw_max,
                 self._primitive_yaw_scale,
+                tuple(float(v) for v in self.runtime.measured_pose),
+                tuple(float(v) for v in self.runtime.traj.vel),
+                shoulder_temperature_c=self._shoulder_temperature_c(),
+                task_light_alert=self._task_light_alert,
             )
 
+    def _shoulder_temperature_c(self) -> float | None:
+        read = getattr(self.runtime.backend, "shoulder_temperature_c", None)
+        return read() if callable(read) else None
+
+    def _monitor_task_light_temperature(self) -> None:
+        temperature = self._shoulder_temperature_c()
+        if temperature is None:
+            return
+        if temperature > AWAY_MAX_TEMP_C and self.runtime.away_pose.active:
+            # The away pose may be held for a long time; release it early.
+            self.runtime.clear_away_pose()
+        if self._task_light_alert is not None:
+            if temperature <= TASK_LIGHT_TEMP_RESUME_C:
+                self._task_light_alert = None
+            return
+        if temperature < TASK_LIGHT_TEMP_STOP_C:
+            return
+        self._task_light_alert = "shoulder_over_temperature"
+        self.runtime.clear_tracking()
+        self.runtime.clear_face_follow()
+        self.runtime.clear_away_pose()
+        self.runtime.barge_in()
+        self.runtime.release_orientation()
+        self._cancel_motion("shoulder_over_temperature")
+        self._cancel_task("shoulder_over_temperature")
+        self._cancel_orientation("shoulder_over_temperature")
+        self._cancel_return("shoulder_over_temperature")
+        self._safe_wait = True
+
     def _shutdown(self) -> None:
+        self.runtime.clear_face_follow()
         code = "fault" if self._fault else "stopped"
         self._clear_mailbox("failed" if self._fault else "cancelled",
                             code, self._fault or self._stop_reason)
@@ -507,10 +644,12 @@ class MotionController:
             if self._stop_event.is_set():
                 self._shutdown()
                 return
+            self._monitor_task_light_temperature()
             if not self._safe_disconnect(now):
                 self._apply_latest_tracking(now)
                 self._apply_one_discrete_command(now)
             step = self.runtime.step()
+            self._monitor_task_light_temperature()
             self._primitive_yaw_scale = self.runtime.primitive.yaw_scale
             self._sent_ticks += 1
             self._observe_orientation(step, now)

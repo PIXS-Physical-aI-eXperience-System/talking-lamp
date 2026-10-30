@@ -26,6 +26,7 @@ rclpy 없이 시험한다: bench/node_test.py, bench/integration_test.py.
 """
 import argparse
 import functools
+import json
 import queue
 import socket
 import sys
@@ -41,6 +42,7 @@ from rclpy.qos import (HistoryPolicy, QoSPresetProfiles, QoSProfile,
 
 from lamp_interfaces.action import PlayAudio
 from lamp_interfaces.msg import AudioFrame, OrientationStatus
+from std_msgs.msg import String
 
 FRAME_BYTES = 640          # 20ms @ 16kHz 모노 s16le. 이 크기가 아니면 거부된다
 # 프레임은 반드시 20 ms 간격으로 내보낸다. 몰아서 보내면 안 된다.
@@ -131,6 +133,7 @@ SPEAK_AUDIO = b"SPKA"
 SPEAK_END = b"SPKE"
 BARGE_IN = b"BRGI"
 HEARD = b"HERD"
+WAKE = b"WAKE"
 SPEECH_ID_LEN = 36
 
 
@@ -213,6 +216,9 @@ class LampVoiceNode(Node):
             QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                        history=HistoryPolicy.KEEP_LAST, depth=200))
         self.play_audio = ActionClient(self, PlayAudio, "/lamp/play_audio")
+        self.voice_events = self.create_publisher(String, "/lamp/voice/events", 10)
+        # 들은 말을 그대로 내보낸다. lamp_interaction 이 조명 요청을 여기서 읽는다.
+        self.heard = self.create_publisher(String, "/lamp/voice/heard", 10)
 
         # 아무 일도 안 일어날 때 어디서 멈췄는지 알 수 없었다. 5초마다
         # 받은 프레임 수와 발화 표시 여부를 찍는다.
@@ -312,20 +318,35 @@ class LampVoiceNode(Node):
         # Node.__init__ 의 with self.handle: 이 우리 메서드를 잡고 터진다.
         if kind == CAP_FRAME or kind == ORIENT:
             return
-        if kind == HEARD:
-            self.get_logger().info(f"들은 말: {body.decode('utf-8', 'replace')}")
+        if kind == WAKE:
+            sid = bytes(body)[:SPEECH_ID_LEN].decode("ascii", "replace").strip()
+            self._publish_voice_event(sid, "wake")
+        elif kind == HEARD:
+            text = body.decode("utf-8", "replace")
+            self.get_logger().info(f"들은 말: {text}")
+            self.heard.publish(String(data=text))
         elif kind == SPEAK_BEGIN:
             # 어느 발화인지 스트림에 묶어 두었다가 완료 신호에 되돌려 준다.
             # 노드 필드에 먼저 적으면 안 된다 — 앞 재생을 기다리는 사이에
             # 온 앞 재생의 결과가 이 이름을 달고 나간다.
-            self.start_playback(
-                bytes(body)[:SPEECH_ID_LEN].decode("ascii", "replace").strip())
+            sid = bytes(body)[:SPEECH_ID_LEN].decode("ascii", "replace").strip()
+            self._publish_voice_event(sid, "speaking")
+            self.start_playback(sid)
         elif kind == SPEAK_AUDIO:
             self.publish_frame(bytes(body))
         elif kind == SPEAK_END:
             self.finish_playback()
         elif kind == BARGE_IN:
+            sid = bytes(body)[:SPEECH_ID_LEN].decode("ascii", "replace").strip()
+            self._publish_voice_event(sid, "interrupted")
             self.cancel_playback()
+
+    def _publish_voice_event(self, speech_id, state, code=""):
+        if not speech_id:
+            return
+        payload = json.dumps({"version": 1, "speech_id": speech_id,
+                              "state": state, "code": code}, separators=(",", ":"))
+        self.voice_events.publish(String(data=payload))
 
     def start_playback(self, speech_id=""):
         prev = self.cur
@@ -430,6 +451,7 @@ class LampVoiceNode(Node):
             if st is self.cur:
                 self.play_done.set()
         self.send(SPEAK_DONE, pack_id(st.speech_id) + code.encode("utf-8"))
+        self._publish_voice_event(st.speech_id, "done", code)
 
     def _publisher(self, st):
         """이 스트림의 발행은 이 스레드만 한다. 순번도 스트림마다 따로다.

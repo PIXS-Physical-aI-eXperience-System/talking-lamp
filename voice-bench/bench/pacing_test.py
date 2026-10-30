@@ -17,7 +17,7 @@ for name in ("rclpy", "rclpy.node", "rclpy.qos", "rclpy.action",
              "rclpy.callback_groups", "rclpy.executors",
              "lamp_interfaces", "lamp_interfaces.msg",
              "lamp_interfaces.action", "builtin_interfaces",
-             "builtin_interfaces.msg"):
+             "builtin_interfaces.msg", "std_msgs", "std_msgs.msg"):
     sys.modules.setdefault(name, types.ModuleType(name))
 for mod, attrs in (("rclpy.node", ["Node"]),
                    ("rclpy.qos", ["HistoryPolicy", "QoSPresetProfiles",
@@ -31,6 +31,7 @@ for mod, attrs in (("rclpy.node", ["Node"]),
                    ("builtin_interfaces.msg", ["Time"])):
     for a in attrs:
         setattr(sys.modules[mod], a, type(a, (), {}))
+sys.modules["std_msgs.msg"].String = lambda data: types.SimpleNamespace(data=data)
 
 sys.path.insert(0, os.path.join(ROOT, "ros"))
 from lamp_voice_node import FRAME_INTERVAL_S, MIN_GAP_S, next_due  # noqa: E402

@@ -59,6 +59,18 @@ def test_expired_request_never_reaches_runtime(controller):
     assert not controller.runtime.primitive.busy
 
 
+def test_face_step_and_clear_reach_the_bounded_joint_layer(controller):
+    step = controller.submit(request("face.step", "face-1",
+                                     yaw_deg=2.0, wrist_deg=-2.0))
+    controller.tick_once(now=1.0)
+    assert step.completed.result().code == "completed"
+    assert controller.runtime.face_follow.active
+    clear = controller.submit(request("face.clear", "face-2"))
+    controller.tick_once(now=1.01)
+    assert clear.completed.result().code == "completed"
+    assert controller.runtime.face_follow.returning or not controller.runtime.face_follow.active
+
+
 def test_fifo_consumes_at_most_one_and_busy_rejects(controller):
     first = controller.submit(play())
     second = controller.submit(play("b"))
@@ -184,7 +196,7 @@ def test_cancel_targets_id_and_interrupt_cancels_active(controller):
 
 
 def test_task_light_completion_then_targeted_cancel_releases_hold(controller):
-    ticket = controller.submit(request("task_light.place", point=[.24, 0., 0.]))
+    ticket = controller.submit(request("task_light.place", point=[.15, 0., 0.]))
     for i in range(2000):
         controller.tick_once(now=1. + i / 100)
         if ticket.completed.done():
@@ -343,7 +355,7 @@ def test_zero_intensity_idle_recording_is_finite(controller):
 
 
 def test_task_light_interrupt_cancels_ticket_and_releases_layer(controller):
-    task = controller.submit(request("task_light.place", point=[.24, 0., 0.]))
+    task = controller.submit(request("task_light.place", point=[.15, 0., 0.]))
     controller.tick_once(now=1.)
     interrupt = controller.submit(request("motion.interrupt", "i"))
     controller.tick_once(now=1.01)
@@ -400,7 +412,7 @@ def test_shorter_tracking_ttl_preserves_other_source_until_its_own_expiry(
 
 
 def test_finishing_old_hold_preserves_new_same_id_ticket_after_cache_eviction(controller):
-    original = request("task_light.place", "same", point=[.24, 0., 0.])
+    original = request("task_light.place", "same", point=[.15, 0., 0.])
     old_ticket = controller.submit(original)
     for i in range(2000):
         controller.tick_once(now=1. + i / 100)
@@ -412,7 +424,8 @@ def test_finishing_old_hold_preserves_new_same_id_ticket_after_cache_eviction(co
     for i in range(300):
         controller.submit(request("system.heartbeat", f"churn{i}"))
         controller.tick_once(now=21. + i / 100)
-    replacement = request("task_light.place", "same", point=[.24, .15, 0.])
+    # Use a second point that is inside the task-light workspace.
+    replacement = request("task_light.place", "same", point=[.14, .03, 0.])
     new_ticket = controller.submit(replacement)
     assert new_ticket is not old_ticket
     controller.tick_once(now=25.)
@@ -509,7 +522,7 @@ def test_duplicate_orientation_speech_id_does_not_retarget_active_request(contro
 
 
 def test_orientation_acquire_rejects_active_task_light(controller):
-    task = controller.submit(request("task_light.place", point=[.24, 0., 0.]))
+    task = controller.submit(request("task_light.place", point=[.15, 0., 0.]))
     controller.tick_once(now=1.)
     ticket = controller.submit(orient())
 
@@ -532,7 +545,7 @@ def test_orientation_return_center_rejects_busy_primitive(controller):
 
 
 def test_orientation_return_center_rejects_busy_task_light(controller):
-    task = controller.submit(request("task_light.place", point=[.24, 0., 0.]))
+    task = controller.submit(request("task_light.place", point=[.15, 0., 0.]))
     controller.tick_once(now=1.)
     ticket = controller.submit(request("orientation.return_center", "return"))
 
@@ -919,3 +932,98 @@ def test_feasible_orientation_tightening_preserves_outward_motion_limits(endpoin
     assert sign * (runtime.backend.measured()[0] - before) > .05
     assert ticket.completed.result().code == "aligned"
     np.testing.assert_array_equal(runtime.traj.position_limits, hard)
+
+
+class _SaggingBackend(NullBackend):
+    """The shoulder reads 3 degrees below what it was told: a loaded servo."""
+
+    def measured(self):
+        return None if self._last is None else self._last - np.array([0., np.radians(3), 0., 0., 0.])
+
+
+def test_status_reports_the_measured_arm_pose_for_the_head_camera():
+    catalog = MotionCatalog.load(RECORDINGS_DIR / "catalog.toml")
+    runtime = MotionRuntime(primitives=catalog.library(), backend=_SaggingBackend(),
+                            idle_cfg=IdleConfig(enabled=False))
+    controller = MotionController(runtime, catalog)
+    for k in range(3):
+        controller.tick_once(now=1. + .01 * k)
+    status = controller.submit(request("motion.status", "status"))
+    controller.tick_once(now=1.03)
+
+    data = status.completed.result().data
+    assert list(data["joint_names"]) == ["base_yaw", "base_pitch", "elbow_pitch", "wrist_roll", "wrist_pitch"]
+    assert len(data["joint_position"]) == len(data["joint_velocity"]) == 5
+    # The readback, not the command: D must see where the head really is.
+    np.testing.assert_allclose(data["joint_position"], runtime.measured_pose)
+    assert data["joint_position"][1] == pytest.approx(runtime.traj.pos[1] - np.radians(3))
+    np.testing.assert_allclose(data["joint_velocity"], runtime.traj.vel)
+
+
+def test_orientation_acquire_rejects_the_away_pose(controller):
+    hold = controller.submit(request("away.hold", "away"))
+    controller.tick_once(now=1.)
+    assert hold.completed.result().code == "completed"
+    ticket = controller.submit(orient())
+    controller.tick_once(now=1.01)
+    assert ticket.completed.result().code == "away_pose_active"
+    assert controller.runtime.orientation_snapshot().state == "idle"
+
+
+def _away_refusal(controller, now=1.):
+    controller.submit(request("away.hold", "away"))
+    controller.tick_once(now=now)
+    ticket = controller.submit(orient())
+    controller.tick_once(now=now + .01)
+    assert ticket.completed.result().code == "away_pose_active"
+
+
+def test_sound_turn_refused_in_the_away_pose_is_made_when_it_ends(controller):
+    _away_refusal(controller)
+    controller.submit(request("away.clear", "clear"))
+    controller.tick_once(now=3.)
+    snapshot = controller.runtime.orientation_snapshot()
+    assert snapshot.speech_id == "speech-1"
+    assert snapshot.state in {"orienting", "aligned"}
+
+
+@pytest.mark.parametrize("held", [True, False])
+def test_deferred_sound_turn_skipped_when_stale_or_user_in_view(controller, held):
+    _away_refusal(controller)
+    if held:
+        controller.submit(request("orientation.hold", "hold"))
+        controller.tick_once(now=2.)
+        clear_at = 3.
+    else:
+        clear_at = 11.1
+    controller.submit(request("away.clear", "clear"))
+    controller.tick_once(now=clear_at)
+    assert controller.runtime.orientation_snapshot().state == "idle"
+
+
+def test_orientation_hold_is_a_lease(controller):
+    hold = controller.submit(request("orientation.hold", "hold"))
+    controller.tick_once(now=1.)
+    assert hold.completed.result().code == "completed"
+    ticket = controller.submit(orient())
+    controller.tick_once(now=3.4)
+    assert ticket.completed.result().code == "user_in_view"
+    assert controller.runtime.orientation_snapshot().state == "idle"
+    # Nobody renewed it: sound turns work again.
+    later = controller.submit(orient("orientation-2", speech_id="speech-2"))
+    controller.tick_once(now=3.6)
+    assert later.accepted.result().state == "accepted"
+
+
+def test_orientation_acquire_rejects_active_face_follow_but_not_its_return(controller):
+    step = controller.submit(request("face.step", "face", yaw_deg=1.0, wrist_deg=0.0))
+    controller.tick_once(now=1.)
+    assert step.completed.result().code == "completed"
+    ticket = controller.submit(orient())
+    controller.tick_once(now=1.01)
+    assert ticket.completed.result().code == "face_follow_active"
+    controller.submit(request("face.clear", "clear"))
+    controller.tick_once(now=1.02)
+    later = controller.submit(orient("orientation-2", speech_id="speech-2"))
+    controller.tick_once(now=1.03)
+    assert later.accepted.result().state == "accepted"

@@ -17,9 +17,13 @@ class FakeRobot:
     def __init__(self):
         self.is_connected = False
         self.connect_args = []
+        self.disconnects = 0
         self.observation = {f"{j}.pos": 0.0 for j in JOINT_NAMES}
         self.reads = 0
         self.actions = []
+        self.temperature_c = 30
+        self.temperature_reads = []
+        self.bus = SimpleNamespace(sync_read=self._sync_read)
         homing_offsets = (-653, -1406, 1767, -1491, 2003)
         alignment = HardwareAlignment.load()
         self.calibration = {
@@ -35,9 +39,17 @@ class FakeRobot:
             )
         }
 
+    def _sync_read(self, register, *, motors, normalize):
+        self.temperature_reads.append((register, motors, normalize))
+        return {"base_pitch": self.temperature_c}
+
     def connect(self, *, calibrate):
         self.connect_args.append(calibrate)
         self.is_connected = True
+
+    def disconnect(self):
+        self.disconnects += 1
+        self.is_connected = False
 
     def get_observation(self):
         self.reads += 1
@@ -114,10 +126,28 @@ def test_send_converts_clamps_and_decimates_reads():
         backend.measured()
     assert len(robot.actions) == 100
     assert robot.reads == 21
+    assert backend.shoulder_temperature_c() == 30
+    # Three samples at connect, then one per second.
+    assert robot.temperature_reads == [
+        ("Present_Temperature", ["base_pitch"], False),
+    ] * 4
     np.testing.assert_allclose(list(robot.actions[-1].values()), [100, -100, 30, 40, 50])
     assert backend.sent_ticks == 100
     assert backend.clamped_ticks == 100
     assert backend.clamped_joints == {"base_yaw": 100, "base_pitch": 100}
+
+
+def test_invalid_shoulder_temperature_prevents_connect():
+    module = importlib.import_module("motion.hardware_backend")
+    robot = FakeRobot()
+    robot.temperature_c = float("nan")
+    parked = []
+    with pytest.raises(ValueError, match="shoulder temperature"):
+        module.FeetechBackend(
+            port="fake", lamp_id="lelamp", robot_factory=lambda **kw: robot,
+            park=parked.append,
+        )
+    assert parked == [robot]
 
 
 @pytest.mark.parametrize("q", [np.zeros(4), np.full(5, np.nan), np.full(5, np.inf)])
@@ -135,6 +165,13 @@ def test_close_parks_once_and_rejects_further_commands():
     assert parked == [robot]
     with pytest.raises(RuntimeError):
         backend.send(REST_POSE)
+
+
+def test_supervised_close_releases_without_sending_a_sleep_pose():
+    backend, robot, parked = make_backend()
+    backend.close(park=False)
+    assert robot.disconnects == 1
+    assert parked == []
 
 
 def test_failed_initial_read_still_parks():
@@ -279,3 +316,20 @@ def test_tracking_plus_expression_brakes_within_calibrated_command_limits(direct
         jerk = np.diff(acceleration, axis=0) / CONTROL_DT
         assert np.all(np.abs(jerk) <= JERK_LIMIT + 1e-7)
     assert backend.clamped_ticks == 0
+
+
+def test_one_temperature_spike_is_ignored_but_a_real_rise_is_not():
+    backend, robot, _ = make_backend(feedback_hz=20)
+    command = backend.measured()
+
+    def one_second(temperature):
+        robot.temperature_c = temperature
+        for _ in range(100):
+            backend.send(command)
+        return backend.shoulder_temperature_c()
+
+    assert one_second(55) == 30
+    assert one_second(35) == 30
+    assert one_second(56) == 35       # two spikes among five samples
+    assert [one_second(35) for _ in range(5)] == [35] * 5   # spikes aged out
+    assert [one_second(60) for _ in range(3)] == [35, 35, 60]

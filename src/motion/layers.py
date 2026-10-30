@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .blender import BlendContext, LayerOutput
-from .config import NJ, REST_POSE
+from .config import AWAY_POSE, HOLD_TORQUE_MARGIN, NJ, REST_POSE, SERVO_RATED_TORQUE_NM
 from .idle import IdleConfig, IdleMotion
 from .ik import IKResult, IKSolver
 from .kalman import TargetTrack, TrackConfig
@@ -154,6 +154,120 @@ class TrackLayer:
         return LayerOutput(value=self.q.copy(), weight=self.weight, gain=g, additive=False)
 
 
+class FaceFollowLayer:
+    """Hold the current arm pose while S2 adjusts only yaw and wrist pitch."""
+
+    name = "face_follow"
+    priority = 16
+    MAX_YAW_FROM_HOME_DEG = 12.0
+    # A user coming back to the desk is still standing: about 24 deg above the
+    # seated view (2026-10-30). 8 deg could not bring that face to the centre.
+    MAX_WRIST_FROM_HOME_DEG = 20.0
+
+    def __init__(self, home_pose: np.ndarray, position_limits: np.ndarray) -> None:
+        self.home_pose = np.asarray(home_pose, float).copy()
+        self.position_limits = np.asarray(position_limits, float)
+        self.target = self.home_pose.copy()
+        self.active = False
+        self.returning = False
+        self.weight = np.ones(NJ)
+
+    def step(self, current: np.ndarray, yaw_deg: float, wrist_deg: float) -> None:
+        if not np.isfinite([yaw_deg, wrist_deg]).all() or max(abs(yaw_deg), abs(wrist_deg)) > 2.0:
+            raise ValueError("face correction must be finite and at most two degrees")
+        pose = np.asarray(current, float).copy()
+        for joint, degrees in ((0, yaw_deg), (4, wrist_deg)):
+            excursion = (self.MAX_YAW_FROM_HOME_DEG if joint == 0
+                         else self.MAX_WRIST_FROM_HOME_DEG)
+            lower = max(self.position_limits[joint, 0],
+                        self.home_pose[joint] - np.deg2rad(excursion))
+            upper = min(self.position_limits[joint, 1],
+                        self.home_pose[joint] + np.deg2rad(excursion))
+            pose[joint] = np.clip(pose[joint] + np.deg2rad(degrees), lower, upper)
+        self.target = pose
+        self.active = True
+        self.returning = False
+
+    def clear(self) -> None:
+        if self.active:
+            self.target = self.home_pose.copy()
+            self.returning = True
+
+    def update(self, ctx: BlendContext) -> LayerOutput:
+        if not self.active:
+            return LayerOutput.inactive()
+        if self.returning and np.max(np.abs(ctx.q_current - self.target)) < np.deg2rad(0.5):
+            self.active = False
+            self.returning = False
+            return LayerOutput.inactive()
+        return LayerOutput(self.target.copy(), self.weight, gain=1.0, additive=False)
+
+
+# ---------------------------------------------------------------------------
+class AwayPoseLayer:
+    """S4 waiting pose while the user is away. Fades in and out slowly."""
+
+    name = "away_pose"
+    priority = 25
+
+    def __init__(self, kin: ArmKinematics, pose=None) -> None:
+        self.kin = kin
+        self.pose = np.asarray(AWAY_POSE if pose is None else pose, float).copy()
+        self.env = Envelope(attack=3.0, release=3.0)
+        self._active = False
+
+    def hold(self) -> float | None:
+        torque = float(self.kin.holding_torque(self.pose).max())
+        limit = SERVO_RATED_TORQUE_NM * HOLD_TORQUE_MARGIN
+        if torque > limit:
+            return None
+        self._active = True
+        self.env.open()
+        return torque
+
+    def clear(self) -> None:
+        self._active = False
+        self.env.close()
+
+    @property
+    def active(self) -> bool:
+        return self._active
+
+    @property
+    def busy(self) -> bool:
+        return not self.env.closed
+
+    def update(self, ctx: BlendContext) -> LayerOutput:
+        g = self.env.step(ctx.dt)
+        if g <= 1e-4 and not self._active:
+            return LayerOutput.inactive()
+        return LayerOutput(value=self.pose.copy(), weight=np.ones(NJ), gain=g, additive=False)
+
+
+# ---------------------------------------------------------------------------
+class NodHoldLayer:
+    """Keep the arm and roll joints at their measured angles during a nod."""
+
+    name = "nod_hold"
+    priority = 35
+
+    def __init__(self) -> None:
+        self.target = np.zeros(NJ)
+        self.weight = np.array([1.0, 1.0, 1.0, 1.0, 0.0])
+        self.env = Envelope(attack=0.01, release=0.5)
+
+    def hold(self, pose: np.ndarray) -> None:
+        self.target = np.asarray(pose, float).copy()
+        self.env.open()
+
+    def release(self) -> None:
+        self.env.close()
+
+    def update(self, ctx: BlendContext) -> LayerOutput:
+        gain = self.env.step(ctx.dt)
+        return LayerOutput(self.target.copy(), self.weight, gain=gain, additive=False)
+
+
 # ---------------------------------------------------------------------------
 class PrimitiveLayer:
     """L2 expressive clips. `play("nod")` from a behaviour tag; additive offset."""
@@ -261,14 +375,49 @@ class PrimitiveLayer:
 
 
 # ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class PlaceResult:
+    """Outcome of asking for a task-light pose.
+
+    ``ok`` false means the arm did not move: the pose was refused before it was
+    handed to the blender, so the caller can say why instead of watching the
+    arm strain at something it cannot do.
+    """
+
+    ok: bool
+    code: str                # "placed" | "unreachable" | "over_torque" | "low_clearance"
+    ik: IKResult
+    torque_nm: float         # worst joint's static holding torque at the pose
+    limit_nm: float
+
+    @property
+    def message(self) -> str:
+        if self.code == "unreachable":
+            return f"IK did not converge (position error {self.ik.pos_err * 100:.1f} cm)"
+        if self.code == "over_torque":
+            return (f"holding torque {self.torque_nm:.2f} N*m exceeds the "
+                    f"{self.limit_nm:.2f} N*m a servo can hold continuously")
+        if self.code == "low_clearance":
+            return "task-light head would sit too close to the desk"
+        return "placed"
+
+
 class TaskLightLayer:
     """L3 functional pose: light a desk point from up-and-back (so the beam clears
-    the user's hand shadow, per S1) and hold the pose."""
+    the user's hand shadow, per S1) and hold the pose.
+
+    A pose is only taken up if the arm can both reach it and *hold* it. Holding
+    is the binding constraint: this is a long light arm on 10 kg*cm servos, and
+    a pose reaching out over the desk needs roughly twice that at base_pitch.
+    Sending one anyway does not fail loudly -- the arm goes there, holds, heats
+    up and the servo cuts its torque, which looks from the outside like the
+    robot dying with no fault reported. Refusing up front is the only feedback
+    there is."""
 
     name = "task_light"
     priority = 30
 
-    def __init__(self, kin: ArmKinematics, *, standoff: float = 0.20) -> None:
+    def __init__(self, kin: ArmKinematics, *, standoff: float = 0.30) -> None:
         self.kin = kin
         self.ik = IKSolver(kin, nullspace_gain=0.08)
         self.standoff = standoff
@@ -276,7 +425,7 @@ class TaskLightLayer:
         self.q_hold = np.asarray(REST_POSE, float).copy()
         self._active = False
 
-    def place(self, target_point, q_seed=None) -> IKResult:
+    def place(self, target_point, q_seed=None) -> PlaceResult:
         target_point = np.asarray(target_point, float)
         # Stand off above and beyond the work point. With +x defined as the
         # physical front of the calibrated lamp, this produces a reachable
@@ -288,27 +437,52 @@ class TaskLightLayer:
         )
         offset = offset / np.linalg.norm(offset) * self.standoff
         approach = target_point + offset
-        res = self.ik.solve(
-            approach, q0=q_seed if q_seed is not None else REST_POSE,
-            aim_point=target_point, restarts=6,
-        )
-        self.q_hold = res.q
-        self._active = True
-        self.env.open()
-        return res
+        res, torque = self._cheapest(
+            lambda seed: self.ik.solve(approach, q0=seed, aim_point=target_point, restarts=6),
+            q_seed)
+        if res.converged and self.kin.head_position(res.q)[2] - target_point[2] < 0.24:
+            limit = SERVO_RATED_TORQUE_NM * HOLD_TORQUE_MARGIN
+            return PlaceResult(False, "low_clearance", res, torque, limit)
+        return self._admit(res, torque)
 
-    def reach(self, point, q_seed=None) -> IKResult:
+    def reach(self, point, q_seed=None) -> PlaceResult:
         """Put the head *at* `point` (head-shell centre), no standoff, no aim -
-        the "touch it" pose."""
-        res = self.ik.solve(
-            np.asarray(point, float),
-            q0=q_seed if q_seed is not None else REST_POSE,
-            restarts=4,
-        )
+        the "touch it" pose. Same holding limit as ``place``."""
+        point = np.asarray(point, float)
+        return self._admit(*self._cheapest(
+            lambda seed: self.ik.solve(point, q0=seed, restarts=4), q_seed))
+
+    def _cheapest(self, solve, q_seed) -> tuple[IKResult, float]:
+        """Solve from more than one seed and keep the pose that is cheapest to hold.
+
+        Most desk points are reachable in several arm configurations and they
+        do not cost the same to hold: seeding from wherever the head happens to
+        be can land on one that needs half again as much torque as seeding from
+        the rest pose. Refusing that without looking for the cheaper solution
+        would turn a holdable point into an unreachable one.
+        """
+        seeds = [] if q_seed is None else [np.asarray(q_seed, float)]
+        seeds.append(REST_POSE)
+        best: tuple[IKResult, float] | None = None
+        for seed in seeds:
+            res = solve(seed)
+            torque = float(self.kin.holding_torque(res.q).max())
+            # converged first, then cheapest to hold
+            if best is None or (res.converged, -torque) > (best[0].converged, -best[1]):
+                best = (res, torque)
+        return best
+
+    def _admit(self, res: IKResult, torque: float) -> PlaceResult:
+        """Take up the pose, or refuse it and leave the arm where it is."""
+        limit = SERVO_RATED_TORQUE_NM * HOLD_TORQUE_MARGIN
+        if not res.converged:
+            return PlaceResult(False, "unreachable", res, torque, limit)
+        if torque > limit:
+            return PlaceResult(False, "over_torque", res, torque, limit)
         self.q_hold = res.q
         self._active = True
         self.env.open()
-        return res
+        return PlaceResult(True, "placed", res, torque, limit)
 
     def clear(self) -> None:
         self._active = False

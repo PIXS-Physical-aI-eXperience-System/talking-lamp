@@ -37,6 +37,30 @@ def test_decode_uses_pi_receive_time_for_ttl():
     assert request.expires_at == pytest.approx(13.25)
 
 
+def test_face_step_is_bounded_and_face_clear_has_no_payload():
+    step = decode_request(request_line(type="face.step", payload={
+        "yaw_deg": 2.0, "wrist_deg": -1.5}), token="secret", received_at=1.0)
+    assert step.payload["yaw_deg"] == 2.0
+    clear = decode_request(request_line(type="face.clear", payload={}),
+                           token="secret", received_at=1.0)
+    assert clear.payload == {}
+    for payload in ({"yaw_deg": 2.1, "wrist_deg": 0.0},
+                    {"yaw_deg": 0.0, "wrist_deg": float("nan")},
+                    {"yaw_deg": 0.0}):
+        with pytest.raises(ProtocolError):
+            decode_request(request_line(type="face.step", payload=payload),
+                           token="secret", received_at=1.0)
+
+
+def test_orientation_hold_is_remote_and_has_no_payload():
+    hold = decode_request(request_line(type="orientation.hold", payload={}),
+                          token="secret", received_at=1.0)
+    assert hold.payload == {}
+    with pytest.raises(ProtocolError):
+        decode_request(request_line(type="orientation.hold", payload={"s": 1}),
+                       token="secret", received_at=1.0)
+
+
 @pytest.mark.parametrize(
     ("line", "code"),
     [

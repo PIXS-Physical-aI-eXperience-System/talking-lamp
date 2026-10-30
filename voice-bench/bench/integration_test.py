@@ -12,6 +12,7 @@ agent_test 와 node_test 는 각자를 따로 본다. 둘 사이 규약(발화 i
   0초 A 재생 / 1초 끼어들어 A 취소 / A 결과가 늦음 / B 시작 /
   A 의 결과 도착 → B 가 끝난 것으로 처리되면 안 된다
 """
+import json
 import os
 import queue
 import sys
@@ -29,7 +30,7 @@ for name in ("rclpy", "rclpy.node", "rclpy.qos", "rclpy.action",
              "rclpy.callback_groups", "rclpy.executors",
              "lamp_interfaces", "lamp_interfaces.msg",
              "lamp_interfaces.action", "builtin_interfaces",
-             "builtin_interfaces.msg"):
+             "builtin_interfaces.msg", "std_msgs", "std_msgs.msg"):
     sys.modules.setdefault(name, types.ModuleType(name))
 for mod, attrs in (("rclpy.node", ["Node"]),
                    ("rclpy.qos", ["HistoryPolicy", "QoSPresetProfiles",
@@ -43,6 +44,7 @@ for mod, attrs in (("rclpy.node", ["Node"]),
                    ("builtin_interfaces.msg", ["Time"])):
     for a in attrs:
         setattr(sys.modules[mod], a, type(a, (), {}))
+sys.modules["std_msgs.msg"].String = lambda data: types.SimpleNamespace(data=data)
 
 sys.path.insert(0, os.path.join(ROOT, "ros"))
 import lamp_voice_node as N  # noqa: E402
@@ -132,6 +134,9 @@ node.play_done = threading.Event()
 node.play_done.set()
 node.play_lock = threading.Lock()
 node.play_audio = Server()
+voice_events = []
+node.voice_events = types.SimpleNamespace(
+    publish=lambda msg: voice_events.append(json.loads(msg.data)))
 node.published = []
 node.playback = types.SimpleNamespace(publish=node.published.append)
 node._frame = lambda data, eos, sid, seq: types.SimpleNamespace(
@@ -230,6 +235,14 @@ check("B 의 EOS 는 마지막 하나", [m.end_of_stream for m in b_frames][-1:]
       and sum(m.end_of_stream for m in b_frames) == 1)
 done_to_agent = sum(1 for d, k in log if d == "→판단부" and k == link.SPEAK_DONE)
 check("완료 신호는 스트림마다 한 번씩", done_to_agent == 2, f"{done_to_agent}회")
+check("S2 에 웨이크·끼어들기·완료를 발화 ID 와 함께 전달한다",
+      wait_for(lambda: len(voice_events) >= 7)
+      and [e["state"] for e in voice_events] == [
+          "wake", "speaking", "interrupted", "wake", "speaking", "done", "done"]
+      and voice_events[0]["speech_id"] == SID
+      and voice_events[2]["speech_id"] == SID
+      and voice_events[5]["speech_id"] == SID
+      and voice_events[3]["speech_id"] == voice_events[6]["speech_id"])
 
 print("\n  ✔ 판단부·노드 이음 이상 없음" if not fail else f"\n  ✗ {fail}건 실패")
 sys.exit(1 if fail else 0)
