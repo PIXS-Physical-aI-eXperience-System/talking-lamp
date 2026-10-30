@@ -340,6 +340,23 @@ def test_no_target_once_joint_states_stop():
     assert target is None and "관절 각도" in why
 
 
+def test_recent_average_is_blocked_as_soon_as_joint_states_are_stale():
+    rt = joint_runtime()
+    feed_joints(rt, STILL)
+    # The object average remains fresh for 1 s, but joint feedback expires
+    # after 0.6 s. Its cached position must not authorize a motor command.
+    target, why = rt.task_light_target(6.35)
+    assert target is None and "관절 각도" in why
+
+
+def test_recent_average_is_blocked_while_head_is_moving():
+    rt = joint_runtime()
+    feed_joints(rt, STILL)
+    rt.update_joints(STILL, np.array([0.0, 0.4, 0.0, 0.0, 0.0]), 5.8)
+    target, why = rt.task_light_target(5.9)
+    assert target is None and "움직이는 중" in why
+
+
 def test_following_starts_anywhere_with_joint_states_and_keeps_the_averages():
     rt = joint_runtime()
     feed_joints(rt, np.array([0.04, 0, 0, 0, 0]))
@@ -349,6 +366,32 @@ def test_following_starts_anywhere_with_joint_states_and_keeps_the_averages():
     assert out.track_point is not None
     assert np.linalg.norm(out.track_point - FACE) < 0.10
     assert rt.task_light_target(5.75)[0] is not None
+
+
+def test_first_aim_rejects_a_large_turn_from_the_measured_head_direction():
+    rt = joint_runtime()
+    rt.update_joints(STILL, STILL, 5.75)
+    rt.head_aim = np.array([-1.0, 0.0, 0.0])
+    rt.set_following(True)
+    out = rt.consume(rt.pipeline.locate([], [face_at(FACE, pose=rt.pipeline.pose)], 5.75), 5.75)
+    assert out.track_point is None
+    assert "first aim blocked" in out.note
+
+
+def test_image_follow_emits_a_bounded_step_instead_of_an_absolute_point():
+    rt = joint_runtime(image_follow_enabled=True)
+    rt.update_joints(STILL, STILL, 5.75)
+    rt.set_following(True)
+    face = face_at(FACE, pose=rt.pipeline.pose)
+    out = rt.consume(rt.pipeline.locate([], [face], 5.75), 5.75)
+    assert out.track_point is None
+    assert out.face_step is not None
+    assert abs(out.face_step.yaw_deg) <= 2.0
+    assert abs(out.face_step.wrist_deg) <= 2.0
+
+    rt.update_joints(STILL, STILL, 6.0)
+    stale = rt.consume(rt.pipeline.locate([], [face], 7.0), 7.0)
+    assert stale.face_step is None
 
 
 def test_entering_rest_hands_the_pose_back_to_the_rest_fallback():

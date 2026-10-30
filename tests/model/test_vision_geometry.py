@@ -131,13 +131,13 @@ def test_pipeline_filters_by_class_and_workspace():
         u, v = CAM.project(POSE.to_cam(target))
         return Detection(label, 0.9, (u - 40, v - 80, u + 40, v))
     vf = pipe.locate([
-        det("book", [0.20, 0.0, 0.0]),        # kept
+        det("book", [0.15, 0.0, 0.0]),        # kept
         det("mouse", [0.18, 0.1, 0.0]),       # within reach, but not something to light
         det("laptop", [0.05, 0.0, 0.0]),      # under the lamp base
         det("keyboard", [0.45, 0.0, 0.0]),    # visible, but further than the arm can hold
     ], [], stamp=12.5)
     assert [o.label for o in vf.objects] == ["book"]
-    assert np.allclose(vf.objects[0].pos, [0.20, 0.0, 0.0], atol=1e-6)
+    assert np.allclose(vf.objects[0].pos, [0.15, 0.0, 0.0], atol=1e-6)
     assert vf.objects[0].frame_id == "lamp_base" and vf.objects[0].stamp == 12.5
     reasons = dict(vf.rejected)
     assert reasons == {"mouse": "not a task-light class", "laptop": "outside workspace",
@@ -152,7 +152,9 @@ def _at(r, bearing_deg):
 
 
 @pytest.mark.parametrize("r, bearing, inside", [
-    (0.23, 0, True), (0.23, -90, True), (0.23, 55, True), (0.12, 30, True),
+    (0.18, 0, True), (0.18, -90, True), (0.18, 55, True), (0.12, 30, True),
+    (0.20, 0, False),       # raised head would exceed the torque margin
+    (0.23, 0, False),       # keep a margin below the shoulder's rated torque
     (0.25, 0, False),        # the shoulder cannot hold it (E's guard refuses)
     (0.10, 0, False),        # under the base
     (0.20, 65, False),       # base_yaw does not turn that far left

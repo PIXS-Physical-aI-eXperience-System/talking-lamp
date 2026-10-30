@@ -41,6 +41,6 @@ def test_every_edge_of_the_workspace_is_placed(light, r, bearing):
 
 
 def test_the_workspace_is_not_far_from_the_guard_edge(light):
-    """Not needlessly narrow: a few centimetres further out is already refused."""
+    """The next few centimetres exceed the conservative holding limit."""
     placed = light.place(_at(WS.max_radius_m + 0.03, 0.0))
     assert not placed.ok and placed.code == "over_torque"

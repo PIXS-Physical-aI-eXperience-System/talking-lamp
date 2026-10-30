@@ -28,12 +28,14 @@ That splits D's two jobs:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 import time
 
 import numpy as np
 
 from .camera import Intrinsics
 from .follow import FaceFollower, FollowConfig
+from .image_follow import ImageCorrection, ImageFaceFollower, ImageFollowConfig
 from .geometry import Pose, face_point
 from .head_camera import HeadCameraMount
 from .pipeline import ObjectTarget, VisionFrame, VisionPipeline
@@ -60,7 +62,10 @@ class RuntimeConfig:
     # pose up to 0.2 s old is centimetres off on the desk, so the frame is not
     # averaged. The idle sway peaks near 0.06 rad/s and stays below it.
     moving_rad_s: float = 0.15
+    max_first_aim_deg: float = 25.0
     follow: FollowConfig = field(default_factory=FollowConfig)
+    image_follow_enabled: bool = False
+    image_follow: ImageFollowConfig = field(default_factory=ImageFollowConfig)
 
 
 @dataclass
@@ -69,6 +74,7 @@ class RuntimeOutput:
 
     frame: VisionFrame
     track_point: np.ndarray | None = None      # -> /lamp/track_point
+    face_step: ImageCorrection | None = None   # -> /lamp/vision/face_step
     presence: bool | None = None               # -> /lamp/vision/presence, on change only
     labels: list[str] | None = None            # -> /lamp/vision/labels, on change only
     note: str = ""
@@ -90,7 +96,9 @@ class VisionRuntime:
         self.moving = False
         self.following = False
         self.follower: FaceFollower | None = None
+        self.image_follower = ImageFaceFollower(self.cfg.image_follow)
         self.head_pos = np.array([0.18, 0.0, 0.35])
+        self.head_aim: np.ndarray | None = None
         self._labels: list[str] = []
         self._last_objects_at = -1e9
 
@@ -102,6 +110,7 @@ class VisionRuntime:
             raise RuntimeError("joint states need both a mount calibration and E's kinematics")
         head_R, head_t = self.kin.head(np.asarray(q, float))
         self.head_pos = np.asarray(head_t, float)
+        self.head_aim = np.asarray(head_R[:, 0], float)
         self.pipeline.pose = self.mount.camera_pose(head_R, head_t)
         self.joints_at = stamp
         self.moving = bool(np.max(np.abs(np.asarray(qd, float))) > self.cfg.moving_rad_s)
@@ -134,6 +143,7 @@ class VisionRuntime:
         q = self.kin.rest_q(base_yaw)
         head_R, head_t = self.kin.head(q)
         self.head_pos = np.asarray(head_t, float)
+        self.head_aim = np.asarray(head_R[:, 0], float)
         self.pipeline.pose = self.mount.camera_pose(head_R, head_t)
         self.averager.reset()
         self.at_rest = True
@@ -151,6 +161,7 @@ class VisionRuntime:
     def set_following(self, on: bool) -> None:
         """S2 on/off. B turns this on at the wake word and off when the turn ends."""
         self.following = on
+        self.image_follower.reset()
         if not on:
             self.follower = None
 
@@ -189,7 +200,15 @@ class VisionRuntime:
         out.presence = self.presence.update(bool(frame.faces), stamp)
 
         if self.following:
-            out.track_point, out.note = self._follow(frame, stamp)
+            if self.cfg.image_follow_enabled:
+                if self.joints_live(stamp):
+                    out.face_step = self.image_follower.propose(
+                        frame.face_detections, self.pipeline.cam.width,
+                        self.pipeline.cam.height, stamp, moving=self.moving)
+                else:
+                    out.note = "face follow paused: joint feedback unavailable"
+            else:
+                out.track_point, out.note = self._follow(frame, stamp)
         return out
 
     def _follow(self, frame: VisionFrame, stamp: float) -> tuple[np.ndarray | None, str]:
@@ -207,6 +226,13 @@ class VisionRuntime:
                                 self.pipeline.pose, face.box)
             if target is None:
                 return None, "implausible face depth"
+            if self.head_aim is not None:
+                direction = target - self.head_pos
+                direction /= np.linalg.norm(direction)
+                gap = math.degrees(math.acos(float(np.clip(
+                    np.dot(self.head_aim, direction), -1.0, 1.0))))
+                if gap > self.cfg.max_first_aim_deg:
+                    return None, f"first aim blocked: {gap:.1f} deg exceeds safe limit"
             gaze = None if self.mount is None else self.mount.gaze_uv(
                 self.pipeline.cam, float(np.linalg.norm(target - self.head_pos)))
             self.follower = FaceFollower(self.pipeline.cam, self.head_pos, target,
@@ -225,14 +251,14 @@ class VisionRuntime:
     def task_light_target(self, stamp: float | None = None) -> tuple[ObjectTarget | None, str]:
         """The point to send to ``/lamp/place_task_light``, or why there is none."""
         stamp = time.monotonic() if stamp is None else stamp
+        if not self.pose_known(stamp):
+            return None, self._pose_unknown_why(stamp)
+        if self.moving:
+            return None, "머리가 움직이는 중이라 위치를 쌓지 않는다"
         best = self.averager.best(stamp)
         if best is not None:
             return best, ""
-        if not self.pose_known(stamp):
-            return None, self._pose_unknown_why(stamp)
         if not self.averager.tracks:
-            if self.moving:
-                return None, "머리가 움직이는 중이라 위치를 쌓지 않는다"
             return None, "책상 위에 조명 대상이 보이지 않는다"
         return None, "평균이 아직 덜 쌓였다 (머리가 멈춘 채로 몇 초 더 필요)"
 

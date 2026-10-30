@@ -15,6 +15,11 @@ Subscribes
   ``/lamp/motion_status``       E's state. Without joint states, ``busy`` means
                                 the head is moving, so the rest pose no longer
                                 holds.
+  ``/lamp/away_pose``           Bool, S4. While true the head is in the away
+                                pose: not at rest, and D must not re-centre it.
+  ``/lamp/head_owner``          String, latched. The scenario that holds the
+                                head (``lamp_interaction``'s arbiter). D only
+                                re-centres on its own while this is ``idle``.
 
 Publishes
   ``/lamp/track_point``         PointStamped, S2. Where E should look.
@@ -55,8 +60,8 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import QoSProfile
-from geometry_msgs.msg import PointStamped
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from geometry_msgs.msg import PointStamped, Vector3Stamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool, Trigger
@@ -92,6 +97,7 @@ from vision.runtime import RuntimeConfig, VisionRuntime            # noqa: E402
 class VisionNode(Node):
     # A flicker of `busy` shorter than this is not treated as the arm moving.
     BUSY_SETTLE_S = 1.5
+    OWN_CENTER_SETTLE_S = 5.0       # unnamed busy this soon after our own centre is ours
     RECENTER_INTERVAL_S = 20.0      # floor between automatic return_center calls
     RECENTER_MAX_FAILS = 3          # then stop and wait to be asked
     JOINTS_GRACE_S = 3.0            # at startup, how long to wait for joint states
@@ -108,6 +114,7 @@ class VisionNode(Node):
         self.declare_parameter("object_conf", 0.3)
         self.declare_parameter("face_conf", 0.6)
         self.declare_parameter("center_on_start", True)
+        self.declare_parameter("image_follow_enabled", True)
 
         calib = Path(self.get_parameter("calib_dir").value)
         cam = self._load_intrinsics(calib)
@@ -119,11 +126,20 @@ class VisionNode(Node):
                            conf_thr=float(self.get_parameter("object_conf").value)),
             FaceDetector(models / "yunet_2023mar.onnx",
                          conf_thr=float(self.get_parameter("face_conf").value)))
-        self.runtime = VisionRuntime(cam, mount, kin, pipeline, RuntimeConfig())
+        self.runtime = VisionRuntime(
+            cam, mount, kin, pipeline,
+            RuntimeConfig(image_follow_enabled=bool(
+                self.get_parameter("image_follow_enabled").value)))
 
         self.group = ReentrantCallbackGroup()
         latest = QoSProfile(depth=1)
         self.track_pub = self.create_publisher(PointStamped, "/lamp/track_point", latest)
+        self.face_step_pub = self.create_publisher(
+            Vector3Stamped, "/lamp/vision/face_step", latest)
+        self.face_active_pub = self.create_publisher(
+            Bool, "/lamp/vision/face_follow_active",
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.face_active_pub.publish(Bool(data=False))
         self.presence_pub = self.create_publisher(Bool, "/lamp/vision/presence", latest)
         self.labels_pub = self.create_publisher(String, "/lamp/vision/labels", latest)
         self.status_pub = self.create_publisher(String, "/lamp/vision/status", latest)
@@ -131,6 +147,12 @@ class VisionNode(Node):
                                  callback_group=self.group)
         self.create_subscription(MotionStatus, "/lamp/motion_status", self._motion, latest,
                                  callback_group=self.group)
+        self.create_subscription(Bool, "/lamp/away_pose", self._away_pose, latest,
+                                 callback_group=self.group)
+        self.create_subscription(
+            String, "/lamp/head_owner", self._head_owner,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+            callback_group=self.group)
         self.center_client = ActionClient(self, ReturnCenter, "/lamp/return_center",
                                           callback_group=self.group)
         self.light_client = ActionClient(self, PlaceTaskLight, "/lamp/place_task_light",
@@ -147,12 +169,16 @@ class VisionNode(Node):
         self._joint_error = ""
         self._placing = False           # True while a task light D sent is being held
         self._busy_since: float | None = None
+        self._away = False              # S4 holds the away pose; the head is not at rest
+        self._head_owner = "idle"       # until the arbiter says otherwise
+        self._own_center_at = -1e9
         self._recenter_at = -1e9
         self._recenter_fails = 0
         self._recenter_lock = threading.Lock()
         self._fps = 0.0
         self._object_fps = 0.0
         self._object_frames = 0
+        self._last_faces: list[tuple[float, float]] = []
         self._started = time.monotonic()
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -248,6 +274,11 @@ class VisionNode(Node):
         # names a motion or stays busy for longer than this.
         if not named and now - (self._busy_since or now) < self.BUSY_SETTLE_S:
             return
+        # Our own return_center keeps E busy a few seconds after the action
+        # returns. Taking that for a move re-centred every 20 s, and each
+        # return_center replaced whatever orientation request was running.
+        if not named and now - self._own_center_at < self.OWN_CENTER_SETTLE_S:
+            return
         if not self.runtime.at_rest:
             return
         what = msg.active_motion if named else msg.state
@@ -261,6 +292,19 @@ class VisionNode(Node):
         # would leave S1 refusing for good.
         threading.Thread(target=self._recenter_when_idle, daemon=True).start()
 
+    def _away_pose(self, msg: Bool) -> None:
+        """S4 moved the head to the away pose, or is bringing it back."""
+        self._away = bool(msg.data)
+        if not self._away:
+            return
+        with self._lock:
+            if self.runtime.at_rest and not self._joints_live():
+                self.runtime.leave_rest("S4 대기 자세")
+                self.get_logger().info("휴식 자세 해제: S4 대기 자세")
+
+    def _head_owner(self, msg: String) -> None:
+        self._head_owner = msg.data
+
     def _publish_status(self) -> None:
         tgt, why = self.runtime.task_light_target()
         now = time.monotonic()
@@ -270,6 +314,7 @@ class VisionNode(Node):
             "moving": self.runtime.moving,
             "at_rest": self.runtime.at_rest,
             "following": self.runtime.following,
+            "face_centers": self._last_faces,
             "fps": round(self._fps, 1),
             "object_fps": round(self._object_fps, 2),
             "tracks": len(self.runtime.averager.tracks),
@@ -278,6 +323,9 @@ class VisionNode(Node):
                 "pos": [round(float(v), 3) for v in tgt.pos]},
             "task_light_blocked": why,
             "present": self.runtime.presence.present,
+            "away": self._away,
+            "placing": self._placing,
+            "head_owner": self._head_owner,
         }, ensure_ascii=False)))
 
     # -- capture loop --------------------------------------------------------
@@ -318,6 +366,18 @@ class VisionNode(Node):
         cap.release()
 
     def _emit(self, out) -> None:
+        self._last_faces = [
+            (round((face.box[0] + face.box[2]) / 2, 1),
+             round((face.box[1] + face.box[3]) / 2, 1))
+            for face in out.frame.face_detections
+        ]
+        if out.face_step is not None:
+            msg = Vector3Stamped()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = FRAME_ID
+            msg.vector.x = out.face_step.yaw_deg
+            msg.vector.y = out.face_step.wrist_deg
+            self.face_step_pub.publish(msg)
         if out.track_point is not None:
             self.track_pub.publish(_point(out.track_point, self.get_clock().now()))
             if out.note:
@@ -360,6 +420,9 @@ class VisionNode(Node):
         time.sleep(0.8)
         if self._joints_live():
             return True, "휴식 자세로 돌아왔다 (카메라 자세는 관절 각도로 계속 안다)"
+        self._own_center_at = time.monotonic()
+        if self._away:
+            return False, "S4 대기 자세 중이라 휴식 자세로 고정하지 않는다"
         with self._lock:
             pose = self.runtime.enter_rest(yaw)
         self.get_logger().info(
@@ -398,8 +461,8 @@ class VisionNode(Node):
             self.get_logger().info("자동 복귀 보류: E 가 아직 자세를 잡고 있다")
             return
         if (self.runtime.following or self.runtime.at_rest or self._placing
-                or self._joints_live()):
-            return                      # S2 owns the head, someone beat us, or no need
+                or self._away or self._head_owner != "idle" or self._joints_live()):
+            return                      # another scenario owns the head, or no need
         ok, why = self._center()
         self._recenter_fails = 0 if ok else self._recenter_fails + 1
         self.get_logger().info(f"자동 복귀: {why}" if ok else f"자동 복귀 실패: {why}")
@@ -440,9 +503,11 @@ class VisionNode(Node):
         with self._lock:
             self._placing = False       # S2 takes the head back from the task light
             self.runtime.set_following(bool(req.data))
+        self.face_active_pub.publish(Bool(data=bool(req.data)))
         res.success = True
         res.message = "얼굴 추종 " + ("시작" if req.data else "정지")
-        if req.data and not self.runtime.pose_known(time.monotonic()):
+        if (req.data and not self.runtime.cfg.image_follow_enabled
+                and not self.runtime.pose_known(time.monotonic())):
             res.message += " (주의: 카메라 자세를 몰라 첫 조준을 못 한다. center 먼저)"
         return res
 

@@ -36,13 +36,13 @@ class Workspace:
 
     The authority is E's guard (``TaskLightLayer.place``), which refuses a pose
     before the arm moves. These bounds mirror it so D never asks for a point it
-    will refuse. Swept on 2026-10-04: the shoulder holds a target out to 0.24 m
-    at every bearing (97 % of its limit) and refuses 0.25 m; bearings past about
-    +58 deg (to the lamp's left) are out of reach at any radius. The margins
-    below cover D's desk error (0.6 to 0.9 cm, vision-bench/results).
+    will refuse. A higher task-light head pose keeps the CAD head shell about
+    0.20 m above the desk. With this pose, a target at 0.18 m takes about
+    0.73 N*m, below the 0.78 N*m admission limit. Bearings past about +58 deg
+    (to the lamp's left) are out of reach.
     """
     min_radius_m: float = 0.12     # lamp base footprint plus margin
-    max_radius_m: float = 0.23     # shoulder holding torque; 0.25 m is over the servo rating
+    max_radius_m: float = 0.18     # higher head pose needs more shoulder torque
     min_bearing_deg: float = -90.0  # in front of the base only
     max_bearing_deg: float = 55.0   # base_yaw cannot turn further to the left
 
