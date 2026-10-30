@@ -280,6 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
                         default=Path("/run/talking-lamp/motion-control.sock"))
     parser.add_argument("--heartbeat-timeout", type=float, default=2.5)
     parser.add_argument("--feedback-hz", type=float, default=20.)
+    parser.add_argument("--release-in-place", action="store_true",
+                        help="Supervised bench only: release torque without parking on shutdown")
     return parser
 
 
@@ -341,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
                                          feedback_hz=args.feedback_hz)
             if not stopping:
                 runtime = MotionRuntime(backend=backend, initial_pose=backend.measured(),
+                                        hold_initial_pose=not args.null_backend,
                                         primitives=library)
                 controller = MotionController(runtime, catalog)
                 tcp_server = MotionTcpServer(controller, token=token, host=args.bind,
@@ -356,8 +359,14 @@ def main(argv: list[str] | None = None) -> int:
                     _phase("stopping controller (main)")
                     controller.stop("daemon shutdown")
                 if backend is not None:
-                    _phase("parking arm and releasing torque")
-                    backend.close()
+                    _phase("releasing torque in place" if args.release_in_place
+                           else "parking arm and releasing torque")
+                    if args.null_backend:
+                        backend.close()
+                    elif args.release_in_place:
+                        backend.close(park=False)
+                    else:
+                        backend.close()
     except Exception as exc:
         print(f"Motion daemon failed: {exc}", file=sys.stderr)
         return 1

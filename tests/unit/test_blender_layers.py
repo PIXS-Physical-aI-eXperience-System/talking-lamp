@@ -96,9 +96,8 @@ def test_primitive_interrupt_is_fast():
 def test_task_light_layer_solves_and_holds():
     kin = ArmKinematics()
     ly = TaskLightLayer(kin)
-    # 0.20 m out, not the 0.25 this used to use: past about 0.25 m the pose
-    # needs more than a servo's rated holding torque and is now refused.
-    res = ly.place(np.array([0.20, 0.0, 0.0]))
+    # The higher head pose preserves desk clearance but costs more torque.
+    res = ly.place(np.array([0.15, 0.0, 0.0]))
     assert res.ok, res.message
     assert res.ik.pos_err < 0.035
     assert res.ik.aim_err < np.deg2rad(3)
@@ -127,7 +126,7 @@ def test_task_light_refuses_a_pose_the_servos_cannot_hold():
     kin = ArmKinematics()
     ly = TaskLightLayer(kin)
     before = ly.q_hold.copy()
-    res = ly.place(np.array([0.45, 0.0, 0.0]))
+    res = ly.place(np.array([0.25, 0.0, 0.0]))
     assert not res.ok and res.code == "over_torque"
     assert res.torque_nm > res.limit_nm
     assert np.allclose(ly.q_hold, before)          # the arm was never sent there
@@ -140,6 +139,17 @@ def test_task_light_refuses_a_point_the_arm_cannot_reach():
     ly = TaskLightLayer(kin)
     res = ly.place(np.array([1.5, 0.0, 0.0]))
     assert not res.ok and res.code == "unreachable"
+    assert not ly.busy
+
+
+def test_task_light_refuses_a_head_pose_too_close_to_the_desk():
+    kin = ArmKinematics()
+    ly = TaskLightLayer(kin, standoff=0.20)
+    before = ly.q_hold.copy()
+    result = ly.place(np.array([0.15, 0.0, 0.0]))
+    assert result.code == "low_clearance"
+    assert not result.ok
+    assert np.array_equal(ly.q_hold, before)
     assert not ly.busy
 
 

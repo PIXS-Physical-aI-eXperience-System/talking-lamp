@@ -55,6 +55,18 @@ REST_POSE = np.array([
     0.9402527974893196,
 ])
 
+# S4 away pose taught by hand on 2026-10-29: base centred, body lowered,
+# head tilted up. The model predicts 0.62 N*m at base_pitch, inside the
+# 80% hold margin below, but heavier than the usual operating pose.
+AWAY_POSE = np.array([
+    0.2617993877991494,
+    0.93,
+    0.538,
+    -0.007,
+    0.940,
+])
+AWAY_MAX_TEMP_C = 45.0
+
 # Continuous holding torque of one STS3215 at 12 V: 10 kg*cm rated, 30 kg*cm
 # stall (docs/파트-분배.md 4.5). Holding above the rated figure works until the
 # servo's own thermal protection cuts the torque, which on the assembled lamp
@@ -62,6 +74,6 @@ REST_POSE = np.array([
 # vision-bench/results/task-light-torque-2026-09-29.md.
 SERVO_RATED_TORQUE_NM = 10 * 0.0980665     # 0.98 N*m
 SERVO_STALL_TORQUE_NM = 30 * 0.0980665     # 2.94 N*m
-# Poses are refused above this. At 1.0 the arm may sit exactly at its rated
-# limit, so leave a little headroom for the idle layer riding on top.
-HOLD_TORQUE_MARGIN = 0.95
+# The model omits wiring drag, payload variation and temperature. Keep a
+# larger margin for a task-light pose that can be held for a long time.
+HOLD_TORQUE_MARGIN = 0.80
