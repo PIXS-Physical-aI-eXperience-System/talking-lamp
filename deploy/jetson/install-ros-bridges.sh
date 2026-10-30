@@ -27,6 +27,7 @@ if [[ -n "$destdir" ]]; then
 fi
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 unit=talking-lamp-bridges.service
+voice_unit=talking-lamp-s2-voice.service
 
 write_files() {
     local root=${destdir:-/}
@@ -46,6 +47,9 @@ write_files() {
     sed "s#/home/asdf/talking-lamp#$repo#g" "$script_dir/$unit" \
         >"$root/etc/systemd/system/$unit"
     chmod 0644 "$root/etc/systemd/system/$unit"
+    sed "s#/home/asdf/talking-lamp-integration#$repo#g" "$script_dir/$voice_unit" \
+        >"$root/etc/systemd/system/$voice_unit"
+    chmod 0644 "$root/etc/systemd/system/$voice_unit"
 }
 
 if [[ -n "$destdir" ]]; then
@@ -55,7 +59,7 @@ if [[ -n "$destdir" ]]; then
         mkdir -p "$wants"
         ln -sfn "../$unit" "$wants/$unit"
     fi
-    echo "$unit staged and disabled by default; host systemd was not contacted."
+    echo "$unit and $voice_unit staged; host systemd was not contacted."
     exit 0
 fi
 
@@ -93,4 +97,4 @@ sudo -u asdf bash -lc "source /opt/ros/jazzy/setup.bash && cd '$repo/jetson_ws' 
 write_files
 systemctl daemon-reload
 if $enable; then systemctl enable "$unit"; else systemctl disable "$unit"; fi
-echo "$unit installed and disabled unless --enable was supplied; it was not started."
+echo "$unit installed and disabled unless --enable was supplied; $voice_unit is manual only."

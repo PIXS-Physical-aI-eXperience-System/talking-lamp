@@ -76,6 +76,9 @@ def test_staged_installer_preserves_tokens_and_defaults_disabled(tmp_path):
     assert "operator-secret" in (
         destination / "etc/talking-lamp/motion-bridge.env").read_text()
     assert not (destination / "etc/systemd/system/multi-user.target.wants").exists()
+    voice_unit = destination / "etc/systemd/system/talking-lamp-s2-voice.service"
+    assert voice_unit.exists()
+    assert str(repo / "deploy/jetson/run-s2-voice.sh") in voice_unit.read_text()
 
 
 def test_apt_source_normalizer_uses_tls_valid_ubuntu_and_ros_mirrors(tmp_path):
@@ -119,6 +122,12 @@ def test_bridge_runner_sources_ros_environment_before_enabling_nounset(tmp_path)
         'echo "$*" >> "$BRIDGE_CALLS_FILE"\n'
         'sleep 0.1\n')
     ros2.chmod(0o755)
+    vision_python = commands / "vision-python"
+    vision_python.write_text(
+        '#!/bin/sh\n'
+        'echo "vision $*" >> "$BRIDGE_CALLS_FILE"\n'
+        'sleep 0.1\n')
+    vision_python.chmod(0o755)
     calls = tmp_path / "calls"
 
     result = subprocess.run(
@@ -128,6 +137,7 @@ def test_bridge_runner_sources_ros_environment_before_enabling_nounset(tmp_path)
             "PATH": f"{commands}:{os.environ['PATH']}",
             "ROS_SETUP_FILE": str(ros_setup),
             "TALKING_LAMP_REPO": str(repo),
+            "TALKING_LAMP_VISION_PYTHON": str(vision_python),
             "BRIDGE_CALLS_FILE": str(calls),
         },
         capture_output=True, text=True)
@@ -139,6 +149,8 @@ def test_bridge_runner_sources_ros_environment_before_enabling_nounset(tmp_path)
         "-p device_port:=8766 -p capture_rtp_port:=5004 -p playback_rtp_port:=5006 "
         "-p token_env:=TALKING_LAMP_DEVICE_TOKEN -p audio_frame_ms:=20 "
         "-p jitter_buffer_ms:=40",
+            "run lamp_interaction lamp_interaction",
         "run lamp_motion_bridge lamp_motion_bridge --ros-args -p pi_host:=192.168.100.2 "
         "-p motion_port:=8765 -p token_env:=TALKING_LAMP_MOTION_TOKEN",
+        "vision -m lamp_vision.node --ros-args -p center_on_start:=false",
     ]
