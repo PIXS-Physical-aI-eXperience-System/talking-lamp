@@ -81,6 +81,20 @@ def test_staged_installer_preserves_tokens_and_defaults_disabled(tmp_path):
     assert str(repo / "deploy/jetson/run-s2-voice.sh") in voice_unit.read_text()
 
 
+
+def test_enabled_staging_keeps_asdf_lingering_so_dds_shared_memory_survives(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "jetson_ws/src/lamp_interfaces").mkdir(parents=True)
+    destination = tmp_path / "stage"
+    result = subprocess.run([
+        "bash", str(INSTALL), "--repo", str(repo), "--destdir", str(destination),
+        "--enable"], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    wants = destination / "etc/systemd/system/multi-user.target.wants"
+    assert (wants / "talking-lamp-bridges.service").is_symlink()
+    assert (destination / "var/lib/systemd/linger/asdf").is_file()
+    assert "loginctl enable-linger asdf" in INSTALL.read_text()
+
 def test_apt_source_normalizer_uses_tls_valid_ubuntu_and_ros_mirrors(tmp_path):
     ubuntu = tmp_path / "sources.list"
     ubuntu.write_text(

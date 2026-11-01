@@ -59,6 +59,8 @@ if [[ -n "$destdir" ]]; then
         mkdir -p "$wants"
         ln -sfn "../$unit" "$wants/$unit"
         ln -sfn "../$voice_unit" "$wants/$voice_unit"
+        install -d -m 0755 "$destdir/var/lib/systemd/linger"
+        : >"$destdir/var/lib/systemd/linger/asdf"
     fi
     echo "$unit and $voice_unit staged; host systemd was not contacted."
     exit 0
@@ -99,6 +101,9 @@ write_files
 systemctl daemon-reload
 if $enable; then
     systemctl enable "$unit" "$voice_unit"
+    # logind's RemoveIPC deletes asdf's /dev/shm when the last asdf login
+    # ends, which cuts FastDDS shared memory between the services (2026-11-01).
+    loginctl enable-linger asdf
 else
     systemctl disable "$unit" "$voice_unit"
 fi
