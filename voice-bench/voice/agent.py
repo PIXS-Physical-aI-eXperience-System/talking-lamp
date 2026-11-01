@@ -197,6 +197,9 @@ class VoiceAgent:
         # 이번 호출에 이미 "못 알아들었어요" 했는가. 그 뒤 고개를 돌리는 모터
         # 소리를 또 말로 잡아 11초마다 되풀이했다(2026-11-01). 한 번만 한다.
         self._confused_once = False
+        # 카메라가 지금 보는 것. 대화 모델에 "[상황] 카메라 분류결과" 로 붙인다.
+        # 없으면 "책상에 뭐 있어?"에 "알 수 없어"라고 했다(2026-11-01).
+        self.scene = None
         self._buf = []
         self._t0 = 0.0
         # 끼어든 직후에는 파이 VAD 를 믿을 수 없다. self-playback guard 로
@@ -519,7 +522,8 @@ class VoiceAgent:
         # 합성이 시작되므로 말을 훨씬 빨리 시작한다.
         t0 = time.time()
         try:
-            reply = "네?" if wake_ack or is_wake_only(text) else self.on_utterance(text)
+            reply = ("네?" if wake_ack or is_wake_only(text)
+                     else self.on_utterance(self._with_scene(text)))
         except Exception as e:
             print(f"  ! 응답 생성 실패: {type(e).__name__}: {e}")
             reply = None
@@ -532,6 +536,15 @@ class VoiceAgent:
 
         self._wait_orientation(speech_id)
         self._speak(speech_id, chunks, t_end, t_stt, t_think, await_command=wake_ack)
+
+    def on_labels(self, labels):
+        """labels: 카메라가 보는 것의 한국어 이름 목록."""
+        self.scene = ", ".join(labels) if labels else "없음"
+
+    def _with_scene(self, text):
+        if self.scene is None:
+            return text
+        return f"[상황] 카메라 분류결과: {self.scene}\n[사용자] {text}"
 
     def say(self, text):
         """대화 밖에서 램프가 먼저 말한다. 듣거나 말하는 중이면 끼어들지 않는다."""

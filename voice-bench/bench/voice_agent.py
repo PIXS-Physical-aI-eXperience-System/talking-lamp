@@ -92,6 +92,9 @@ def _pump(sock, agent):
         elif kind == link.SPEAK_DONE:
             sid, code = link.unpack_id(body)
             agent.on_play_done(sid, code.decode("utf-8", "replace"))
+        elif kind == link.LABELS:
+            text = body.decode("utf-8", "replace")
+            agent.on_labels([x for x in text.split(",") if x])
         elif kind == link.SAY:
             agent.say(body.decode("utf-8", "replace"))
         elif kind == link.PING:

@@ -37,8 +37,8 @@ import uuid
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.qos import (HistoryPolicy, QoSPresetProfiles, QoSProfile,
-                       ReliabilityPolicy)
+from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSPresetProfiles,
+                       QoSProfile, ReliabilityPolicy)
 
 from lamp_interfaces.action import PlayAudio
 from lamp_interfaces.msg import AudioFrame, OrientationStatus
@@ -136,6 +136,7 @@ HEARD = b"HERD"
 WAKE = b"WAKE"
 SAY = b"SAYQ"
 CONFUSED = b"CNFS"
+LABELS = b"LABL"
 SPEECH_ID_LEN = 36
 
 
@@ -186,6 +187,7 @@ class LampVoiceNode(Node):
         self.pi_host = pi_host
         self.sock = None
         self.send_lock = threading.Lock()
+        self.last_labels = None
 
         # 지금 재생. 재생마다 따로 상태를 둔다(Stream 참고).
         # 발행은 스트림마다 스레드 하나만 한다. 모아둔 것을 한 스레드가
@@ -223,6 +225,10 @@ class LampVoiceNode(Node):
         self.heard = self.create_publisher(String, "/lamp/voice/heard", 10)
         # lamp_interaction 이 대화 밖에서 램프에게 시키는 말("책이 안 보여요").
         self.create_subscription(String, "/lamp/voice/say", self.on_say, 10)
+        # 카메라가 보는 것. 비전은 바뀔 때만 보내므로 마지막 것을 붙잡아 둔다.
+        self.create_subscription(
+            String, "/lamp/vision/labels", self.on_labels,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
         # 아무 일도 안 일어날 때 어디서 멈췄는지 알 수 없었다. 5초마다
         # 받은 프레임 수와 발화 표시 여부를 찍는다.
@@ -254,6 +260,9 @@ class LampVoiceNode(Node):
                 s.settimeout(None)
                 self.sock = s
                 self.get_logger().info(f"판단부 연결 {self.host}:{self.port}")
+                # 판단부는 연결마다 새로 만들어지므로 본 것을 다시 알려 준다.
+                if self.last_labels is not None:
+                    self.send(LABELS, self.last_labels)
                 return
             except OSError as e:
                 self.get_logger().warn(f"판단부에 못 붙었다({e}). 2초 뒤 재시도")
@@ -315,6 +324,14 @@ class LampVoiceNode(Node):
 
     def on_orientation(self, msg: OrientationStatus):
         self.send(ORIENT, pack_id(msg.speech_id) + msg.state.encode("utf-8"))
+
+    def on_labels(self, msg: String):
+        try:
+            labels = json.loads(msg.data)["labels"]
+        except (ValueError, KeyError, TypeError):
+            return
+        self.last_labels = ",".join(str(x) for x in labels).encode("utf-8")
+        self.send(LABELS, self.last_labels)
 
     def on_say(self, msg: String):
         if msg.data.strip():

@@ -50,6 +50,11 @@ def task_light_command(text: str) -> TaskLightRequest | None:
     return None
 
 
+def is_wake_call(text: str) -> bool:
+    """A bare "픽스야" with no request."""
+    return bool(_WAKE_CALL.match(text))
+
+
 def ends_task_light(text: str, light_kind: str | None) -> bool:
     """Does this request, heard while the book is lit, end the task light?
     A bare call does not, and neither does turning the light on or changing
