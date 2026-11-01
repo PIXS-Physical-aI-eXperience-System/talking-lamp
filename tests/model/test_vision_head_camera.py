@@ -215,3 +215,21 @@ def test_joint_states_are_matched_by_name_not_position():
 def test_an_incomplete_joint_state_is_refused(names, values):
     with pytest.raises(ValueError):
         joints_in_order(names, values, ("base_yaw", "base_pitch", "elbow_pitch"))
+
+
+def test_fit_mount_poses_uses_each_frames_own_head_pose():
+    """Frames at several measured head angles recover the mount; assuming one
+    fixed head pose for all of them would not."""
+    from vision.head_camera import fit_mount_poses
+    head_t = np.array([0.18, 0.0, 0.35])
+    board = np.array([[x, y, 0.0] for x in np.linspace(0.20, 0.35, 4)
+                      for y in np.linspace(-0.12, 0.12, 6)])
+    obs = []
+    for pitch in (-0.4, -0.6, -0.8, -1.0):
+        head_R = head_frame([1.0, 0.0, pitch])
+        pose = MOUNT.camera_pose(head_R, head_t)
+        obs.append((board, CAM.project(pose.to_cam(board)), head_R, head_t))
+    fitted, rms = fit_mount_poses(obs, CAM)
+    assert rms < 0.5
+    assert np.allclose(fitted.t, MOUNT.t, atol=1e-3)
+    assert angle_deg(fitted.R[:, 2], MOUNT.R[:, 2]) < 0.1

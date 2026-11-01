@@ -46,3 +46,12 @@ def test_interaction_drives_the_light_from_what_was_heard():
     assert '"/lamp/voice/heard"' in text
     assert '"/lamp/led/set_solid"' in text
     assert '"/lamp/led/clear"' in text
+
+
+def test_interaction_runs_the_task_light_on_request():
+    text = source("jetson_ws/src/lamp_interaction/lamp_interaction/node.py")
+    assert '"/lamp/vision/aim_object"' in text
+    assert '"/lamp/track_point"' not in text
+    assert "self.arbiter.task_light = self._vision_placing or self.s1.holds_head" in text
+    vision = source("jetson_ws/src/lamp_vision/lamp_vision/node.py")
+    assert '"/lamp/vision/aim_object"' in vision

@@ -163,6 +163,10 @@ class FaceFollowLayer:
     # A user coming back to the desk is still standing: about 24 deg above the
     # seated view (2026-10-30). 8 deg could not bring that face to the centre.
     MAX_WRIST_FROM_HOME_DEG = 20.0
+    # Positive wrist pitch tilts the camera down. S1 looks for the book right
+    # in front of the base that way, and 20 deg left it at the bottom edge of
+    # the frame (2026-10-30). Only the downward side is widened; S2 keeps 20.
+    MAX_WRIST_DOWN_FROM_HOME_DEG = 55.0
 
     def __init__(self, home_pose: np.ndarray, position_limits: np.ndarray) -> None:
         self.home_pose = np.asarray(home_pose, float).copy()
@@ -177,12 +181,14 @@ class FaceFollowLayer:
             raise ValueError("face correction must be finite and at most two degrees")
         pose = np.asarray(current, float).copy()
         for joint, degrees in ((0, yaw_deg), (4, wrist_deg)):
-            excursion = (self.MAX_YAW_FROM_HOME_DEG if joint == 0
-                         else self.MAX_WRIST_FROM_HOME_DEG)
+            below = (self.MAX_YAW_FROM_HOME_DEG if joint == 0
+                     else self.MAX_WRIST_FROM_HOME_DEG)
+            above = (self.MAX_YAW_FROM_HOME_DEG if joint == 0
+                     else self.MAX_WRIST_DOWN_FROM_HOME_DEG)
             lower = max(self.position_limits[joint, 0],
-                        self.home_pose[joint] - np.deg2rad(excursion))
+                        self.home_pose[joint] - np.deg2rad(below))
             upper = min(self.position_limits[joint, 1],
-                        self.home_pose[joint] + np.deg2rad(excursion))
+                        self.home_pose[joint] + np.deg2rad(above))
             pose[joint] = np.clip(pose[joint] + np.deg2rad(degrees), lower, upper)
         self.target = pose
         self.active = True

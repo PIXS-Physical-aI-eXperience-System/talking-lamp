@@ -57,6 +57,9 @@ END_SILENCE_FRAMES = 25      # 0.5초. 끼어든 직후 우리가 발화 끝을 
 PI_END_FRAMES = 30           # 0.6초 연속으로 표시가 없어야 발화 끝으로 본다
 MIN_UTTERANCE_FRAMES = 20    # 0.4초보다 짧으면 발화로 치지 않는다
 PREROLL_FRAMES = 15          # 0.3초. 깨어나기 직전 소리도 함께 넘긴다
+# 호출어는 거의 다 말한 뒤에야 걸린다. 받아써서 확인하려면 그 앞까지 있어야
+# 하므로 호출어로 깰 때는 이만큼을 넘긴다. 받아쓴 글은 확인에만 쓴다.
+WAKE_HISTORY_FRAMES = 75     # 1.5초
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
 BARGE_RISE_DB = 20.0         # 바닥 대비 이만큼 올라야 끼어든 것으로 본다
 COMMAND_WAIT_S = 8.0         # 호출 응답 뒤에는 다시 부르지 않아도 듣는다
@@ -66,9 +69,18 @@ PLAY_WAIT_MARGIN_S = 15.0    # 재생 완료 신호를 이만큼 더 기다린�
 WAKE_ONLY = re.compile(r"^(?:(?:픽스|빅스|픽세|빅세)\s*(?:야|아)?[\s,.!?~…]*)+$")
 
 
+# 호출어 모델이 깬 뒤 받아쓰기에 이 중 하나가 있어야 진짜 호출로 친다.
+WAKE_HEARD = re.compile(r"픽스|빅스|픽세|빅세|픽쓰|픽시|피스")
+
+
 def is_wake_only(text):
     """Recognize a call with no request, including common wake-word spellings."""
     return bool(WAKE_ONLY.fullmatch(text.strip()))
+
+
+def heard_wake_word(text):
+    """Does a transcript of the wake audio contain the wake word?"""
+    return bool(WAKE_HEARD.search(text.replace(" ", "")))
 
 
 def _db(x):
@@ -169,6 +181,7 @@ class VoiceAgent:
         # 깨어난 프레임부터 모으면 말 앞부분이 잘린다. 항상 최근 몇 프레임을
         # 들고 있다가 깨어날 때 앞에 붙인다.
         self._preroll = collections.deque(maxlen=PREROLL_FRAMES)
+        self._wake_hist = collections.deque(maxlen=WAKE_HISTORY_FRAMES)
         self._pi_quiet = 0
         self._voiced = 0          # 실제로 소리가 난 프레임 수
         self._wake_sent = False
@@ -197,8 +210,17 @@ class VoiceAgent:
         if s != self.state:
             if self.state == SPEAKING:
                 self._report_speak_mic()
+                # 말하는 동안 램프 자기 목소리로 쌓인 호출어 점수를 버린다.
+                # 남겨 두면 대기로 넘어가자마자 첫 소리에 "네?" 한다(2026-10-30).
+                if self.wake is not None:
+                    self.wake.reset()
             if s == SPEAKING:
                 self._mic = []
+                # 말하는 동안 호출어를 새로 센다. 대기 때 남은 점수로 깨면 안 된다.
+                if self.wake is not None:
+                    self.wake.reset()
+                self._preroll.clear()
+                self._wake_hist.clear()
             self.state = s
             self.on_state(s)
 
@@ -301,6 +323,7 @@ class VoiceAgent:
         active = bool(speech_id)
         if self.state == IDLE:
             self._preroll.append(pcm)
+            self._wake_hist.append(pcm)
             if active and time.time() < self._awaiting_command_until:
                 self._awaiting_command_until = 0.0
                 self.speech_id = speech_id
@@ -308,6 +331,7 @@ class VoiceAgent:
                 self._wake_ack_pending = False
                 self._buf = list(self._preroll)
                 self._preroll.clear()
+                self._wake_hist.clear()
                 self._pi_quiet = 0
                 self._voiced = 1
                 self._t0 = time.time()
@@ -320,8 +344,9 @@ class VoiceAgent:
                 self.speech_id = speech_id
                 self._wake_sent = False
                 self._wake_ack_pending = self.ack_on_wake
-                self._buf = list(self._preroll)
+                self._buf = list(self._wake_hist)
                 self._preroll.clear()
+                self._wake_hist.clear()
                 self._pi_quiet = 0
                 self._voiced = 1
                 self._t0 = time.time()
@@ -332,7 +357,11 @@ class VoiceAgent:
         self._buf.append(pcm)
         if active:
             self._voiced += 1
-            if self._voiced >= MIN_UTTERANCE_FRAMES and not self._wake_sent:
+            # 호출어로 깬 발화는 받아써서 확인한 뒤에 알린다. 먼저 알리면
+            # 노래로 잘못 깬 것까지 대화로 잡혀 머리가 대화 중으로 묶인다
+            # (2026-10-31). 확인은 _think_and_speak 가 한다.
+            if (self._voiced >= MIN_UTTERANCE_FRAMES and not self._wake_sent
+                    and not self._wake_ack_pending):
                 self._wake_sent = True
                 self.send(link.WAKE, link.pack_id(self.speech_id))
         too_long = time.time() - self._t0 > MAX_UTTERANCE_S
@@ -381,14 +410,25 @@ class VoiceAgent:
             # 발화가 끝났다고 판단한 시각. 여기부터 첫 소리까지가 체감 지연이다.
             self._set(THINKING)
             threading.Thread(target=self._think_and_speak,
-                             args=(audio, self.speech_id, time.time(), wake_ack),
+                             args=(audio, self.speech_id, time.time(), wake_ack,
+                                   self._wake_sent),
                              daemon=True).start()
 
     def _while_speaking(self, pcm):
         hit, cur, floor = self.barge.update(pcm)
         self._mic.append((cur, floor))
-        if hit:
-            print(f"  barge-in: {cur:.1f} dB (바닥 {floor:.1f})")
+        self._preroll.append(pcm)
+        self._wake_hist.append(pcm)
+        # 소리 크기 판정과 함께 호출어로도 끼어들 수 있다. 크기 판정은 노래에도
+        # 걸리지만(2026-10-30) 원래 설계를 유지하고, 호출어는 그보다 작은
+        # 목소리(-37 dB)도 잡으라고 더했다.
+        woke = self.wake is not None and self.wake.detect(pcm)
+        if hit or woke:
+            if woke:
+                self.wake.reset()
+                print(f"  barge-in: 호출어 ({cur:.1f} dB)")
+            else:
+                print(f"  barge-in: {cur:.1f} dB (바닥 {floor:.1f})")
             old_id = self._turn.speech_id if self._turn is not None else ""
             self.send(link.BARGE_IN, link.pack_id(old_id))
             if self._turn is not None:
@@ -398,25 +438,48 @@ class VoiceAgent:
             # 끼어든 말부터 다시 듣는다. 파이 VAD 는 재생 직후 0.3초 더
             # 꺼져 있으므로 speech_id 를 기다리지 않고 바로 모은다.
             self.speech_id = str(uuid.uuid4())
-            self._voiced = 1
             self._wake_sent = True
             self.send(link.WAKE, link.pack_id(self.speech_id))
-            self._buf = [pcm]
+            if woke:
+                # 호출어 자체가 발화다. 대기 중 호출처럼 "네?" 하고 명령을 기다린다.
+                self._voiced = MIN_UTTERANCE_FRAMES
+                self._wake_ack_pending = self.ack_on_wake
+                self._buf = list(self._wake_hist)
+            else:
+                self._voiced = 1
+                self._buf = [pcm]
+            self._preroll.clear()
+            self._wake_hist.clear()
             self._t0 = time.time()
             self._grace_until = time.time() + BARGE_GRACE_S
             self._grace_floor = floor
             self._quiet_run = 0
             self._set(LISTENING)
 
-    def _think_and_speak(self, audio, speech_id, t_end=None, wake_ack=False):
+    def _think_and_speak(self, audio, speech_id, t_end=None, wake_ack=False,
+                         wake_sent=True):
         t_end = t_end or time.time()
         t0 = time.time()
-        text = "픽스야" if wake_ack else ""
-        if not wake_ack:
-            try:
-                text = self.stt.transcribe(audio, link.RATE)
-            except Exception as e:
-                print(f"  ! STT 실패: {type(e).__name__}: {e}")
+        text = ""
+        try:
+            # 확인용 받아쓰기는 명령 힌트 없이 한다(Stt.transcribe_wake).
+            transcribe = (getattr(self.stt, "transcribe_wake", self.stt.transcribe)
+                          if wake_ack else self.stt.transcribe)
+            text = transcribe(audio, link.RATE)
+        except Exception as e:
+            print(f"  ! STT 실패: {type(e).__name__}: {e}")
+        if wake_ack:
+            # 호출어 모델은 노래에도 깬다. 노래를 틀어 둔 5분 동안 아무도
+            # 부르지 않았는데 4번 깨어 "네?" 했다(2026-10-31). 그 구간을
+            # 받아쓰면 모두 빈 문자열이었으므로, 받아쓰기로 한 번 더 확인한다.
+            if not heard_wake_word(text):
+                print(f"  ! 호출어가 아니라 듣지 않는다 (받아쓰기 {text!r})", flush=True)
+                with self._lock:
+                    self._set(IDLE)
+                return
+            text = "픽스야"
+            if not wake_sent:
+                self.send(link.WAKE, link.pack_id(speech_id))
         t_stt = time.time() - t0
         if not text:
             with self._lock:

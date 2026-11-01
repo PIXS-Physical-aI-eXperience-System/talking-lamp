@@ -212,6 +212,70 @@ def fit_mount(observations, cam: Intrinsics, head_R: np.ndarray, head_t: np.ndar
     return HeadCameraMount(_rodrigues(p[:3]), p[3:6], source, rms), rms
 
 
+def fit_mount_poses(observations, cam: Intrinsics, source: str = "charuco-joints",
+                    max_frames: int = 250) -> tuple["HeadCameraMount", float]:
+    """``fit_mount`` with each frame's own head pose, from measured joints.
+
+    ``fit_mount`` assumes the head sat at REST_POSE. On 2026-10-30 the lamp's
+    working pose was elbow 30 deg / wrist 27 deg against REST_POSE's -2 / 54, so
+    the fitted mount was wrong, and the same book moved from 0.13 m to 0.33 m
+    on the desk when only the wrist tilted. Frames taken at several head angles
+    with the joints read back pin the mount down where one pose cannot.
+
+    ``observations`` is a list of ``(obj_base, uv, head_R, head_t)``.
+    """
+    if not observations:
+        raise ValueError("no board observations")
+    if len(observations) > max_frames:
+        idx = np.linspace(0, len(observations) - 1, max_frames).round().astype(int)
+        observations = [observations[i] for i in idx]
+
+    def residual(p):
+        Rm, tm = _rodrigues(p[:3]), p[3:6]
+        out = []
+        for obj, uv, head_R, head_t in observations:
+            pose = Pose(head_R @ Rm, head_t + head_R @ tm)
+            out.append((cam.project(pose.to_cam(np.asarray(obj, float)))
+                        - np.asarray(uv, float)).ravel())
+        return np.concatenate(out)
+
+    seeds = [_seed_mount(o, uv, cam, R, t) for o, uv, R, t in observations[:: max(1, len(observations) // 5)]]
+    best = None
+    for seed in seeds:
+        p = np.concatenate([_log_rodrigues(seed.R), seed.t])
+        r = residual(p)
+        cost = float(r @ r)
+        lam = 1e-3
+        for _ in range(80):
+            J = np.empty((r.size, 6))
+            for k in range(6):
+                step = 1e-6 if k < 3 else 1e-7
+                q = p.copy(); q[k] += step
+                J[:, k] = (residual(q) - r) / step
+            JtJ, Jtr = J.T @ J, J.T @ r
+            for _ in range(12):
+                try:
+                    dp = np.linalg.solve(JtJ + lam * np.diag(np.diag(JtJ)), -Jtr)
+                except np.linalg.LinAlgError:
+                    lam *= 10
+                    continue
+                r2 = residual(p + dp)
+                if float(r2 @ r2) < cost:
+                    p, r, cost = p + dp, r2, float(r2 @ r2)
+                    lam = max(lam * 0.3, 1e-9)
+                    break
+                lam *= 10
+            else:
+                break
+            if np.linalg.norm(dp) < 1e-10:
+                break
+        if best is None or cost < best[0]:
+            best = (cost, p, r)
+    _, p, r = best
+    rms = float(np.sqrt(np.mean(np.sum(r.reshape(-1, 2) ** 2, axis=1))))
+    return HeadCameraMount(_rodrigues(p[:3]), p[3:6], source, rms), rms
+
+
 def _rodrigues(r: np.ndarray) -> np.ndarray:
     theta = float(np.linalg.norm(r))
     if theta < 1e-12:

@@ -1,4 +1,5 @@
-"""Run the S2 conversation flow and the S4 away/return reaction.
+"""Run the S2 conversation flow, S1 task light on request, and the S4
+away/return reaction.
 
 ``HeadArbiter`` decides which scenario may move the head; the current owner is
 published on ``/lamp/head_owner`` so the vision node can hold back too.
@@ -20,10 +21,12 @@ from lamp_interfaces.msg import MotionStatus, OrientationStatus
 from lamp_interfaces.srv import InterruptMotion, SetLedSolid
 
 from .arbiter import HeadArbiter
+from .s1 import TaskLightFlow, ends_task_light, task_light_command
 from .s2 import S2Coordinator, VoiceEvent
 from .s4 import S4Coordinator
 from .behavior import motion_commands
-from .light import WARM_WHITE, LightState, device_brightness, light_command
+from .light import (
+    WARM_WHITE, LightCommand, LightState, device_brightness, light_command)
 
 
 # The motion runtime fades the away pose out over 3 s. Greet after that.
@@ -65,6 +68,10 @@ class InteractionNode(Node):
         self.light = LightState()
         self.led_solid_client = self.create_client(SetLedSolid, "/lamp/led/set_solid")
         self.led_clear_client = self.create_client(Trigger, "/lamp/led/clear")
+        self.s1 = TaskLightFlow()
+        self._vision_placing = False
+        self._aim_state = "off"
+        self.aim_client = self.create_client(SetBool, "/lamp/vision/aim_object")
         self.create_subscription(
             OrientationStatus, "/lamp/orientation_status", self._orientation, 10)
         self.create_subscription(Bool, "/lamp/vision/presence", self._presence, 10)
@@ -89,6 +96,9 @@ class InteractionNode(Node):
         effects = self.s2.voice(event)
         if event.state == "wake":
             self.arbiter.wake(event.speech_id)
+            # While S1 lights the book the lamp listens where it is: the user
+            # asked for the light to stay on the book (2026-10-31). S2's gaze
+            # effects are dropped in _apply until S1 lets go.
             # Orientation turns the base toward the voice; the greeting gaze
             # must not pull against it. S2 re-enables following once aligned.
             # A wake word while away always ends the away pose.
@@ -109,10 +119,13 @@ class InteractionNode(Node):
 
     def _vision_status(self, msg: String) -> None:
         try:
-            placing = bool(json.loads(msg.data).get("placing", False))
+            status = json.loads(msg.data)
+            placing = bool(status.get("placing", False))
+            self._aim_state = str(status.get("aim", "off"))
         except (TypeError, ValueError, AttributeError):
             return
-        self.arbiter.task_light = placing
+        self._vision_placing = placing
+        self.arbiter.task_light = placing or self.s1.holds_head
 
     def _publish_owner(self) -> None:
         owner = self.arbiter.owner().value
@@ -141,6 +154,7 @@ class InteractionNode(Node):
         if self.s2.active_id is not None and now - self._voice_at >= VOICE_SILENCE_S:
             self.get_logger().warn("음성 이벤트가 끊김: 대화를 끝낸 것으로 처리")
             self._handle_voice(VoiceEvent(self.s2.active_id, "done", "timeout"))
+        self._tick_s1(now)
         self._apply_s4(self.s4.tick(now, busy=not self.arbiter.may_leave()))
         if self.arbiter.holds_sound_turn(now):
             self.hold_pub.publish(Bool(data=True))
@@ -189,9 +203,53 @@ class InteractionNode(Node):
         self._play_commands((("wake_up", 0.5),), on_done=self._greeted)
 
     def _heard(self, msg: String) -> None:
-        command = light_command(msg.data)
-        if command is None:
+        request = task_light_command(msg.data)
+        if request is not None:
+            self._task_light_request(request.kind)
             return
+        command = light_command(msg.data)
+        if self.s1.holds_head and ends_task_light(msg.data, command and command.kind):
+            # Asking Pixs for anything else ends the task light (2026-11-01).
+            self._task_light_request("release")
+        if command is not None:
+            self._set_light(command)
+
+    # -- S1 -------------------------------------------------------------------
+
+    def _task_light_request(self, kind: str) -> None:
+        if kind == "place":
+            self.get_logger().info("작업 조명 요청: 대화가 끝나면 책상을 본다")
+            self.s1.request()
+        else:
+            self.get_logger().info("작업 조명 해제")
+            if self.s1.release():
+                self._aim(False)
+        self.arbiter.task_light = self._vision_placing or self.s1.holds_head
+        self._publish_owner()
+
+    def _tick_s1(self, now: float) -> None:
+        busy = self.arbiter.conversation or self.motion_busy
+        for action in self.s1.tick(now, busy=busy, aim=self._aim_state):
+            if action == "start":
+                self.get_logger().info("작업 조명: 고개를 숙여 책을 찾는다")
+                self._aim_state = "off"     # until vision reports this run
+                self._aim(True)
+            elif action == "lit":
+                self.get_logger().info("작업 조명: 책 쪽으로 팔을 뻗었다. 불을 켠다")
+                if self.light.brightness == 0.0:
+                    self._set_light(LightCommand("on"))
+            elif action == "give_up":
+                self.get_logger().warn("작업 조명: 책을 찾지 못했다")
+                self._aim(False)
+        self.arbiter.task_light = self._vision_placing or self.s1.holds_head
+
+    def _aim(self, on: bool) -> None:
+        if not self.aim_client.wait_for_service(timeout_sec=0.0):
+            self.get_logger().warn("/lamp/vision/aim_object 서비스가 없다")
+            return
+        self.aim_client.call_async(SetBool.Request(data=on))
+
+    def _set_light(self, command: LightCommand) -> None:
         brightness = self.light.apply(command)
         self.get_logger().info(f"조명 {command.kind}: 밝기 {brightness:.2f}")
         if brightness == 0.0:
@@ -280,6 +338,10 @@ class InteractionNode(Node):
         future.add_done_callback(accepted)
 
     def _apply(self, effects) -> None:
+        if self.s1.holds_head:
+            # Following the face, centring, or interrupting motion would all
+            # pull the head off the book (interrupt also drops the task light).
+            effects = [e for e in effects if e.kind not in ("follow", "center", "interrupt")]
         center = any(effect.kind == "center" for effect in effects)
         follow_off = any(effect.kind == "follow" and effect.enabled is False
                          for effect in effects)

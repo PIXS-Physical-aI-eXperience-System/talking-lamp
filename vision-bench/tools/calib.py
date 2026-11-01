@@ -6,6 +6,8 @@
     python calib.py intrinsics --square-mm 35.0  # 내부 파라미터 → ../calib/intrinsics.json
     python calib.py desk --near-cm 20 --square-mm 35.0   # 책상 기준 카메라 자세 → ../calib/pose.json
     python calib.py mount --near-cm 20 --square-mm 35.0  # 헤드→카메라 변환 → ../calib/head_camera.json
+    python calib.py mount-joints --dir /tmp/lamp_calib --near-cm 20 --square-mm 35.0
+                                                 # 실제 관절값으로 여러 고개 각도에서 맞춘다 (권장)
     python calib.py check                        # 저장된 캘리브레이션으로 지금 화면의 물체·얼굴 3D 위치
 
 카메라는 램프 헤드에 달려 있다. 그래서 필요한 건 책상 기준 카메라 자세(desk)가 아니라
@@ -29,7 +31,8 @@ from vision import Intrinsics, Pose, VisionPipeline      # noqa: E402
 from vision import calibration as cal                    # noqa: E402
 from vision.detector import (ObjectDetector, FaceDetector,  # noqa: E402
                              DEFAULT_OBJECT_MODEL, DEFAULT_FACE_MODEL)
-from vision.head_camera import HeadCameraMount, HeadKinematics, fit_mount  # noqa: E402
+from vision.head_camera import (HeadCameraMount, HeadKinematics, fit_mount,  # noqa: E402
+                                fit_mount_poses)
 
 CALIB = ROOT / "calib"
 VIEWS = CALIB / "views"
@@ -252,6 +255,57 @@ def cmd_mount(a):
         print("  ⚠ 복원된 카메라 높이가 책상 위 20~50 cm 밖이다. 보드 위치 입력을 확인.")
 
 
+def cmd_mount_joints(a):
+    """``/lamp/vision/save_calib_frame`` 로 모은 사진과 관절값으로 마운트를 맞춘다.
+
+    ``mount`` 는 헤드가 REST_POSE 에 있다고 가정한다. 2026-10-30 램프의 평소
+    자세는 팔꿈치 30° / 손목 27° 로 REST_POSE(-2° / 54°)와 달랐고, 그 마운트로는
+    손목만 숙여도 같은 책이 0.13 m 에서 0.33 m 로 옮겨 갔다. 장마다 읽은
+    관절값을 쓰고, 고개 각도를 여러 개 섞어야 마운트가 한 값으로 정해진다.
+    """
+    import json
+    cam = Intrinsics.load(INTR)
+    placement = cal.DeskPlacement(a.near_cm / 100, a.lateral_cm / 100, a.square_mm / 1000,
+                                  a.board_mm / 1000)
+    R_bb, t_bb = placement.board_in_base()
+    kin = HeadKinematics()
+    obs, names = [], []
+    for img in sorted(Path(a.dir).glob("*.jpg")):
+        q = np.asarray(json.loads(img.with_suffix(".json").read_text())["q"], float)
+        found = cal.detect(cv2.imread(str(img)), placement.square_m)
+        if found is None:
+            print(f"  {img.name}: 보드 없음, 건너뜀")
+            continue
+        head_R, head_t = kin.head(q)
+        obs.append((found[0] @ R_bb.T + t_bb, found[1], head_R, head_t))
+        names.append((img.name, q))
+        print(f"  {img.name}: 모서리 {len(found[0])}개, q(deg)={np.degrees(q).round(1).tolist()}")
+    if len(obs) < 3:
+        sys.exit(f"보드가 잡힌 장이 {len(obs)}장뿐이다. 고개 각도를 바꿔 가며 3장 이상 필요")
+    mount, rms = fit_mount_poses(obs, cam)
+    print(f"  {len(obs)}장, 재투영 오차 RMS {rms:.2f} px")
+    print(f"  헤드 기준 카메라 위치: x={mount.t[0]*100:+.1f} y={mount.t[1]*100:+.1f} z={mount.t[2]*100:+.1f} cm")
+    print(f"  렌즈 축과 헤드 조준축(+x) 사이 각: {mount.axis_offset_deg:.1f}°")
+    # 같은 보드가 고개 각도와 상관없이 같은 자리로 나와야 한다.
+    from vision.geometry import desk_point
+    for (name, q), (obj, uv, head_R, head_t) in zip(names, obs):
+        pose = mount.camera_pose(head_R, head_t)
+        centre = desk_point(np.asarray(uv, float).mean(axis=0), cam, pose)
+        truth = np.asarray(obj, float).mean(axis=0)
+        err = None if centre is None else np.linalg.norm(centre[:2] - truth[:2]) * 100
+        print(f"  {name}: 보드 중심 {None if centre is None else np.round(centre[:2], 3).tolist()} "
+              f"(실제 {np.round(truth[:2], 3).tolist()}, 오차 {err if err is None else round(err, 1)} cm)")
+    if a.dry_run:
+        print("  --dry-run: 저장하지 않음")
+        return
+    if MOUNT.exists():
+        backup = MOUNT.with_name(f"head_camera.{time.strftime('%Y%m%d-%H%M%S')}.json")
+        backup.write_text(MOUNT.read_text())
+        print(f"  이전 값 백업: {backup}")
+    mount.save(MOUNT)
+    print(f"저장: {MOUNT}")
+
+
 # -- check -------------------------------------------------------------------
 
 def cmd_check(a):
@@ -308,13 +362,21 @@ def main():
     p.add_argument("--seconds", type=float, default=45.0, help="촬영 시간. 길수록 대기 모션이 고르게 섞인다")
     p.add_argument("--yaw", type=float, help="base_yaw (rad). /lamp/orientation_status 의 current_yaw. 생략하면 REST_POSE 값")
     p.add_argument("--image", help="카메라 대신 저장된 이미지 사용")
+    p = sub.add_parser("mount-joints")
+    p.add_argument("--dir", default="/tmp/lamp_calib", help="save_calib_frame 이 저장한 폴더")
+    p.add_argument("--near-cm", type=float, required=True, help="램프 베이스 중심 → 보드 격자 가까운 변")
+    p.add_argument("--lateral-cm", type=float, default=0.0)
+    p.add_argument("--square-mm", type=float, required=True)
+    p.add_argument("--board-mm", type=float, default=0.0)
+    p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("check")
     p.add_argument("--yaw", type=float, help="base_yaw (rad), mount 사용 시")
     p.add_argument("--model", default=DEFAULT_OBJECT_MODEL)
     p.add_argument("--conf", type=float, default=0.3)
     a = ap.parse_args()
     {"board": cmd_board, "collect": cmd_collect, "intrinsics": cmd_intrinsics,
-     "desk": cmd_desk, "mount": cmd_mount, "check": cmd_check}[a.cmd](a)
+     "desk": cmd_desk, "mount": cmd_mount, "mount-joints": cmd_mount_joints,
+     "check": cmd_check}[a.cmd](a)
 
 
 if __name__ == "__main__":

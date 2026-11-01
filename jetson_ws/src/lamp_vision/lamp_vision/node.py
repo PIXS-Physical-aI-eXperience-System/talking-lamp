@@ -39,6 +39,13 @@ Calls
 Services offered
   ``/lamp/vision/center``       Trigger. Return to rest and re-fix the pose.
   ``/lamp/vision/place_light``  Trigger. Run S1 now.
+  ``/lamp/vision/aim_object``   SetBool. S1 without 3D: tilt down, sweep, and
+                                centre a book in the image with the same
+                                ``face_step`` S2 uses. ``aim`` in the status says
+                                searching / centering / centered.
+  ``/lamp/vision/save_calib_frame`` Trigger. Save the current camera frame and
+                                the joint angles it was taken at, for the mount
+                                calibration (``calib.py mount-joints``).
   ``/lamp/vision/follow_face``  SetBool. S2 on/off; B turns it on at the wake
                                 word. Off by default, so the lamp does not
                                 stare at the user unprompted.
@@ -68,6 +75,7 @@ from std_srvs.srv import SetBool, Trigger
 
 from lamp_interfaces.action import PlaceTaskLight, ReturnCenter
 from lamp_interfaces.msg import MotionStatus
+from lamp_interfaces.srv import InterruptMotion
 
 
 def _find_src() -> Path | None:
@@ -90,6 +98,8 @@ if _SRC is not None and str(_SRC) not in sys.path:
 
 from vision import FRAME_ID, Intrinsics, VisionPipeline            # noqa: E402
 from vision.detector import FaceDetector, ObjectDetector           # noqa: E402
+from vision.geometry import desk_point                              # noqa: E402
+from vision.object_aim import ObjectAimer, reach_point            # noqa: E402
 from vision.head_camera import HeadCameraMount, HeadKinematics, joints_in_order  # noqa: E402
 from vision.runtime import RuntimeConfig, VisionRuntime            # noqa: E402
 
@@ -163,6 +173,17 @@ class VisionNode(Node):
                             callback_group=self.group)
         self.create_service(SetBool, "/lamp/vision/follow_face", self._srv_follow,
                             callback_group=self.group)
+        self.create_service(Trigger, "/lamp/vision/save_calib_frame", self._srv_save_frame,
+                            callback_group=self.group)
+        self.create_service(SetBool, "/lamp/vision/aim_object", self._srv_aim,
+                            callback_group=self.group)
+        self.interrupt_client = self.create_client(
+            InterruptMotion, "/lamp/interrupt_motion", callback_group=self.group)
+        self.aimer = ObjectAimer()
+        self._aiming = False
+        self._reach = ""                # "", "reaching", "placed", "reach_failed"
+        self._last_bgr = None
+        self._last_q = None
         self.create_timer(1.0, self._publish_status, callback_group=self.group)
 
         self.motion_busy = False
@@ -179,6 +200,7 @@ class VisionNode(Node):
         self._object_fps = 0.0
         self._object_frames = 0
         self._last_faces: list[tuple[float, float]] = []
+        self._last_objects: list = []
         self._started = time.monotonic()
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -246,6 +268,7 @@ class VisionNode(Node):
             return
         try:
             q = joints_in_order(msg.name, msg.position, kin.joint_names)
+            self._last_q = (time.monotonic(), [float(v) for v in q])
             qd = joints_in_order(msg.name, msg.velocity, kin.joint_names)
             with self._lock:
                 self.runtime.update_joints(q, qd, time.monotonic())
@@ -318,6 +341,7 @@ class VisionNode(Node):
             "fps": round(self._fps, 1),
             "object_fps": round(self._object_fps, 2),
             "tracks": len(self.runtime.averager.tracks),
+            "objects": self._last_objects,
             "task_light": None if tgt is None else {
                 "label": tgt.label, "conf": round(tgt.conf, 2),
                 "pos": [round(float(v), 3) for v in tgt.pos]},
@@ -325,6 +349,9 @@ class VisionNode(Node):
             "present": self.runtime.presence.present,
             "away": self._away,
             "placing": self._placing,
+            "aim": (self._reach or self.aimer.state) if self._aiming else "off",
+            "aim_label": self.aimer.label,
+            "aim_offset_deg": [round(self.aimer.yaw, 1), round(self.aimer.wrist, 1)],
             "head_owner": self._head_owner,
         }, ensure_ascii=False)))
 
@@ -333,13 +360,22 @@ class VisionNode(Node):
     def _loop(self) -> None:
         import cv2
         idx = int(self.get_parameter("camera_index").value)
-        cap = cv2.VideoCapture(idx)
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.get_parameter("width").value))
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.get_parameter("height").value))
-        if not cap.isOpened():
-            self.get_logger().error(f"카메라 {idx} 를 열지 못했다")
+        # The head camera comes back as /dev/video1 after a USB reconnect
+        # (2026-10-30 22:59), and the configured index then opens nothing.
+        others = sorted(int(d.name[5:]) for d in Path("/dev").glob("video[0-9]*"))
+        for i in [idx] + [i for i in others if i != idx]:
+            cap = cv2.VideoCapture(i)
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.get_parameter("width").value))
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.get_parameter("height").value))
+            if cap.isOpened() and cap.read()[0]:
+                break
+            cap.release()
+        else:
+            self.get_logger().error(f"카메라를 열지 못했다 ({idx}, /dev/video{others})")
             return
+        if i != idx:
+            self.get_logger().warn(f"카메라 {idx} 대신 /dev/video{i} 를 연다")
         period = 1.0 / float(self.get_parameter("fps").value)
         self.get_logger().info("카메라 시작")
         while not self._stop.is_set() and rclpy.ok():
@@ -348,12 +384,15 @@ class VisionNode(Node):
             if not ok:
                 time.sleep(0.1)
                 continue
+            self._last_bgr = bgr
             try:
                 with self._lock:
                     ran_objects = self.runtime.due_for_objects(t0)
                     out = self.runtime.process(bgr, t0)
                 self._object_frames += int(ran_objects)
                 self._emit(out)
+                if self._aiming:
+                    self._aim(out, ran_objects, bgr.shape[1], bgr.shape[0], t0)
             except Exception:                        # a bad frame must not kill the node
                 if not rclpy.ok():
                     break                            # shutting down: publishers are gone
@@ -366,6 +405,8 @@ class VisionNode(Node):
         cap.release()
 
     def _emit(self, out) -> None:
+        if out.frame.detections:
+            self._last_objects = self._describe_objects(out.frame)
         self._last_faces = [
             (round((face.box[0] + face.box[2]) / 2, 1),
              round((face.box[1] + face.box[3]) / 2, 1))
@@ -388,6 +429,18 @@ class VisionNode(Node):
         if out.labels is not None:
             self.labels_pub.publish(String(data=json.dumps(
                 {"stamp": out.frame.stamp, "labels": out.labels}, ensure_ascii=False)))
+
+    def _describe_objects(self, frame) -> list:
+        """What the last object pass saw and where it put it on the desk, so a
+        task light that finds nothing says why (wrong class or out of reach)."""
+        why = dict(frame.rejected)
+        pipe = self.runtime.pipeline
+        out = []
+        for d in frame.detections:
+            p = desk_point(d.ground_uv, pipe.cam, pipe.pose) if pipe.pose is not None else None
+            out.append([d.label, why.get(d.label, "ok"),
+                        None if p is None else [round(float(v), 2) for v in p[:2]]])
+        return out
 
     # -- services ------------------------------------------------------------
 
@@ -499,10 +552,111 @@ class VisionNode(Node):
         self.get_logger().info(f"조명 배치: {res.message}")
         return res
 
+    def _aim(self, out, ran_objects, width, height, stamp) -> None:
+        if not self._joints_live():
+            return                      # no feedback: do not step the head blind
+        step = self.aimer.update(out.frame.detections if ran_objects else None,
+                                 width, height, stamp, moving=self.runtime.moving)
+        if self.aimer.state == "centered" and not self._reach:
+            self._reach = "reaching"
+            threading.Thread(target=self._reach_out, daemon=True).start()
+        if step is None:
+            return
+        msg = Vector3Stamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = FRAME_ID
+        msg.vector.x = step.yaw_deg
+        msg.vector.y = step.wrist_deg
+        self.face_step_pub.publish(msg)
+
+    def _reach_out(self) -> None:
+        """The book is centred: reach the arm out toward it, keeping the base yaw."""
+        q = self._last_q
+        point = reach_point(q[1][0])
+        ok, why = False, "/lamp/place_task_light 액션 서버가 없다"
+        if self.light_client.wait_for_server(timeout_sec=2.0):
+            goal = PlaceTaskLight.Goal()
+            goal.target = _point(point, self.get_clock().now())
+            self._placing = True
+            fut = self.light_client.send_goal_async(goal)
+            if not _spin_for(fut, 5.0) or not fut.result().accepted:
+                why = "조명 배치를 받아주지 않았다"
+            else:
+                res = fut.result().get_result_async()
+                if not _spin_for(res, 20.0):
+                    why = "조명 배치 응답 없음"
+                else:
+                    result = res.result().result
+                    ok, why = result.success, result.code or result.message
+        if not self._aiming or self._reach != "reaching":
+            return                      # released while reaching; _srv_aim let go
+        if ok:
+            # The task light holds the pose now. Drop the face offsets so that
+            # letting go later brings the head home, not back to the bow.
+            self.face_active_pub.publish(Bool(data=False))
+        else:
+            self._placing = False
+        self._reach = "placed" if ok else "reach_failed"
+        self.get_logger().info(
+            f"책 쪽으로 뻗기 ({point[0]:.3f}, {point[1]:.3f}) m, "
+            f"base_yaw {np.degrees(q[1][0]):.1f}°: " + ("완료" if ok else f"실패 {why}"))
+
+    def _let_go(self) -> None:
+        """Release the task-light pose a reach took up."""
+        self._placing = False
+        if not self.interrupt_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error("/lamp/interrupt_motion 이 없어 조명 자세를 풀지 못했다")
+            return
+        fut = self.interrupt_client.call_async(InterruptMotion.Request())
+        if not _spin_for(fut, 5.0) or not fut.result().success:
+            self.get_logger().error("조명 자세 해제 실패")
+
+    def _srv_aim(self, req, res):
+        with self._lock:
+            reached = self._reach in ("reaching", "placed")
+            self.aimer.reset()
+            self._reach = ""
+            self._aiming = bool(req.data)
+            if self._aiming:
+                self.runtime.set_following(False)
+        if reached:
+            self._let_go()
+        if not req.data:
+            self.face_active_pub.publish(Bool(data=False))   # wrist and yaw back home
+        res.success = True
+        res.message = "책 조준 " + ("시작" if req.data else "정지")
+        return res
+
+    def _srv_save_frame(self, _req, res):
+        """Frame + joints for ``calib.py mount-joints``. The head must be still:
+        the 5 Hz joints lag a moving head by centimetres on the desk."""
+        import cv2
+        bgr, q = self._last_bgr, self._last_q
+        if bgr is None or q is None or time.monotonic() - q[0] > 0.6:
+            res.success, res.message = False, "프레임이나 관절 각도가 없다"
+            return res
+        if self.runtime.moving:
+            res.success, res.message = False, "머리가 움직이는 중이다"
+            return res
+        out = Path(os.environ.get("LAMP_CALIB_DIR", "/tmp/lamp_calib"))
+        out.mkdir(parents=True, exist_ok=True)
+        stem = out / time.strftime("%H%M%S")
+        cv2.imwrite(str(stem) + ".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        (Path(str(stem) + ".json")).write_text(json.dumps({"q": q[1]}))
+        res.success, res.message = True, f"{stem}.jpg q(deg)={np.degrees(q[1]).round(1).tolist()}"
+        return res
+
     def _srv_follow(self, req, res):
+        reached = False
         with self._lock:
             self._placing = False       # S2 takes the head back from the task light
+            if req.data:
+                self._aiming = False    # likewise from the book S1 is aiming at
+                reached = self._reach in ("reaching", "placed")
+                self._reach = ""
             self.runtime.set_following(bool(req.data))
+        if reached:
+            self._let_go()              # face steps are refused while the arm reaches
         self.face_active_pub.publish(Bool(data=bool(req.data)))
         res.success = True
         res.message = "얼굴 추종 " + ("시작" if req.data else "정지")
