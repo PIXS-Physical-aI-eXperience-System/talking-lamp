@@ -174,7 +174,7 @@ def test_orientation_layer_order_keeps_task_light_yaw_authority(rt):
     """Moving TaskLight below orientation would prevent its full pose from winning."""
     assert [layer.name for layer in rt.blender.layers] == [
         "idle", "track", "orientation", "face_follow", "primitive", "away_pose", "task_light",
-        "nod_hold",
+        "nod_hold", "startup_rise",
     ]
 
     rt.acquire_orientation("speech-1", .5, now=0.0)

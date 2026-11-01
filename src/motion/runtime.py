@@ -25,7 +25,7 @@ from .config import CONTROL_DT, NJ, REST_POSE
 from .idle import IdleConfig
 from .hardware_alignment import HardwareAlignment
 from .kinematics import ArmKinematics
-from .layers import AwayPoseLayer, FaceFollowLayer, IdleLayer, NodHoldLayer, PrimitiveLayer, PrimitivePlayInfo, TaskLightLayer, TrackLayer
+from .layers import AwayPoseLayer, FaceFollowLayer, IdleLayer, NodHoldLayer, PrimitiveLayer, PrimitivePlayInfo, StartupRiseLayer, TaskLightLayer, TrackLayer
 from .orientation import (
     BaseYawOrientationLayer,
     OrientationConfig,
@@ -80,6 +80,7 @@ class MotionRuntime:
         rest_pose: np.ndarray = REST_POSE,
         initial_pose: np.ndarray | None = None,
         hold_initial_pose: bool = False,
+        home_pose: np.ndarray | None = None,
         idle_cfg: IdleConfig | None = None,
         orientation_cfg: OrientationConfig | None = None,
         dt: float = CONTROL_DT,
@@ -91,6 +92,13 @@ class MotionRuntime:
         initial = self.rest_pose if initial_pose is None else np.asarray(initial_pose, float)
         if initial.shape != (NJ,) or not np.all(np.isfinite(initial)):
             raise ValueError("initial_pose must contain five finite radians")
+        # The saved home pose stands in for the start-up pose: started at
+        # boot, the arm lies wherever it fell when the power went off.
+        home = initial if home_pose is None else np.asarray(home_pose, float)
+        if home.shape != (NJ,) or not np.all(np.isfinite(home)):
+            raise ValueError("home_pose must contain five finite radians")
+        if home_pose is not None and not hold_initial_pose:
+            raise ValueError("home_pose needs hold_initial_pose")
 
         self.idle = IdleLayer(idle_cfg, rest_pose=self.rest_pose)
         self.track = TrackLayer(self.kin)
@@ -106,16 +114,19 @@ class MotionRuntime:
             lo = position_limits[0, 0] + orientation_cfg.yaw_margin
             hi = position_limits[0, 1] - orientation_cfg.yaw_margin
             orientation_cfg = replace(
-                orientation_cfg, center_yaw=float(np.clip(initial[0], lo, hi)))
+                orientation_cfg, center_yaw=float(np.clip(home[0], lo, hi)))
         self.orientation = BaseYawOrientationLayer(orientation_cfg, position_limits)
         self.orientation_control = OrientationCoordinator(self.orientation, orientation_cfg)
-        self.face_follow = FaceFollowLayer(initial, position_limits)
+        self.face_follow = FaceFollowLayer(home, position_limits)
         self.nod_hold = NodHoldLayer()
         self.away_pose = AwayPoseLayer(self.kin)
+        self.startup_rise = (StartupRiseLayer(initial, home) if home_pose is not None
+                             else StartupRiseLayer())
         self.blender = MotionBlender(
             [self.idle, self.track, self.orientation, self.face_follow,
-             self.away_pose, self.nod_hold, self.primitive, self.task_light],
-            initial if hold_initial_pose else self.rest_pose,
+             self.away_pose, self.nod_hold, self.primitive, self.task_light,
+             self.startup_rise],
+            home if hold_initial_pose else self.rest_pose,
         )
 
         self.backend = backend or NullBackend()

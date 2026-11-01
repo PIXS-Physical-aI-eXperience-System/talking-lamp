@@ -50,7 +50,8 @@ def test_s2_voice_runner_starts_node_after_agent_and_stops_agent(tmp_path):
         probe.bind(("127.0.0.1", port))
 
 
-def test_s2_voice_service_is_manual_only():
+def test_s2_voice_service_starts_at_boot_with_the_bridges():
     service = (ROOT / "deploy/jetson/talking-lamp-s2-voice.service").read_text()
     assert "Requires=talking-lamp-bridges.service" in service
-    assert "[Install]" not in service
+    assert "After=talking-lamp-bridges.service" in service
+    assert "[Install]\nWantedBy=multi-user.target" in service

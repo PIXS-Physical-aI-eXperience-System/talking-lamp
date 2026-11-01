@@ -251,6 +251,44 @@ class AwayPoseLayer:
 
 
 # ---------------------------------------------------------------------------
+class StartupRiseLayer:
+    """Rise from wherever the arm lay at start-up to the saved home pose.
+
+    Started at boot, the daemon finds the arm folded or slumped. It holds that
+    pose first and fades it out, so the canvas (the home pose) takes over
+    slowly instead of at the trajectory generator's full speed.
+    """
+
+    name = "startup_rise"
+    priority = 40
+    SPEED_RAD_S = 0.25          # the joint that moves farthest, on average
+    MIN_SECONDS = 3.0
+
+    def __init__(self, start=None, home=None) -> None:
+        """Without both poses the layer never acts."""
+        self.env = Envelope(attack=1e-3, release=1e-3)
+        self.seconds = 0.0
+        self.pose = np.zeros(NJ)
+        if start is None or home is None:
+            return
+        self.pose = np.asarray(start, float).copy()
+        travel = float(np.max(np.abs(self.pose - np.asarray(home, float))))
+        self.seconds = max(self.MIN_SECONDS, travel / self.SPEED_RAD_S)
+        self.env.level = 1.0
+        self.env.close(release=self.seconds)
+
+    @property
+    def busy(self) -> bool:
+        return not self.env.closed
+
+    def update(self, ctx: BlendContext) -> LayerOutput:
+        g = self.env.step(ctx.dt)
+        if g <= 1e-4:
+            return LayerOutput.inactive()
+        return LayerOutput(value=self.pose.copy(), weight=np.ones(NJ), gain=g, additive=False)
+
+
+# ---------------------------------------------------------------------------
 class NodHoldLayer:
     """Keep the arm and roll joints at their measured angles during a nod."""
 

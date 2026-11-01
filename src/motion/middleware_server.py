@@ -16,6 +16,7 @@ import threading
 import time
 from typing import Callable
 
+from . import home_pose
 from .catalog import MotionCatalog
 from .config import CONTROL_HZ, RECORDINGS_DIR, REST_POSE
 from .controller import CommandTicket, MotionController
@@ -278,6 +279,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-host", action="append", help="Allowed peer IP; repeat for multiple peers")
     parser.add_argument("--local-socket", type=Path,
                         default=Path("/run/talking-lamp/motion-control.sock"))
+    parser.add_argument("--home-pose", type=Path,
+                        help="Saved home pose (JSON). Missing: save the start-up pose there. "
+                             "Present: rise to it slowly from the start-up pose")
     parser.add_argument("--heartbeat-timeout", type=float, default=2.5)
     parser.add_argument("--feedback-hz", type=float, default=20.)
     parser.add_argument("--release-in-place", action="store_true",
@@ -342,9 +346,18 @@ def main(argv: list[str] | None = None) -> int:
                 backend = FeetechBackend(port=args.port, lamp_id=args.lamp_id,
                                          feedback_hz=args.feedback_hz)
             if not stopping:
-                runtime = MotionRuntime(backend=backend, initial_pose=backend.measured(),
+                measured = backend.measured()
+                home = None
+                if args.home_pose is not None and not args.null_backend:
+                    home = home_pose.load(args.home_pose)
+                    if home is None and home_pose.save(args.home_pose, measured):
+                        print(f"Saved the start-up pose as home: {args.home_pose}",
+                              file=sys.stderr, flush=True)
+                    elif home is not None:
+                        print("Rising to the saved home pose", file=sys.stderr, flush=True)
+                runtime = MotionRuntime(backend=backend, initial_pose=measured,
                                         hold_initial_pose=not args.null_backend,
-                                        primitives=library)
+                                        home_pose=home, primitives=library)
                 controller = MotionController(runtime, catalog)
                 tcp_server = MotionTcpServer(controller, token=token, host=args.bind,
                     port=args.tcp_port, allowed_hosts=None if args.allow_host is None else set(args.allow_host),

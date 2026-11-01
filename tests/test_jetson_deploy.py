@@ -154,3 +154,21 @@ def test_bridge_runner_sources_ros_environment_before_enabling_nounset(tmp_path)
         "-p motion_port:=8765 -p token_env:=TALKING_LAMP_MOTION_TOKEN",
         "vision -m lamp_vision.node --ros-args -p center_on_start:=false",
     ]
+
+
+def test_jetson_units_wait_for_the_pi_link_before_starting_ros_nodes():
+    for name in ("talking-lamp-bridges.service", "talking-lamp-s2-voice.service"):
+        unit = (ROOT / "deploy/jetson" / name).read_text()
+        assert "deploy/jetson/wait-link.sh 192.168.100.1 120" in unit
+        assert "TimeoutStartSec=180" in unit
+
+
+def test_link_wait_returns_when_the_address_is_present_or_gives_up(tmp_path):
+    import subprocess
+    script = ROOT / "deploy/jetson/wait-link.sh"
+    present = subprocess.run(["bash", str(script), "127.0.0.1", "2"], capture_output=True,
+                             text=True, timeout=10)
+    assert present.returncode == 0 and present.stderr == ""
+    missing = subprocess.run(["bash", str(script), "203.0.113.77", "1"], capture_output=True,
+                             text=True, timeout=10)
+    assert missing.returncode == 0 and "starting anyway" in missing.stderr

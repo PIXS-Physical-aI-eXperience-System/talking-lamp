@@ -12,10 +12,13 @@ WorkingDirectory=/home/asdf/talking-lamp
 EnvironmentFile=/etc/talking-lamp/motion-bridge.env
 EnvironmentFile=/etc/talking-lamp/device-bridge.env
 Environment=TALKING_LAMP_REPO=/home/asdf/talking-lamp
+ExecStartPre=/home/asdf/talking-lamp/deploy/jetson/wait-link.sh 192.168.100.1 120
 ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && exec /home/asdf/talking-lamp/deploy/jetson/run-bridges.sh --pi-host 192.168.100.2'
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
+# The link wait above counts toward the start timeout.
+TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target
