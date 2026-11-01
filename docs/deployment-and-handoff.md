@@ -64,8 +64,8 @@ ssh -J asdf@100.79.117.124 pixs@192.168.100.2
 
 | 호스트 | 코드 위치 | systemd 서비스 | 현재 부팅 자동 시작 |
 | --- | --- | --- | --- |
-| Jetson | `/home/asdf/talking-lamp-integration` | `talking-lamp-bridges.service` | `disabled` |
-| Pi | `/home/pixs/talking-lamp` | `talking-lamp-motion.service`, `talking-lamp-device.service` | `disabled` |
+| Jetson | `/home/asdf/talking-lamp-integration` | `talking-lamp-bridges.service`, `talking-lamp-s2-voice.service` | `enabled` (2026-11-01) |
+| Pi | `/home/pixs/talking-lamp` | `talking-lamp-motion.service`, `talking-lamp-device.service` | `enabled` (2026-11-01) |
 
 2026-09-16 인수 시점에는 세 서비스가 실행 중이고 경고 로그가 없었다. Pi의
 `vcgencmd get_throttled`는 `0x0`이었다. 자동 시작은 LED와 재부팅 복구 시험이
@@ -76,6 +76,15 @@ ssh -J asdf@100.79.117.124 pixs@192.168.100.2
 모션 프로세스가 약 369 MiB, device와 GStreamer가 약 44 MiB를 사용했다. 이
 값은 정상 기준선이며 장시간 최대치가 아니다. device 서비스의 systemd 누적
 재시작 횟수는 설치·조정 과정의 2회, motion은 0회였다.
+
+### 부팅 자동 시작 (2026-11-01)
+
+전원을 켜면 네 서비스가 저절로 켜진다. 전원 재투입 시험 두 번에서 재시작 없이 올라왔고, 음성은 부팅 약 3분 뒤 준비됐다.
+
+- **평소 자세:** 모션 데몬은 Pi `/var/lib/talking-lamp/home_pose.json`의 자세를 평소 자세로 쓴다. 켜질 때 팔이 어디에 있든 토크를 건 뒤, 이 자세까지 초당 약 14°로 올라간다(`StartupRiseLayer`). 파일이 없으면 켜질 때의 자세를 저장한다. 다시 정하려면 모션을 끄고, 팔을 맞추고, 파일을 지운 뒤 다시 켠다. 지금 값은 사용자가 맞춘 자세에서 헤드를 10° 든 것이다.
+- **Jetson 시작 순서:** 브리지가 Pi 링크보다 3초 먼저 켜지자 ROS 노드끼리 서로 찾지 못해, 음성 노드에 마이크 소리가 오지 않았다. 이 Jetson에는 wait-online 서비스가 꺼져 있어서 `network-online.target`가 기다려 주지 않는다. 그래서 두 서비스가 `ExecStartPre=wait-link.sh 192.168.100.1 120`으로 링크를 기다린다.
+- **음성 준비 시간:** 부팅 직후에는 모델을 한꺼번에 불러와서 90초 안에 준비되지 못했다. `run-s2-voice.sh`는 240초까지 기다린다.
+- **전원을 끌 때:** 토크가 풀리면 팔이 떨어진다. 먼저 `sudo systemctl stop talking-lamp-motion`으로 팔을 접힌 자세에 내려 두고 끈다.
 
 ## 2. 처리 흐름
 

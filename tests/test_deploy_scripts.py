@@ -189,7 +189,9 @@ def test_pi_unit_has_safe_runtime_and_shutdown_contract():
     assert dict(zip(argv[3::2], argv[4::2])) == {
         "--bind": "192.168.100.2", "--tcp-port": "8765", "--port": "/dev/ttyACM0",
         "--lamp-id": "lelamp", "--allow-host": "192.168.100.1",
-        "--local-socket": "/run/talking-lamp/motion-control.sock"}
+        "--local-socket": "/run/talking-lamp/motion-control.sock",
+        "--home-pose": "/var/lib/talking-lamp/home_pose.json"}
+    assert service["StateDirectory"] == "talking-lamp"
     assert service["KillSignal"] == "SIGTERM"
     assert int(service["TimeoutStopSec"]) == 20
     assert service["Restart"] == "on-failure"

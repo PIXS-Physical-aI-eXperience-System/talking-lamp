@@ -44,7 +44,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 ready=false
-for ((attempt=0; attempt<180; attempt++)); do
+# A cold boot loads every model at once: 90 s was not enough (2026-11-01).
+for ((attempt=0; attempt<480; attempt++)); do
     if ! kill -0 "$agent_pid" 2>/dev/null; then
         echo "S2 voice agent exited during startup" >&2
         exit 1
@@ -56,7 +57,7 @@ for ((attempt=0; attempt<180; attempt++)); do
     sleep 0.5
 done
 if [[ "$ready" != true ]]; then
-    echo "S2 voice agent did not open port $voice_port within 90 seconds" >&2
+    echo "S2 voice agent did not open port $voice_port within 240 seconds" >&2
     exit 1
 fi
 

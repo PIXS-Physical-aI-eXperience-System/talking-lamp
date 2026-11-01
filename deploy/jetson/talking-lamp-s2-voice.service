@@ -9,7 +9,13 @@ User=asdf
 WorkingDirectory=/home/asdf/talking-lamp/voice-bench
 Environment=TALKING_LAMP_REPO=/home/asdf/talking-lamp-integration
 Environment=TALKING_LAMP_VOICE_ROOT=/home/asdf/talking-lamp/voice-bench
+ExecStartPre=/home/asdf/talking-lamp-integration/deploy/jetson/wait-link.sh 192.168.100.1 120
 ExecStart=/home/asdf/talking-lamp-integration/deploy/jetson/run-s2-voice.sh
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
+# The link wait above counts toward the start timeout.
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

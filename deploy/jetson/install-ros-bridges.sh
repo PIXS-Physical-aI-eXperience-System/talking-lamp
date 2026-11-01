@@ -58,6 +58,7 @@ if [[ -n "$destdir" ]]; then
         wants=$destdir/etc/systemd/system/multi-user.target.wants
         mkdir -p "$wants"
         ln -sfn "../$unit" "$wants/$unit"
+        ln -sfn "../$voice_unit" "$wants/$voice_unit"
     fi
     echo "$unit and $voice_unit staged; host systemd was not contacted."
     exit 0
@@ -96,5 +97,9 @@ sudo -u asdf bash -lc "source /opt/ros/jazzy/setup.bash && cd '$repo/jetson_ws' 
 
 write_files
 systemctl daemon-reload
-if $enable; then systemctl enable "$unit"; else systemctl disable "$unit"; fi
-echo "$unit installed and disabled unless --enable was supplied; $voice_unit is manual only."
+if $enable; then
+    systemctl enable "$unit" "$voice_unit"
+else
+    systemctl disable "$unit" "$voice_unit"
+fi
+echo "$unit and $voice_unit installed, disabled unless --enable was supplied."
