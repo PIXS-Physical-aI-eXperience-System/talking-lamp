@@ -151,7 +151,10 @@ class VisionNode(Node):
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.face_active_pub.publish(Bool(data=False))
         self.presence_pub = self.create_publisher(Bool, "/lamp/vision/presence", latest)
-        self.labels_pub = self.create_publisher(String, "/lamp/vision/labels", latest)
+        # Sent only on change; latched so the voice node gets it when it joins.
+        self.labels_pub = self.create_publisher(
+            String, "/lamp/vision/labels",
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.status_pub = self.create_publisher(String, "/lamp/vision/status", latest)
         self.create_subscription(JointState, "/lamp/joint_states", self._joints, latest,
                                  callback_group=self.group)

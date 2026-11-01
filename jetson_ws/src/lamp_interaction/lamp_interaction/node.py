@@ -21,7 +21,8 @@ from lamp_interfaces.msg import MotionStatus, OrientationStatus
 from lamp_interfaces.srv import InterruptMotion, SetLedSolid
 
 from .arbiter import HeadArbiter
-from .s1 import TaskLightFlow, ends_task_light, task_light_command
+from .gesture import SPEAK_NOD, gesture_for
+from .s1 import TaskLightFlow, ends_task_light, is_wake_call, task_light_command
 from .s2 import S2Coordinator, VoiceEvent
 from .s4 import S4Coordinator
 from .behavior import motion_commands
@@ -80,6 +81,7 @@ class InteractionNode(Node):
         self.s1 = TaskLightFlow()
         self._vision_placing = False
         self._pending_react = None
+        self._gesture_turn = None     # speech ID that already got a gesture
         self._aim_state = "off"
         self.aim_client = self.create_client(SetBool, "/lamp/vision/aim_object")
         self.create_subscription(
@@ -119,7 +121,14 @@ class InteractionNode(Node):
         self._apply(effects)
         if event.state == "confused" and event.speech_id == self.s2.active_id:
             # The voice agent says it did not catch that; look left and right.
-            self._react(CONFUSED_MOTION)
+            self._gesture_turn = event.speech_id
+            # The nod on "네?" runs 6 s, so wait for it rather than skip.
+            self._react(CONFUSED_MOTION, wait_s=REACT_WAIT_S)
+        elif (event.state == "speaking" and event.speech_id == self.s2.active_id
+              and self._gesture_turn != event.speech_id):
+            # Nothing else moved this turn: nod a little while talking.
+            self._gesture_turn = event.speech_id
+            self._react(SPEAK_NOD)
         self._publish_owner()
 
     def _orientation(self, msg: OrientationStatus) -> None:
@@ -183,6 +192,9 @@ class InteractionNode(Node):
                 self._cancel_timer("greet_timer")
                 self._follow(False)
                 self.away_pub.publish(Bool(data=True))
+                # Nobody is at the desk, so the light goes off (2026-11-01).
+                if self.light.brightness > 0.0:
+                    self._set_light(LightCommand("off"))
             elif effect.kind == "greet":
                 self.get_logger().info("사용자 복귀: 원래 자세 후 wake_up 인사")
                 self.away_pub.publish(Bool(data=False))
@@ -227,6 +239,16 @@ class InteractionNode(Node):
             self._task_light_request("release")
         if command is not None:
             self._set_light(command)
+            return
+        if is_wake_call(msg.data):
+            # The lamp only answers "네?" and listens. A nod there looked like
+            # pretending to listen (2026-11-01), so this turn gets none.
+            self._gesture_turn = self.s2.active_id
+            return
+        gesture = gesture_for(msg.data)
+        if gesture is not None and self.s2.active_id is not None:
+            self._gesture_turn = self.s2.active_id
+            self._react(gesture, wait_s=REACT_WAIT_S)
 
     # -- S1 -------------------------------------------------------------------
 
