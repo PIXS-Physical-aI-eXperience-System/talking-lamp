@@ -84,6 +84,9 @@ ssh -J asdf@100.79.117.124 pixs@192.168.100.2
 - **평소 자세:** 모션 데몬은 Pi `/var/lib/talking-lamp/home_pose.json`의 자세를 평소 자세로 쓴다. 켜질 때 팔이 어디에 있든 토크를 건 뒤, 이 자세까지 초당 약 14°로 올라간다(`StartupRiseLayer`). 파일이 없으면 켜질 때의 자세를 저장한다. 다시 정하려면 모션을 끄고, 팔을 맞추고, 파일을 지운 뒤 다시 켠다. 지금 값은 사용자가 맞춘 자세에서 헤드를 10° 든 것이다.
 - **Jetson 시작 순서:** 브리지가 Pi 링크보다 3초 먼저 켜지자 ROS 노드끼리 서로 찾지 못해, 음성 노드에 마이크 소리가 오지 않았다. 이 Jetson에는 wait-online 서비스가 꺼져 있어서 `network-online.target`가 기다려 주지 않는다. 그래서 두 서비스가 `ExecStartPre=wait-link.sh 192.168.100.1 120`으로 링크를 기다린다.
 - **음성 준비 시간:** 부팅 직후에는 모델을 한꺼번에 불러와서 90초 안에 준비되지 못했다. `run-s2-voice.sh`는 240초까지 기다린다.
+- **공유 메모리가 지워짐 (linger):** 부팅 뒤 마지막 `asdf` SSH 접속이 끝나자 35초 만에 마이크가 끊기고 재생 요청도 받아들여지지 않았다. logind의 기본값 `RemoveIPC=yes`가 그 사용자의 마지막 로그인이 끝날 때 `/dev/shm`을 지우는데, 서비스끼리 주고받는 FastDDS 공유 메모리가 거기 있다. `loginctl enable-linger asdf`로 막는다. `install-ros-bridges.sh --enable`이 이것도 켠다.
+- **부팅 안내:** Jetson ROS 파이썬 노드는 부팅 후 2분 넘게 지나야 뜬다. 그래서 Jetson에서 안내를 틀면 3분 가까이 늦었다. Pi는 15초 만에 뜨므로, Pi의 `talking-lamp-boot-announce.service`(oneshot)가 `aplay`로 `deploy/pi/boot-announce.wav`("픽스가 깨어나는 중이에요. 다 켜질 때까지 3분쯤 걸려요…")를 부팅마다 한 번 튼다. 소리는 `voice-bench/bench/make_boot_announcement.py`로 같은 목소리로 다시 만든다. 설치: `sudo install -m 0644 deploy/pi/talking-lamp-boot-announce.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable talking-lamp-boot-announce`.
+- **실행 중인 스크립트를 덮어쓰지 않는다:** bash는 스크립트를 읽어 가며 실행하므로, 도는 중에 `run-s2-voice.sh`를 제자리에서 덮어쓰자 음성 서비스가 한 번 죽었다. 새 파일을 옆에 올린 뒤 `mv`로 바꾼다.
 - **전원을 끌 때:** 토크가 풀리면 팔이 떨어진다. 먼저 `sudo systemctl stop talking-lamp-motion`으로 팔을 접힌 자세에 내려 두고 끈다.
 
 ## 2. 처리 흐름

@@ -1,0 +1,16 @@
+[Unit]
+Description=Talking Lamp boot announcement (models take a few minutes)
+# The Pi is up in ~15 s, while the Jetson ROS nodes and voice models take
+# 2-4 minutes; tell the user once per boot instead of staying silent.
+After=sound.target talking-lamp-device.service
+
+[Service]
+Type=oneshot
+User=pixs
+Group=audio
+# Failing to speak must not fail the boot.
+ExecStart=-/usr/bin/aplay -q -D plughw:CARD=L16K6Ch,DEV=0 /home/pixs/talking-lamp/deploy/pi/boot-announce.wav
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
