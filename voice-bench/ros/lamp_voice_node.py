@@ -134,6 +134,8 @@ SPEAK_END = b"SPKE"
 BARGE_IN = b"BRGI"
 HEARD = b"HERD"
 WAKE = b"WAKE"
+SAY = b"SAYQ"
+CONFUSED = b"CNFS"
 SPEECH_ID_LEN = 36
 
 
@@ -219,6 +221,8 @@ class LampVoiceNode(Node):
         self.voice_events = self.create_publisher(String, "/lamp/voice/events", 10)
         # 들은 말을 그대로 내보낸다. lamp_interaction 이 조명 요청을 여기서 읽는다.
         self.heard = self.create_publisher(String, "/lamp/voice/heard", 10)
+        # lamp_interaction 이 대화 밖에서 램프에게 시키는 말("책이 안 보여요").
+        self.create_subscription(String, "/lamp/voice/say", self.on_say, 10)
 
         # 아무 일도 안 일어날 때 어디서 멈췄는지 알 수 없었다. 5초마다
         # 받은 프레임 수와 발화 표시 여부를 찍는다.
@@ -312,6 +316,10 @@ class LampVoiceNode(Node):
     def on_orientation(self, msg: OrientationStatus):
         self.send(ORIENT, pack_id(msg.speech_id) + msg.state.encode("utf-8"))
 
+    def on_say(self, msg: String):
+        if msg.data.strip():
+            self.send(SAY, msg.data.encode("utf-8"))
+
     # ── 판단부 → ROS ───────────────────────────────────────────────────
     def on_agent_message(self, kind, body):
         # 이름을 handle 로 두면 안 된다. rclpy.Node 에 같은 이름의 속성이 있어서
@@ -321,6 +329,9 @@ class LampVoiceNode(Node):
         if kind == WAKE:
             sid = bytes(body)[:SPEECH_ID_LEN].decode("ascii", "replace").strip()
             self._publish_voice_event(sid, "wake")
+        elif kind == CONFUSED:
+            sid = bytes(body)[:SPEECH_ID_LEN].decode("ascii", "replace").strip()
+            self._publish_voice_event(sid, "confused")
         elif kind == HEARD:
             text = body.decode("utf-8", "replace")
             self.get_logger().info(f"들은 말: {text}")

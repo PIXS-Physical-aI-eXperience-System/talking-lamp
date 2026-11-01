@@ -63,6 +63,9 @@ WAKE_HISTORY_FRAMES = 75     # 1.5초
 BARGE_GRACE_S = 1.5          # 그 사이에는 파이 VAD 를 믿지 않는다
 BARGE_RISE_DB = 20.0         # 바닥 대비 이만큼 올라야 끼어든 것으로 본다
 COMMAND_WAIT_S = 8.0         # 호출 응답 뒤에는 다시 부르지 않아도 듣는다
+# 불러 놓고 한 말이 받아쓰기로 비었을 때. 조용히 넘기면 램프가 들었는지조차
+# 알 수 없다. 고개를 좌우로 돌리는 동작은 lamp_interaction 이 한다.
+NOT_UNDERSTOOD = "잘 못 알아들었어요. 다시 말해 주세요."
 PLAY_WAIT_MARGIN_S = 15.0    # 재생 완료 신호를 이만큼 더 기다린다. 노드가
                              # 앞 재생을 최대 12초 + 송신 준비 0.6초 + 파이
                              # 드레인을 거칠 수 있다. 노드가 정상이면 안 쓰인다
@@ -158,6 +161,9 @@ class _Turn:
         self.stop = threading.Event()     # 끼어들었거나 다음 턴이 시작됨
         self.done = threading.Event()     # 파이에서 재생이 실제로 끝남
         self.sent_s = 0.0                 # 보낸 오디오 길이
+        # 소리 크기로 끊어도 되는가. 램프가 먼저 하는 말(say)은 고개가 돌아오는
+        # 모터 소리에 1.2초 만에 끊겼다(2026-11-01). 그때는 호출어로만 끊는다.
+        self.loud_barge = True
 
 
 class VoiceAgent:
@@ -187,6 +193,10 @@ class VoiceAgent:
         self._wake_sent = False
         self._wake_ack_pending = False
         self._awaiting_command_until = 0.0
+        self._after_call = False      # 지금 발화가 "네?" 뒤에 기다리던 말인가
+        # 이번 호출에 이미 "못 알아들었어요" 했는가. 그 뒤 고개를 돌리는 모터
+        # 소리를 또 말로 잡아 11초마다 되풀이했다(2026-11-01). 한 번만 한다.
+        self._confused_once = False
         self._buf = []
         self._t0 = 0.0
         # 끼어든 직후에는 파이 VAD 를 믿을 수 없다. self-playback guard 로
@@ -326,6 +336,7 @@ class VoiceAgent:
             self._wake_hist.append(pcm)
             if active and time.time() < self._awaiting_command_until:
                 self._awaiting_command_until = 0.0
+                self._after_call = True
                 self.speech_id = speech_id
                 self._wake_sent = False
                 self._wake_ack_pending = False
@@ -341,6 +352,8 @@ class VoiceAgent:
             # 조용한 프레임까지 넣으면 헛일이고 오작동만 늘어난다.
             if active and self.wake.detect(pcm):
                 self.wake.reset()
+                self._after_call = False
+                self._confused_once = False
                 self.speech_id = speech_id
                 self._wake_sent = False
                 self._wake_ack_pending = self.ack_on_wake
@@ -411,7 +424,7 @@ class VoiceAgent:
             self._set(THINKING)
             threading.Thread(target=self._think_and_speak,
                              args=(audio, self.speech_id, time.time(), wake_ack,
-                                   self._wake_sent),
+                                   self._wake_sent, self._after_call),
                              daemon=True).start()
 
     def _while_speaking(self, pcm):
@@ -423,6 +436,8 @@ class VoiceAgent:
         # 걸리지만(2026-10-30) 원래 설계를 유지하고, 호출어는 그보다 작은
         # 목소리(-37 dB)도 잡으라고 더했다.
         woke = self.wake is not None and self.wake.detect(pcm)
+        if hit and self._turn is not None and not self._turn.loud_barge:
+            hit = False
         if hit or woke:
             if woke:
                 self.wake.reset()
@@ -438,6 +453,8 @@ class VoiceAgent:
             # 끼어든 말부터 다시 듣는다. 파이 VAD 는 재생 직후 0.3초 더
             # 꺼져 있으므로 speech_id 를 기다리지 않고 바로 모은다.
             self.speech_id = str(uuid.uuid4())
+            # 끼어든 말은 "네?" 뒤에 기다린 말이 아니다. 비어 있으면 조용히 넘긴다.
+            self._after_call = False
             self._wake_sent = True
             self.send(link.WAKE, link.pack_id(self.speech_id))
             if woke:
@@ -457,7 +474,7 @@ class VoiceAgent:
             self._set(LISTENING)
 
     def _think_and_speak(self, audio, speech_id, t_end=None, wake_ack=False,
-                         wake_sent=True):
+                         wake_sent=True, after_call=False):
         t_end = t_end or time.time()
         t0 = time.time()
         text = ""
@@ -481,9 +498,18 @@ class VoiceAgent:
             if not wake_sent:
                 self.send(link.WAKE, link.pack_id(speech_id))
         t_stt = time.time() - t0
-        if not text:
+        confused = not text and after_call and not self._confused_once
+        if not text and not confused:
             with self._lock:
                 self._set(IDLE)
+            return
+        self._confused_once = confused
+        if confused:
+            print("  ! 불렀는데 알아듣지 못했다", flush=True)
+            self.send(link.CONFUSED, link.pack_id(speech_id))
+            self._wait_orientation(speech_id)
+            self._speak(speech_id, [NOT_UNDERSTOOD], t_end, t_stt, 0.0,
+                        await_command=True)
             return
         self.send(link.HEARD, text.encode("utf-8"))
 
@@ -505,8 +531,28 @@ class VoiceAgent:
         chunks = [reply] if isinstance(reply, str) else reply
 
         self._wait_orientation(speech_id)
+        self._speak(speech_id, chunks, t_end, t_stt, t_think, await_command=wake_ack)
 
+    def say(self, text):
+        """대화 밖에서 램프가 먼저 말한다. 듣거나 말하는 중이면 끼어들지 않는다."""
+        with self._lock:
+            if self.state != IDLE:
+                print(f"  ! {self.state} 중이라 말하지 않는다: {text!r}", flush=True)
+                return False
+            self._set(THINKING)
+        threading.Thread(target=self._speak, args=(str(uuid.uuid4()), [text]),
+                         kwargs={"loud_barge": False}, daemon=True).start()
+        return True
+
+    def _speak(self, speech_id, chunks, t_end=None, t_stt=0.0, t_think=0.0,
+               await_command=False, loud_barge=True):
+        """chunks 를 문장 단위로 합성해 보내고 파이에서 재생이 끝날 때까지 기다린다.
+
+        await_command: 끝난 뒤 다시 부르지 않아도 다음 말을 듣는다("네?" 뒤).
+        """
+        t_end = t_end or time.time()
         turn = self._begin_turn(speech_id)
+        turn.loud_barge = loud_barge
         self.barge.reset()
         with self._lock:
             self._set(SPEAKING)
@@ -557,7 +603,7 @@ class VoiceAgent:
             with self._lock:
                 if self.state == SPEAKING and self._turn is turn:
                     self._set(IDLE)
-                    if wake_ack and not turn.stop.is_set():
+                    if await_command and not turn.stop.is_set():
                         self._awaiting_command_until = time.time() + COMMAND_WAIT_S
 
     def _send_audio(self, turn, wav, src_rate):

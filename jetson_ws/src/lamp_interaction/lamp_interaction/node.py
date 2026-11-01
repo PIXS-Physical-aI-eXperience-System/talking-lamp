@@ -34,6 +34,14 @@ GREET_DELAY_S = 3.5
 # The voice agent sometimes opens a turn and never closes it. Without a voice
 # event for this long, end the turn here so following and idle come back.
 VOICE_SILENCE_S = 60.0
+# S1 found no book: say so and shake the head (2026-11-01). Intensity 1.0
+# turns the base about 11 deg; 0.5 was too small to read as "no".
+NO_BOOK_SAY = "책이 안 보여요."
+NO_BOOK_MOTION = ("headshake", 1.0)
+# Called, but the next words were not understood: look left and right,
+# slower and wider than the head shake (scanning, about 23 deg of base yaw).
+CONFUSED_MOTION = ("scanning", 0.7)
+REACT_WAIT_S = 5.0
 
 
 class InteractionNode(Node):
@@ -65,11 +73,13 @@ class InteractionNode(Node):
         self.create_subscription(String, "/lamp/voice/events", self._voice, 10)
         self.create_subscription(String, "/lamp/cognition/response", self._cognition, 10)
         self.create_subscription(String, "/lamp/voice/heard", self._heard, 10)
+        self.say_pub = self.create_publisher(String, "/lamp/voice/say", 10)
         self.light = LightState()
         self.led_solid_client = self.create_client(SetLedSolid, "/lamp/led/set_solid")
         self.led_clear_client = self.create_client(Trigger, "/lamp/led/clear")
         self.s1 = TaskLightFlow()
         self._vision_placing = False
+        self._pending_react = None
         self._aim_state = "off"
         self.aim_client = self.create_client(SetBool, "/lamp/vision/aim_object")
         self.create_subscription(
@@ -107,6 +117,9 @@ class InteractionNode(Node):
                     self._apply_s4([effect])
         self.arbiter.conversation = self.s2.active_id is not None
         self._apply(effects)
+        if event.state == "confused" and event.speech_id == self.s2.active_id:
+            # The voice agent says it did not catch that; look left and right.
+            self._react(CONFUSED_MOTION)
         self._publish_owner()
 
     def _orientation(self, msg: OrientationStatus) -> None:
@@ -155,6 +168,7 @@ class InteractionNode(Node):
             self.get_logger().warn("음성 이벤트가 끊김: 대화를 끝낸 것으로 처리")
             self._handle_voice(VoiceEvent(self.s2.active_id, "done", "timeout"))
         self._tick_s1(now)
+        self._tick_react(now)
         self._apply_s4(self.s4.tick(now, busy=not self.arbiter.may_leave()))
         if self.arbiter.holds_sound_turn(now):
             self.hold_pub.publish(Bool(data=True))
@@ -241,6 +255,10 @@ class InteractionNode(Node):
             elif action == "give_up":
                 self.get_logger().warn("작업 조명: 책을 찾지 못했다")
                 self._aim(False)
+                self.say_pub.publish(String(data=NO_BOOK_SAY))
+                # Vision still reports placing until it sees the aim end, so
+                # the head may not be free yet; the reaction waits for it.
+                self._react(NO_BOOK_MOTION, wait_s=REACT_WAIT_S)
         self.arbiter.task_light = self._vision_placing or self.s1.holds_head
 
     def _aim(self, on: bool) -> None:
@@ -272,6 +290,25 @@ class InteractionNode(Node):
                 self.get_logger().error(f"조명 요청 실패: {exc}")
 
         client.call_async(request).add_done_callback(finished)
+
+    def _react(self, command: tuple[str, float], wait_s: float = 0.0) -> None:
+        """Play one reaction clip once the head is free, waiting up to wait_s."""
+        if self.arbiter.may_play() and not self.motion_busy:
+            self._pending_react = None
+            self.get_logger().info(f"{command[0]} 반응")
+            self.motion_busy = True
+            self._play_commands((command,))
+        elif wait_s > 0.0:
+            self._pending_react = (command, self._now() + wait_s)
+        else:
+            self._pending_react = None
+            self.get_logger().info(f"{command[0]} 반응을 건너뜀")
+
+    def _tick_react(self, now: float) -> None:
+        if self._pending_react is None:
+            return
+        command, deadline = self._pending_react
+        self._react(command, wait_s=max(0.0, deadline - now))
 
     def _cognition(self, msg: String) -> None:
         try:
