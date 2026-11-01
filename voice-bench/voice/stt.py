@@ -10,9 +10,11 @@ CUDA 로 돌리려면 ctranslate2 를 직접 빌드한 휠이 필요하다. PyPI
 import numpy as np
 
 # 짧은 조명 명령이 "끝내줘", "불 펴져"로 잘못 들려서 단어를 미리 알려 준다.
-HOTWORDS = "픽스야 불 켜줘 불 꺼줘 밝게 어둡게 조명"
+# "책 비춰줘"는 "체스 비춰줘", "책 빗쳐줘"로 들렸다.
+HOTWORDS = "픽스야 불 켜줘 불 꺼줘 밝게 어둡게 조명 책 비춰줘"
+WAKE_HOTWORDS = "픽스야"
 _HOT_SET = set(HOTWORDS.split())
-_HOT_ACTIONS = {"켜줘", "꺼줘", "밝게", "어둡게"}
+_HOT_ACTIONS = {"켜줘", "꺼줘", "밝게", "어둡게", "비춰줘"}
 
 
 def echoes_hotwords(text):
@@ -47,16 +49,28 @@ class Stt:
             return 0.0
         return time.time() - t
 
-    def transcribe(self, audio, samplerate=16000):
+    def transcribe(self, audio, samplerate=16000, hotwords=HOTWORDS, vad_filter=True):
         """float32 모노 버퍼를 받아 문자열로. beam_size=1 은 실시간 대화용 설정이다."""
         x = np.asarray(audio, dtype=np.float32)
         if samplerate != 16000:
             from .audio import resample
             x = resample(x, samplerate, 16000)
+        # vad_filter: 노래나 무음 구간에서 "고맙습니다." 같은 문장을 지어내던
+        # 것을 막는다. 깨끗한 발화 5문장에서는 결과가 같았다.
         segs, _ = self.m.transcribe(x, language="ko", beam_size=1,
-                                  hotwords=HOTWORDS)
+                                  hotwords=hotwords, vad_filter=vad_filter)
         text = "".join(s.text for s in segs).strip()
         if echoes_hotwords(text):
             print(f"  ! 힌트 단어를 베낀 받아쓰기를 버린다: {text}", flush=True)
             return ""
         return text
+
+    def transcribe_wake(self, audio, samplerate=16000):
+        """호출어 모델이 깬 구간을 확인용으로 받아쓴다.
+
+        명령 힌트를 그대로 주면 진짜 "픽스야"가 "뷔셜", "비트야"로 나왔다
+        (2026-10-31 녹음, 호출 4번 중 2번). 힌트를 "픽스야" 하나로 줄이고
+        vad_filter 를 끄자 4번 모두 픽스야/피스야로 나왔고, 노래에 깬 12번은
+        모두 빈 문자열이었다(Jetson ~/backups/calls-20261031-2254.wav, music-20261031-2216.wav).
+        """
+        return self.transcribe(audio, samplerate, hotwords=WAKE_HOTWORDS, vad_filter=False)

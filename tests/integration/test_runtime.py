@@ -421,3 +421,16 @@ def test_held_start_pose_is_where_orientation_returns():
     assert runtime.orientation_snapshot().center_yaw == pytest.approx(initial[0])
     default = MotionRuntime(initial_pose=initial, idle_cfg=IdleConfig(enabled=False))
     assert default.orientation_snapshot().center_yaw == pytest.approx(REST_POSE[0])
+
+
+def test_face_steps_may_tilt_the_camera_further_down_than_up():
+    """S1 looks down at the book in front of the base; S2 keeps the 20 deg."""
+    initial = REST_POSE.copy()
+    initial[4] = np.deg2rad(27.0)          # the lamp's working wrist on 2026-10-30
+    runtime = MotionRuntime(initial_pose=initial, hold_initial_pose=True,
+                            idle_cfg=IdleConfig(enabled=False))
+    for _ in range(40):
+        runtime.face_step(0.0, 2.0)
+        runtime.run(0.3)
+    assert runtime.traj.pos[4] > initial[4] + np.deg2rad(40)
+    assert runtime.traj.pos[4] <= initial[4] + np.deg2rad(55.1)
