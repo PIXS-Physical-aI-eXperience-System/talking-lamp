@@ -13,6 +13,12 @@ import numpy as np
 # "책 비춰줘"는 "체스 비춰줘", "책 빗쳐줘"로 들렸다.
 HOTWORDS = "픽스야 불 켜줘 불 꺼줘 밝게 어둡게 조명 책 비춰줘"
 WAKE_HOTWORDS = "픽스야"
+# 웅얼거림을 힌트를 베껴 "불 켜줘"로 적었다(2026-11-01). 그때 확신도는
+# logprob -0.78, no_speech 0.81 이었고, 또렷한 말("불 켜줘", "픽스야" 10번)은
+# logprob -0.22~-0.29, no_speech 0.11~0.20 이었다. 진짜 "불 꺼줘"가 -0.40,
+# 0.47 까지 나왔으므로 여유를 두고, 둘 다 나쁠 때만 버린다.
+UNCLEAR_NO_SPEECH = 0.65
+UNCLEAR_LOGPROB = -0.6
 _HOT_SET = set(HOTWORDS.split())
 _HOT_ACTIONS = {"켜줘", "꺼줘", "밝게", "어둡게", "비춰줘"}
 
@@ -49,7 +55,8 @@ class Stt:
             return 0.0
         return time.time() - t
 
-    def transcribe(self, audio, samplerate=16000, hotwords=HOTWORDS, vad_filter=True):
+    def transcribe(self, audio, samplerate=16000, hotwords=HOTWORDS, vad_filter=True,
+                   drop_unclear=True):
         """float32 모노 버퍼를 받아 문자열로. beam_size=1 은 실시간 대화용 설정이다."""
         x = np.asarray(audio, dtype=np.float32)
         if samplerate != 16000:
@@ -59,7 +66,21 @@ class Stt:
         # 것을 막는다. 깨끗한 발화 5문장에서는 결과가 같았다.
         segs, _ = self.m.transcribe(x, language="ko", beam_size=1,
                                   hotwords=hotwords, vad_filter=vad_filter)
+        segs = list(segs)
         text = "".join(s.text for s in segs).strip()
+        if segs:
+            # 웅얼거림이 힌트를 베껴 "불 켜줘"로 나왔다(2026-11-01). 진짜 말과
+            # 가를 기준을 찾으려고 확신도를 남긴다.
+            print(f"  받아쓰기 확신도 logprob "
+                  f"{min(s.avg_logprob for s in segs):.2f} no_speech "
+                  f"{max(s.no_speech_prob for s in segs):.2f} "
+                  f"압축 {max(s.compression_ratio for s in segs):.2f}: {text!r}",
+                  flush=True)
+        if (drop_unclear and segs
+                and max(s.no_speech_prob for s in segs) > UNCLEAR_NO_SPEECH
+                and min(s.avg_logprob for s in segs) < UNCLEAR_LOGPROB):
+            print(f"  ! 말이 아닌 것 같아 버린다: {text}", flush=True)
+            return ""
         if echoes_hotwords(text):
             print(f"  ! 힌트 단어를 베낀 받아쓰기를 버린다: {text}", flush=True)
             return ""
@@ -73,4 +94,5 @@ class Stt:
         vad_filter 를 끄자 4번 모두 픽스야/피스야로 나왔고, 노래에 깬 12번은
         모두 빈 문자열이었다(Jetson ~/backups/calls-20261031-2254.wav, music-20261031-2216.wav).
         """
-        return self.transcribe(audio, samplerate, hotwords=WAKE_HOTWORDS, vad_filter=False)
+        return self.transcribe(audio, samplerate, hotwords=WAKE_HOTWORDS, vad_filter=False,
+                               drop_unclear=False)

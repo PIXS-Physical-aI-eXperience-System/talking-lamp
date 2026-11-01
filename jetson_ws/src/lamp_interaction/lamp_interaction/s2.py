@@ -12,7 +12,8 @@ import json
 from uuid import UUID
 
 
-STATES = frozenset({"wake", "speaking", "done", "interrupted"})
+# "confused": the user called and the next words were not understood.
+STATES = frozenset({"wake", "speaking", "done", "interrupted", "confused"})
 # The Pi refused to turn because the head is already on the user: following
 # the face (S2 or the S4 greeting), the face is in view, or about to leave the
 # away pose for them.

@@ -223,3 +223,95 @@ def test_the_wake_check_uses_the_wake_transcription():
     agent._think_and_speak(np.zeros(320, dtype=np.float32), "speech-1", wake_ack=True,
                            wake_sent=False)
     assert link.WAKE in sent and link.SPEAK_BEGIN in sent
+
+
+def _speaking_agent(transcript, spoken, sent):
+    class Stt:
+        def transcribe(self, _audio, _rate):
+            return transcript
+
+    class Tts:
+        samplerate = 16000
+
+        def synth(self, text):
+            spoken.append(text)
+            return np.zeros(320, dtype=np.float32)
+
+    agent = None
+
+    def send(kind, payload):
+        sent.append(kind)
+        if kind == link.SPEAK_END:
+            agent.on_play_done(agent._speaking_id, "drained")
+
+    def llm(_text):
+        raise AssertionError("nothing was understood, so nothing goes to the model")
+
+    agent = VoiceAgent(Stt(), Tts(), None, llm, send)
+    return agent
+
+
+def test_an_empty_reply_to_a_call_says_it_did_not_understand_and_listens_again():
+    from voice.agent import NOT_UNDERSTOOD
+
+    spoken, sent = [], []
+    agent = _speaking_agent("", spoken, sent)
+    agent._think_and_speak(np.zeros(320, dtype=np.float32), "speech-1", after_call=True)
+
+    assert " ".join(spoken) == NOT_UNDERSTOOD
+    assert sent.index(link.CONFUSED) < sent.index(link.SPEAK_BEGIN)
+    assert link.HEARD not in sent
+    assert agent._awaiting_command_until > time.time()
+
+
+def test_an_empty_transcript_without_a_call_stays_silent():
+    spoken, sent = [], []
+    agent = _speaking_agent("", spoken, sent)
+    agent._think_and_speak(np.zeros(320, dtype=np.float32), "speech-1")
+
+    assert spoken == [] and sent == []
+    assert agent.state == IDLE
+
+
+def test_say_speaks_only_when_idle():
+    spoken, sent = [], []
+    agent = _speaking_agent("", spoken, sent)
+    agent.state = LISTENING
+    assert not agent.say("책이 안 보여요.")
+    agent.state = IDLE
+    assert agent.say("책이 안 보여요.")
+    deadline = time.time() + 5
+    while agent.state != IDLE and time.time() < deadline:
+        time.sleep(0.01)
+    assert spoken == ["책이 안 보여요."]
+    assert link.SPEAK_BEGIN in sent and link.CONFUSED not in sent
+
+
+def test_the_lamps_own_notice_is_not_cut_by_loud_noise_and_a_barge_is_no_call():
+    spoken, sent = [], []
+    agent = _speaking_agent("", spoken, sent)
+    agent._after_call = True                  # left over from an earlier "네?"
+    turn = agent._begin_turn("notice")
+    turn.loud_barge = False
+    agent.state = "speaking"
+    agent.barge.update = lambda pcm: (True, -30.0, -55.0)
+    agent._while_speaking(np.zeros(320, dtype=np.float32))
+    assert link.BARGE_IN not in sent           # motor noise does not stop the notice
+
+    turn.loud_barge = True
+    agent._while_speaking(np.zeros(320, dtype=np.float32))
+    assert link.BARGE_IN in sent
+    assert agent._after_call is False          # an empty barge stays silent
+
+
+def test_it_says_it_did_not_understand_only_once_per_call():
+    from voice.agent import NOT_UNDERSTOOD
+
+    spoken, sent = [], []
+    agent = _speaking_agent("", spoken, sent)
+    agent._think_and_speak(np.zeros(320, dtype=np.float32), "speech-1", after_call=True)
+    agent._think_and_speak(np.zeros(320, dtype=np.float32), "speech-2", after_call=True)
+
+    assert " ".join(spoken) == NOT_UNDERSTOOD
+    assert sent.count(link.CONFUSED) == 1
+    assert agent.state == IDLE

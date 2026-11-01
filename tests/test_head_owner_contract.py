@@ -55,3 +55,31 @@ def test_interaction_runs_the_task_light_on_request():
     assert "self.arbiter.task_light = self._vision_placing or self.s1.holds_head" in text
     vision = source("jetson_ws/src/lamp_vision/lamp_vision/node.py")
     assert '"/lamp/vision/aim_object"' in vision
+
+
+def test_interaction_reacts_when_no_book_is_found_or_a_call_is_not_understood():
+    text = source("jetson_ws/src/lamp_interaction/lamp_interaction/node.py")
+    assert '"/lamp/voice/say"' in text
+    assert 'NO_BOOK_MOTION = ("headshake", 1.0)' in text
+    assert 'CONFUSED_MOTION = ("scanning", 0.7)' in text
+    give_up = text[text.index('elif action == "give_up":'):]
+    assert "self.say_pub.publish(String(data=NO_BOOK_SAY))" in give_up[:600]
+    assert "self._react(NO_BOOK_MOTION, wait_s=REACT_WAIT_S)" in give_up[:600]
+    assert 'event.state == "confused"' in text
+    voice = source("voice-bench/ros/lamp_voice_node.py")
+    assert '"/lamp/voice/say"' in voice
+    assert '"confused"' in voice
+
+
+def test_the_confused_voice_event_is_accepted():
+    import sys
+    sys.path.insert(0, str(ROOT / "jetson_ws/src/lamp_interaction"))
+    from lamp_interaction.s2 import S2Coordinator, VoiceEvent
+
+    sid = "00000000-0000-4000-8000-000000000001"
+    event = VoiceEvent.from_json(
+        '{"version":1,"speech_id":"%s","state":"confused","code":""}' % sid)
+    s2 = S2Coordinator()
+    s2.voice(VoiceEvent(sid, "wake"))
+    assert s2.voice(event) == []
+    assert s2.active_id == sid
