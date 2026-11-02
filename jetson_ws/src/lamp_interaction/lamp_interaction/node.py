@@ -41,7 +41,7 @@ NO_BOOK_SAY = "책이 안 보여요."
 NO_BOOK_MOTION = ("headshake", 1.0)
 # Called, but the next words were not understood: look left and right,
 # slower and wider than the head shake (scanning, about 23 deg of base yaw).
-CONFUSED_MOTION = ("scanning", 0.7)
+CONFUSED_MOTION = ("scanning", 1.0)
 REACT_WAIT_S = 5.0
 
 
@@ -254,6 +254,11 @@ class InteractionNode(Node):
 
     def _task_light_request(self, kind: str) -> None:
         if kind == "place":
+            if self.s1.holds_head:
+                # Searching again from the reached-out arm tilted the head
+                # into the desk (2026-11-02). Keep lighting the book.
+                self.get_logger().info("작업 조명: 이미 책을 보고 있어 다시 찾지 않는다")
+                return
             self.get_logger().info("작업 조명 요청: 대화가 끝나면 책상을 본다")
             self.s1.request()
         else:
