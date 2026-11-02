@@ -28,7 +28,8 @@ def test_other_feelings_and_plain_questions():
     assert gesture_for("나 오늘 너무 피곤해")[0] == "sad"
     assert gesture_for("아니 그거 말고")[0] == "headshake"
     assert gesture_for("싫어")[0] == "headshake"
-    assert gesture_for("내 책상에 뭐 있어?") is None
+    assert gesture_for("내 책상에 뭐 있어?")[0] == "curious"
+    assert gesture_for("오늘 날씨 좋다") is None
     assert gesture_for("어떻게 지냈어?") is None       # "어" alone is agreement only
     assert SPEAK_NOD[1] < gesture_for("응")[1]
 
@@ -84,3 +85,14 @@ def test_no_nod_on_the_bare_call_answer():
     text = (ROOT / "jetson_ws/src/lamp_interaction/lamp_interaction/node.py").read_text()
     heard = text[text.index("def _heard"):]
     assert heard.index("is_wake_call(msg.data)") < heard.index("gesture_for(msg.data)")
+
+
+def test_shock_curious_and_shy_have_their_words():
+    assert gesture_for("헐 진짜?") == ("shock", 1.0)
+    assert gesture_for("깜짝이야") == ("shock", 1.0)
+    assert gesture_for("우리 어머니가 오셨어") is None
+    assert gesture_for("너 이름이 뭐야")[0] == "curious"
+    assert gesture_for("궁금한 게 있어")[0] == "curious"
+    assert gesture_for("픽스 사랑해")[0] == "shy"
+    assert gesture_for("나 너 좋아해")[0] == "shy"
+    assert gesture_for("좋아")[0] == "nod"

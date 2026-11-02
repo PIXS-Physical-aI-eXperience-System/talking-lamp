@@ -125,6 +125,8 @@ class VisionNode(Node):
         self.declare_parameter("face_conf", 0.6)
         self.declare_parameter("center_on_start", True)
         self.declare_parameter("image_follow_enabled", True)
+        # S1 reach (task-light IK). Off: the head that centred the book lights it.
+        self.declare_parameter("s1_reach", False)
 
         calib = Path(self.get_parameter("calib_dir").value)
         cam = self._load_intrinsics(calib)
@@ -352,7 +354,8 @@ class VisionNode(Node):
             "present": self.runtime.presence.present,
             "away": self._away,
             "placing": self._placing,
-            "aim": (self._reach or self.aimer.state) if self._aiming else "off",
+            "aim": ({"held": "placed"}.get(self._reach, self._reach) or self.aimer.state)
+                   if self._aiming else "off",
             "aim_label": self.aimer.label,
             "aim_offset_deg": [round(self.aimer.yaw, 1), round(self.aimer.wrist, 1)],
             "head_owner": self._head_owner,
@@ -561,8 +564,15 @@ class VisionNode(Node):
         step = self.aimer.update(out.frame.detections if ran_objects else None,
                                  width, height, stamp, moving=self.runtime.moving)
         if self.aimer.state == "centered" and not self._reach:
-            self._reach = "reaching"
-            threading.Thread(target=self._reach_out, daemon=True).start()
+            if self.get_parameter("s1_reach").value:
+                self._reach = "reaching"
+                threading.Thread(target=self._reach_out, daemon=True).start()
+            else:
+                # The bowed head that centred the book already faces it; the
+                # light shines from here. The reach pose pointed the head up,
+                # away from the book (2026-11-02).
+                self._reach = "held"
+                self.get_logger().info("책을 가운데 맞췄다: 고개로 비춘다")
         if step is None:
             return
         msg = Vector3Stamped()

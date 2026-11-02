@@ -61,7 +61,7 @@ def test_interaction_reacts_when_no_book_is_found_or_a_call_is_not_understood():
     text = source("jetson_ws/src/lamp_interaction/lamp_interaction/node.py")
     assert '"/lamp/voice/say"' in text
     assert 'NO_BOOK_MOTION = ("headshake", 1.0)' in text
-    assert 'CONFUSED_MOTION = ("scanning", 0.7)' in text
+    assert 'CONFUSED_MOTION = ("scanning", 1.0)' in text
     give_up = text[text.index('elif action == "give_up":'):]
     assert "self.say_pub.publish(String(data=NO_BOOK_SAY))" in give_up[:600]
     assert "self._react(NO_BOOK_MOTION, wait_s=REACT_WAIT_S)" in give_up[:600]
@@ -83,3 +83,18 @@ def test_the_confused_voice_event_is_accepted():
     s2.voice(VoiceEvent(sid, "wake"))
     assert s2.voice(event) == []
     assert s2.active_id == sid
+
+
+def test_a_second_book_request_does_not_search_from_the_reached_arm():
+    text = source("jetson_ws/src/lamp_interaction/lamp_interaction/node.py")
+    place = text[text.index('if kind == "place":'):]
+    assert place.index("if self.s1.holds_head:") < place.index("self.s1.request()")
+
+
+def test_s1_lights_the_book_from_the_bowed_head_unless_reach_is_on():
+    vision = source("jetson_ws/src/lamp_vision/lamp_vision/node.py")
+    assert 'self.declare_parameter("s1_reach", False)' in vision
+    centred = vision[vision.index('if self.aimer.state == "centered" and not self._reach:'):]
+    assert centred.index('if self.get_parameter("s1_reach").value:') < centred.index('self._reach = "held"')
+    # lamp_interaction finishes S1 on "placed", so the held head reports that.
+    assert '{"held": "placed"}.get(self._reach, self._reach)' in vision
